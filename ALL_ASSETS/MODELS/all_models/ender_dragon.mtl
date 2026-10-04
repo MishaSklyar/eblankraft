@@ -1,0 +1,25 @@
+# Materials for ender_dragon
+newmtl dragon_black
+Ka 0.024 0.024 0.030
+Kd 0.080 0.080 0.100
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl dragon_purple
+Ka 0.198 0.060 0.255
+Kd 0.660 0.200 0.850
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl dragon_gray
+Ka 0.090 0.090 0.105
+Kd 0.300 0.300 0.350
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

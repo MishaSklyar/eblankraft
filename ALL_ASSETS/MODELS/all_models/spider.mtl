@@ -1,0 +1,17 @@
+# Materials for spider
+newmtl spider_black
+Ka 0.045 0.045 0.045
+Kd 0.150 0.150 0.150
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl spider_eyes
+Ka 0.285 0.030 0.030
+Kd 0.950 0.100 0.100
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

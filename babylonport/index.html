@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eblankraft - Babylon.js Port</title>
+    <style>
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            font-family: monospace;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #00ff66;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 8px 14px;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 14px;
+            z-index: 10;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 16px;
+            height: 16px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.85);
+        }
+        #crosshair::before {
+            top: 7px;
+            left: 0;
+            width: 16px;
+            height: 2px;
+        }
+        #crosshair::after {
+            top: 0;
+            left: 7px;
+            width: 2px;
+            height: 16px;
+        }
+    </style>
+    <!-- Babylon.js CDN -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+    <div id="ui">
+        <div><strong>Eblankraft</strong> [Babylon.js Engine]</div>
+        <div id="fps">FPS: --</div>
+    </div>
+    <div id="crosshair"></div>
+    <canvas id="renderCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const fpsElem = document.getElementById("fps");
+        const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: false });
+
+        const createScene = function () {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0.53, 0.81, 0.92, 1.0);
+
+            // FPS Camera with WASD + PointerLock
+            const camera = new BABYLON.UniversalCamera("playerCam", new BABYLON.Vector3(0, 5, -10), scene);
+            camera.setTarget(new BABYLON.Vector3(0, 0, 0));
+            camera.attachControl(canvas, true);
+
+            camera.keysUp.push(87);    // W
+            camera.keysDown.push(83);  // S
+            camera.keysLeft.push(65);  // A
+            camera.keysRight.push(68); // D
+            camera.speed = 0.6;
+
+            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0.5, 1, 0.2), scene);
+            light.intensity = 0.9;
+
+            // Ground plane
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 128, height: 128 }, scene);
+            const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+            groundMat.diffuseColor = new BABYLON.Color3(0.25, 0.65, 0.25);
+            groundMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            ground.material = groundMat;
+
+            // Pointer lock
+            canvas.addEventListener("click", () => {
+                if (canvas.requestPointerLock) {
+                    canvas.requestPointerLock();
+                }
+            });
+
+            return scene;
+        };
+
+        const scene = createScene();
+
+        engine.runRenderLoop(function () {
+            scene.render();
+            fpsElem.textContent = "FPS: " + engine.getFps().toFixed() + " | Meshes: " + scene.meshes.length;
+        });
+
+        window.addEventListener("resize", function () {
+            engine.resize();
+        });
+    </script>
+</body>
+</html>

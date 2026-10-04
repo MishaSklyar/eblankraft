@@ -1,0 +1,17 @@
+# Materials for diamond_pickaxe
+newmtl diamond_gem
+Ka 0.039 0.249 0.279
+Kd 0.130 0.830 0.930
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl pick_wood
+Ka 0.165 0.105 0.051
+Kd 0.550 0.350 0.170
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

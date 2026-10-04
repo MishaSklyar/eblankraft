@@ -1,0 +1,41 @@
+# Materials for player_diamond_armor
+newmtl steve_skin
+Ka 0.255 0.189 0.135
+Kd 0.850 0.630 0.450
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl steve_shirt
+Ka 0.000 0.198 0.198
+Kd 0.000 0.660 0.660
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl steve_pants
+Ka 0.051 0.066 0.144
+Kd 0.170 0.220 0.480
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl diamond_armor
+Ka 0.039 0.249 0.279
+Kd 0.130 0.830 0.930
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl diamond_trim
+Ka 0.009 0.171 0.210
+Kd 0.030 0.570 0.700
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

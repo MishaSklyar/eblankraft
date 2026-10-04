@@ -1,0 +1,41 @@
+# Materials for car_zhiguli
+newmtl zhiguli_blue
+Ka 0.033 0.093 0.255
+Kd 0.110 0.310 0.850
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl car_glass
+Ka 0.174 0.231 0.297
+Kd 0.580 0.770 0.990
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl chrome
+Ka 0.264 0.270 0.276
+Kd 0.880 0.900 0.920
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl tire_rubber
+Ka 0.036 0.042 0.054
+Kd 0.120 0.140 0.180
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl headlight
+Ka 0.294 0.285 0.180
+Kd 0.980 0.950 0.600
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

@@ -1,0 +1,25 @@
+# Materials for tnt_block
+newmtl tnt_red
+Ka 0.255 0.045 0.045
+Kd 0.850 0.150 0.150
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl tnt_band
+Ka 0.285 0.285 0.285
+Kd 0.950 0.950 0.950
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl tnt_fuse
+Ka 0.090 0.090 0.090
+Kd 0.300 0.300 0.300
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

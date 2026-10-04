@@ -1,0 +1,17 @@
+# Materials for ak47
+newmtl gun_steel
+Ka 0.066 0.072 0.084
+Kd 0.220 0.240 0.280
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl gun_wood
+Ka 0.174 0.084 0.042
+Kd 0.580 0.280 0.140
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

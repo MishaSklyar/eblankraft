@@ -1,0 +1,9 @@
+# Materials for block_cube
+newmtl block_mat
+Ka 0.225 0.225 0.225
+Kd 0.750 0.750 0.750
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

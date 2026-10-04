@@ -1,0 +1,17 @@
+# Materials for creeper
+newmtl creeper_green
+Ka 0.072 0.207 0.078
+Kd 0.240 0.690 0.260
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl creeper_dark
+Ka 0.054 0.165 0.102
+Kd 0.180 0.550 0.340
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

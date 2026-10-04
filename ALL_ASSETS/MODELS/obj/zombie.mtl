@@ -1,0 +1,25 @@
+# Materials for zombie
+newmtl zombie_green
+Ka 0.093 0.198 0.081
+Kd 0.310 0.660 0.270
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl zombie_shirt
+Ka 0.036 0.141 0.213
+Kd 0.120 0.470 0.710
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl zombie_pants
+Ka 0.039 0.060 0.120
+Kd 0.130 0.200 0.400
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

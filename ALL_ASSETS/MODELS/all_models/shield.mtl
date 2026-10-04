@@ -1,0 +1,25 @@
+# Materials for shield
+newmtl shield_wood
+Ka 0.156 0.096 0.045
+Kd 0.520 0.320 0.150
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl shield_iron
+Ka 0.246 0.252 0.258
+Kd 0.820 0.840 0.860
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl shield_grip
+Ka 0.075 0.075 0.075
+Kd 0.250 0.250 0.250
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

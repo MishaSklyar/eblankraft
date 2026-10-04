@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://eblancraft.tech/sitemap.xml

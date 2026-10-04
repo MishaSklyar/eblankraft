@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Eblankraft LITE
+Comment=Voxel Sandbox Game with Uncapped FPS (QtWebEngine)
+Exec=/home/mishasklyar/Downloads/eblankraft/eblankraft-lite.sh
+Icon=/home/mishasklyar/Downloads/eblankraft/assets/icon-512.png
+Terminal=false
+Type=Application
+Categories=Game;Simulation;
+StartupWMClass=eblankraft-lite
+Keywords=minecraft;eblankraft;voxel;game;

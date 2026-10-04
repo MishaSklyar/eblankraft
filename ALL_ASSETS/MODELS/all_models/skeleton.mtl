@@ -1,0 +1,17 @@
+# Materials for skeleton
+newmtl bone_white
+Ka 0.270 0.270 0.264
+Kd 0.900 0.900 0.880
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl bow_wood
+Ka 0.165 0.105 0.051
+Kd 0.550 0.350 0.170
+Ks 0.2 0.2 0.2
+Ns 10.0
+d 1.0
+illum 2
+

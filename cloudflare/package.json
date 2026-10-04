@@ -1,0 +1,24 @@
+{
+  "name": "eblankraft-cloudflare-edge",
+  "version": "3.0.0",
+  "description": "Eblankraft 3.0 Authoritative Multiplayer Game on Cloudflare Workers",
+  "main": "src/worker.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "keywords": [
+    "eblankraft",
+    "minecraft",
+    "cloudflare-workers",
+    "websockets",
+    "multiplayer",
+    "game"
+  ],
+  "author": "EblanCraft Team",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  }
+}
