@@ -666,24 +666,57 @@ class Controls {
         if (!hud && document.createElement && document.body?.appendChild) {
             hud = document.createElement('div');
             hud.id = 'gun-hud';
-            hud.style.cssText = 'position:fixed;right:20px;bottom:110px;z-index:75;padding:8px 12px;background:#111c;color:#fff;font:700 16px monospace;border-radius:5px;pointer-events:auto';
-            const label = document.createElement('span');
-            label.id = 'gun-ammo-label';
-            hud.appendChild(label);
-            const reload = document.createElement('button');
-            reload.className = 'touch-btn';
-            reload.textContent = 'R ↻';
-            reload.setAttribute('aria-label', 'Перезарядити зброю');
-            reload.style.cssText = 'position:static;margin-left:10px;padding:7px;color:white;background:#27323c;border:1px solid #76899a;border-radius:4px;touch-action:manipulation';
-            reload.onclick = () => this.player.reloadGun?.();
-            hud.appendChild(reload);
+            hud.innerHTML = `
+                <div class="eblan-gun-info">
+                    <div id="gun-name-badge" class="eblan-gun-title">🔫 СТВОЛ</div>
+                    <div class="eblan-gun-ammo-row">
+                        <span id="gun-ammo-main" class="eblan-gun-count-big">0</span>
+                        <span id="gun-ammo-capacity" class="eblan-gun-reserve">/ 0</span>
+                        <span id="gun-ammo-reserve" class="eblan-gun-reserve" style="margin-left:4px">🎒 0</span>
+                    </div>
+                    <div id="gun-ammo-status" class="eblan-gun-status">⚡ ГОТОВИЙ ДО СТРІЛЯНИНИ</div>
+                    <span id="gun-ammo-label" style="display:none"></span>
+                </div>
+                <button id="gun-reload-btn" class="eblan-gun-reload-btn" aria-label="Перезарядити зброю">[ R ] 🔄 ЗАРЯДИТИ</button>
+            `;
             document.body.appendChild(hud);
+            const btn = document.getElementById('gun-reload-btn');
+            if (btn) btn.onclick = () => this.player.reloadGun?.();
         }
         if (!hud) return;
-        hud.style.display = 'block';
+        hud.style.display = 'flex';
         const label = document.getElementById('gun-ammo-label');
         if (label) label.textContent = `${state.gunType.toUpperCase()} · ${state.ammo}/${state.capacity} · ${Number.isFinite(state.reserve) ? state.reserve : '∞'}${state.reloading ? ` · ↻ ${state.reloadRemaining.toFixed(1)}с` : ''}${performance.now() < (this.player.gunHitUntil || 0) ? ' · × HIT' : ''}`;
+
+        const nameBadge = document.getElementById('gun-name-badge');
+        if (nameBadge) nameBadge.textContent = `🔫 ${state.gunType.toUpperCase()}`;
+        const mainCount = document.getElementById('gun-ammo-main');
+        if (mainCount) {
+            mainCount.textContent = state.ammo;
+            mainCount.classList.toggle('low', state.ammo <= Math.ceil(state.capacity * 0.25));
+        }
+        const capEl = document.getElementById('gun-ammo-capacity');
+        if (capEl) capEl.textContent = `/ ${state.capacity}`;
+        const resEl = document.getElementById('gun-ammo-reserve');
+        if (resEl) resEl.textContent = `🎒 ${Number.isFinite(state.reserve) ? state.reserve : '∞'}`;
+        const statusEl = document.getElementById('gun-ammo-status');
+        if (statusEl) {
+            if (state.reloading) {
+                statusEl.textContent = `⚠️ ПЕРЕЗАРЯДКА (${state.reloadRemaining.toFixed(1)}с)...`;
+                statusEl.className = 'eblan-gun-status';
+            } else if (performance.now() < (this.player.gunHitUntil || 0)) {
+                statusEl.textContent = `💥 ВЛУЧИВ ПО ЄБЛАНУ!`;
+                statusEl.className = 'eblan-gun-status hit';
+            } else if (state.ammo === 0) {
+                statusEl.textContent = `❌ ПУСТО! ТИСНИ [ R ]`;
+                statusEl.className = 'eblan-gun-status hit';
+            } else {
+                statusEl.textContent = `⚡ ГОТОВИЙ ДО СТРІЛЯНИНИ`;
+                statusEl.className = 'eblan-gun-status';
+            }
+        }
     }
+
 
     update(dt) {
         this.updateGunHud();

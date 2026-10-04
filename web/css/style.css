@@ -5927,3 +5927,367 @@ body.is-preloading #mining-progress-container {
     text-align: center;
     width: 100%;
 }
+
+/* ==========================================================================
+   ⚔️ EBLAN DUEL & GUN HUDS (3.0 TITAN UPDATE - AUTHENTIC EBLANKRAFT STYLE)
+   ========================================================================== */
+
+#duel-hud {
+    position: fixed;
+    inset: 0;
+    z-index: 95;
+    pointer-events: none;
+    font-family: 'Minecraft', 'Segoe UI', Tahoma, monospace;
+    user-select: none;
+}
+
+.eblan-duel-panel {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(180deg, rgba(46, 46, 56, 0.95) 0%, rgba(22, 22, 28, 0.96) 100%);
+    border: 3px solid #000;
+    border-top: 3px solid #7e7e8e;
+    border-left: 3px solid #7e7e8e;
+    border-bottom: 3px solid #14141a;
+    border-right: 3px solid #14141a;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    padding: 8px 18px 10px 18px;
+    text-align: center;
+    min-width: 340px;
+    max-width: 92vw;
+    box-sizing: border-box;
+    pointer-events: auto;
+}
+
+.eblan-duel-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 2px 2px 0 #000;
+    letter-spacing: 0.5px;
+}
+
+.eblan-duel-badge {
+    background: #d32f2f;
+    border: 1px solid #ff7961;
+    border-radius: 3px;
+    padding: 1px 7px;
+    font-size: 10px;
+    color: #fff;
+    font-weight: 900;
+    text-transform: uppercase;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+.eblan-duel-fighters {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 6px 0;
+}
+
+.eblan-duel-fighter {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 120px;
+}
+
+.eblan-duel-fighter.player {
+    text-align: left;
+}
+
+.eblan-duel-fighter.opponent {
+    text-align: right;
+}
+
+.eblan-fighter-name {
+    font-size: 12px;
+    font-weight: bold;
+    text-shadow: 1px 1px 0 #000;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.eblan-duel-fighter.player .eblan-fighter-name {
+    color: #55ff55;
+}
+
+.eblan-duel-fighter.opponent .eblan-fighter-name {
+    color: #ff5555;
+}
+
+.eblan-hp-bar-bg {
+    height: 14px;
+    background: #111116;
+    border: 2px solid #000;
+    border-top: 2px solid #22222a;
+    border-left: 2px solid #22222a;
+    border-bottom: 2px solid #555566;
+    border-right: 2px solid #555566;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.eblan-hp-bar-fill {
+    height: 100%;
+    transition: width 0.15s ease-out;
+}
+
+.eblan-hp-bar-fill.player {
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4);
+}
+
+.eblan-hp-bar-fill.opponent {
+    background: linear-gradient(90deg, #dc2626, #b91c1c);
+    box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4);
+    margin-left: auto;
+}
+
+.eblan-hp-text {
+    font-size: 11px;
+    font-weight: bold;
+    color: #ffffff;
+    text-shadow: 1px 1px 0 #000;
+    margin-top: 3px;
+}
+
+.eblan-duel-vs {
+    font-size: 18px;
+    font-weight: 900;
+    color: #ffd700;
+    text-shadow: 2px 2px 0 #000, 0 0 8px rgba(255, 215, 0, 0.6);
+    padding: 0 4px;
+}
+
+#duel-countdown {
+    margin-top: 6px;
+    font-size: 16px;
+    font-weight: 900;
+    color: #ffaa00;
+    text-shadow: 2px 2px 0 #000;
+    letter-spacing: 0.5px;
+}
+
+.eblan-btn-pixel {
+    background: #464646;
+    border: 2px solid #000;
+    border-top: 2px solid #7e7e7e;
+    border-left: 2px solid #7e7e7e;
+    border-bottom: 2px solid #242424;
+    border-right: 2px solid #242424;
+    border-radius: 4px;
+    color: #e4e4e4;
+    font-family: 'Minecraft', 'Segoe UI', monospace;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 6px 14px;
+    cursor: pointer;
+    text-shadow: 1px 1px 0 #000;
+    transition: transform 0.05s, background 0.1s;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.eblan-btn-pixel:hover {
+    background: #555555;
+    color: #ffffff;
+}
+
+.eblan-btn-pixel:active {
+    transform: translateY(2px);
+    border-top: 2px solid #242424;
+    border-left: 2px solid #242424;
+    border-bottom: 2px solid #7e7e7e;
+    border-right: 2px solid #7e7e7e;
+}
+
+.eblan-btn-pixel.danger {
+    background: #8b1e1e;
+    border-top-color: #bd3a3a;
+    border-left-color: #bd3a3a;
+    border-bottom-color: #4a0c0c;
+    border-right-color: #4a0c0c;
+    color: #fff;
+}
+.eblan-btn-pixel.danger:hover {
+    background: #a82626;
+}
+
+.eblan-btn-pixel.primary {
+    background: #1b6d3b;
+    border-top-color: #38b368;
+    border-left-color: #38b368;
+    border-bottom-color: #0c3d1f;
+    border-right-color: #0c3d1f;
+    color: #fff;
+}
+.eblan-btn-pixel.primary:hover {
+    background: #238a4b;
+}
+
+/* Duel Result Modal */
+#duel-result {
+    position: absolute;
+    top: 48%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(180deg, #2c2c38 0%, #16161e 100%);
+    border: 4px solid #000;
+    border-top: 4px solid #8e8e9e;
+    border-left: 4px solid #8e8e9e;
+    border-bottom: 4px solid #101016;
+    border-right: 4px solid #101016;
+    border-radius: 8px;
+    padding: 24px 32px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(0, 0, 0, 0.7);
+    text-align: center;
+    pointer-events: auto;
+    min-width: 320px;
+    max-width: 90vw;
+    box-sizing: border-box;
+}
+
+#duel-result-title {
+    font-size: 26px;
+    font-weight: 900;
+    text-shadow: 3px 3px 0 #000;
+    margin-bottom: 10px;
+    color: #ffd700;
+}
+
+#duel-result-reason {
+    font-size: 14px;
+    color: #d1d5db;
+    text-shadow: 1px 1px 0 #000;
+    margin-bottom: 18px;
+}
+
+.eblan-duel-result-btns {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+/* Eblan Gun HUD */
+#gun-hud {
+    position: fixed;
+    right: 20px;
+    bottom: 105px;
+    z-index: 75;
+    background: linear-gradient(180deg, rgba(42, 42, 50, 0.95) 0%, rgba(20, 20, 26, 0.96) 100%);
+    border: 3px solid #000;
+    border-top: 3px solid #7e7e8e;
+    border-left: 3px solid #7e7e8e;
+    border-bottom: 3px solid #14141a;
+    border-right: 3px solid #14141a;
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    padding: 8px 14px;
+    color: #fff;
+    font-family: 'Minecraft', 'Segoe UI', Tahoma, monospace;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    pointer-events: auto;
+    user-select: none;
+}
+
+.eblan-gun-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.eblan-gun-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 1px 1px 0 #000;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.eblan-gun-ammo-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.eblan-gun-count-big {
+    font-size: 22px;
+    font-weight: 900;
+    color: #ffffff;
+    text-shadow: 2px 2px 0 #000;
+}
+
+.eblan-gun-count-big.low {
+    color: #ff4444;
+}
+
+.eblan-gun-reserve {
+    font-size: 13px;
+    font-weight: bold;
+    color: #aaaaaa;
+    text-shadow: 1px 1px 0 #000;
+}
+
+.eblan-gun-status {
+    font-size: 11px;
+    font-weight: bold;
+    color: #ffaa00;
+    text-shadow: 1px 1px 0 #000;
+}
+
+.eblan-gun-status.hit {
+    color: #ff3344;
+}
+
+.eblan-gun-reload-btn {
+    background: #464646;
+    border: 2px solid #000;
+    border-top: 2px solid #7e7e7e;
+    border-left: 2px solid #7e7e7e;
+    border-bottom: 2px solid #242424;
+    border-right: 2px solid #242424;
+    border-radius: 4px;
+    color: #ffffff;
+    font-family: 'Minecraft', 'Segoe UI', monospace;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 8px 12px;
+    cursor: pointer;
+    text-shadow: 1px 1px 0 #000;
+    touch-action: manipulation;
+    transition: transform 0.05s, background 0.1s;
+    white-space: nowrap;
+}
+
+.eblan-gun-reload-btn:hover {
+    background: #555555;
+}
+
+.eblan-gun-reload-btn:active {
+    transform: translateY(2px);
+    border-top: 2px solid #242424;
+    border-left: 2px solid #242424;
+    border-bottom: 2px solid #7e7e7e;
+    border-right: 2px solid #7e7e7e;
+}

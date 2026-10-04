@@ -24,6 +24,18 @@ function isPassThroughBlock(b) {
 }
 window.isPassThroughBlock = isPassThroughBlock;
 
+const FIREARM_SPECS = {
+    ak47: { magazine: 30, reload: 2500, fireDelay: 110, automatic: true, damage: 48, range: 85, spread: 0.012, recoil: 0.038, pitch: 0.95 },
+    m4a1: { magazine: 30, reload: 2300, fireDelay: 90, automatic: true, damage: 40, range: 90, spread: 0.008, recoil: 0.025, pitch: 1.25 },
+    awp: { magazine: 10, reload: 3500, fireDelay: 1200, automatic: false, damage: 150, range: 180, spread: 0.045, recoil: 0.095, pitch: 0.65 },
+    shotgun: { magazine: 8, reload: 2800, fireDelay: 800, automatic: false, damage: 22, range: 38, spread: 0.085, recoil: 0.075, bulletCount: 8, pitch: 0.75 },
+    deagle: { magazine: 7, reload: 2200, fireDelay: 350, automatic: false, damage: 65, range: 65, spread: 0.006, recoil: 0.065, pitch: 0.82 },
+    glock: { magazine: 20, reload: 1800, fireDelay: 180, automatic: false, damage: 28, range: 55, spread: 0.012, recoil: 0.02, pitch: 1.4 },
+    mp5: { magazine: 30, reload: 2200, fireDelay: 95, automatic: true, damage: 32, range: 60, spread: 0.014, recoil: 0.022, pitch: 1.3 },
+    rpg: { magazine: 1, reload: 3200, fireDelay: 1500, automatic: false, damage: 250, range: 80, spread: 0, recoil: 0.1, pitch: 0.4 },
+};
+window.FIREARM_SPECS = FIREARM_SPECS;
+
 class Player {
     get world() {
         return (this.game && this.game.world) ? this.game.world : this._world;
@@ -108,6 +120,11 @@ class Player {
         this.dodgeTimer = 0;
         this.totemInvulnerableTimer = 0;
         this.isTargetLocked = false;
+        this.gunReload = null;
+        this.gunTriggerHeld = false;
+        this.gunBurst = 0;
+        this.gunRecoilPitch = 0;
+        this.lastGunShotTime = -Infinity;
 
         // Underwater & Breathing System (дихання & плавання)
         this.oxygen = 100;
@@ -209,7 +226,7 @@ class Player {
     }
 
     saveInventory() {
-        if (this.game?.arenaClient?.isActive) { return; }
+        if (this.game?.arenaClient?.isActive || this.game?.ui?.duelSavedSession) { return; }
         try {
             localStorage.setItem(this.getInventoryStorageKey(), JSON.stringify(this.inventory));
         } catch (e) {}
@@ -573,8 +590,13 @@ class Player {
 
     updateHeldBlock() {
         this.syncInventoryWithServer();
-        if (!this.itemPivot) return;
         const it = this.getSelectedItem();
+        if (this.gunReload && this.gunReload.item !== it) this.gunReload = null;
+        if (this.isScoped && ITEM_REGISTRY[it?.itemId]?.gunType !== 'awp') {
+            this.isScoped = false;
+            this.setFOV(72);
+        }
+        if (!this.itemPivot) return;
 
         if (!it) {
             // Bare hand (fist)
@@ -957,8 +979,14 @@ class Player {
     }
 
     // Combat Attack check against Mobs, Boss Dragon, or Remote Players (Modern Skill-Based Tactical Combat)
+    isDuelLocked() {
+        const ui = this.game?.ui;
+        return !!(ui?.isDuelActive && (ui.duelLoading || ui.duelCountdown > 0 || ui.duelFinished));
+    }
+
     attackMob() {
         if (this.game?.arenaClient?.isActive) { return this.game.arenaClient.attack(); }
+        if (this.isDuelLocked()) return false;
         // Whiff lag recovery check (cannot attack during miss recovery)
         if (this.whiffLagTimer > 0) return false;
 
@@ -1516,6 +1544,7 @@ class Player {
     // Detonate TNT / Bomb throw
     detonateTNT() {
         if (this.game?.arenaClient?.isActive) { return; }
+        if (this.isDuelLocked()) return;
         const charges = this.game.tntEntities.filter(t => t.isC4 && !t.exploded);
         if (charges.length) {
             for (const charge of charges) charge.explode();
@@ -1630,7 +1659,23 @@ class Player {
             this.game.arenaClient.updatePlayer(dt, inputVector, jumpPressed);
             return;
         }
+        if (this.isDuelLocked()) {
+            this.velocity.set(0, 0, 0);
+            this.gunReload = null;
+            this.updateView(dt);
+            return;
+        }
+        this.updateGunReload();
+        const controls = this.game?.controls;
+        if (controls && !controls.mouseLeftDown && !controls.attackBtnPressed && !controls.breakBtnPressed) {
+            this.releaseGunTrigger();
+        }
         if (this.isDead) return;
+        if (this.gunRecoilPitch > 0) {
+            const recovery = this.gunRecoilPitch * (1 - Math.exp(-9 * Math.max(0, dt)));
+            this.pitch = Math.max(-Math.PI / 2.05, this.pitch - recovery);
+            this.gunRecoilPitch -= recovery;
+        }
 
         // Anti-stuck safety clearance: if player somehow ended up inside solid blocks
         if (this.checkCollision(this.position)) {
@@ -2191,8 +2236,14 @@ class Player {
                 this.armSwing = Math.max(0, this.armSwing - dt * 6.5);
             }
             const swingOffset = Math.sin(this.armSwing * Math.PI);
+            const held = this.getSelectedItem();
+            const heldGun = held && ITEM_REGISTRY[held.itemId]?.isGun;
 
-            if (this.isBlocking) {
+            if (heldGun) {
+                const reloading = !this.game?.arenaClient?.isActive && this.gunReload?.item === held;
+                this.itemPivot.position.set(0.36 + bobX, -0.36 + bobY - (reloading ? 0.14 : 0), -0.52 + swingOffset * 0.08);
+                this.itemPivot.rotation.set(-swingOffset * 0.12, 0, reloading ? -0.45 : 0);
+            } else if (this.isBlocking) {
                 // Minecraft-style Shield / Sword blocking pose (raised in front of chest)
                 this.itemPivot.position.set(0.12, -0.22, -0.44);
                 this.itemPivot.rotation.set(-0.35, 0.45, -0.65);
@@ -2412,93 +2463,127 @@ class Player {
         return false;
     }
 
+    getGunSpec(reg) {
+        return FIREARM_SPECS[reg.gunType] || {
+            magazine: Math.max(1, reg.magazine || 20), reload: reg.reloadTime || 2200,
+            fireDelay: reg.fireDelay || 150, automatic: reg.automatic !== false,
+            damage: reg.attackDamage || 40, range: reg.range || 80,
+            spread: 0.02, recoil: 0.035, pitch: 1,
+        };
+    }
+
+    getGunState(now = performance.now()) {
+        if (this.game?.arenaClient?.isActive) return null;
+        this.updateGunReload(now);
+        const item = this.getSelectedItem();
+        const reg = item && ITEM_REGISTRY[item.itemId];
+        if (!reg?.isGun) return null;
+        const spec = this.getGunSpec(reg);
+        // A newly acquired weapon loads its first magazine from real inventory ammunition.
+        // The magazine travels with its inventory slot and survives saving/loading.
+        if (!Number.isFinite(item.gunAmmo)) {
+            item.gunAmmo = 0;
+            if (!this.isCreative && reg.ammoType) {
+                const loaded = Math.min(spec.magazine, this.getItemCount(reg.ammoType));
+                item.gunAmmo = loaded;
+                if (loaded) this.removeItem(reg.ammoType, loaded);
+            }
+            this.saveInventoryDebounced();
+        }
+        item.gunAmmo = Math.max(0, Math.min(spec.magazine, Math.floor(item.gunAmmo)));
+        const reload = this.gunReload?.item === item ? this.gunReload : null;
+        return {
+            gunType: reg.gunType, automatic: spec.automatic, capacity: spec.magazine,
+            ammo: this.isCreative ? spec.magazine : item.gunAmmo,
+            reserve: this.isCreative ? Infinity : this.getItemCount(reg.ammoType),
+            reloading: !!reload, reloadRemaining: reload ? Math.max(0, reload.until - now) / 1000 : 0,
+        };
+    }
+
+    reloadGun(now = performance.now()) {
+        if (this.game?.arenaClient?.isActive || this.isDead || this.isDuelLocked()) return false;
+        const state = this.getGunState(now);
+        if (!state || state.reloading || state.ammo >= state.capacity || state.reserve <= 0) return false;
+        const item = this.getSelectedItem(), reg = ITEM_REGISTRY[item.itemId];
+        const spec = this.getGunSpec(reg);
+        this.gunReload = { item, reg, spec, until: now + spec.reload };
+        this.game?.modManager?.soundSynth?.reload('mag_out');
+        return true;
+    }
+
+    updateGunReload(now = performance.now()) {
+        const reload = this.gunReload;
+        if (!reload) return;
+        if (this.game?.arenaClient?.isActive || this.isDead || this.getSelectedItem() !== reload.item) {
+            this.gunReload = null;
+            return;
+        }
+        if (now < reload.until) return;
+        this.gunReload = null;
+        const amount = Math.min(reload.spec.magazine - reload.item.gunAmmo, this.getItemCount(reload.reg.ammoType));
+        if (amount > 0) {
+            reload.item.gunAmmo += amount;
+            this.removeItem(reload.reg.ammoType, amount);
+            this.saveInventoryDebounced();
+        }
+        this.game?.modManager?.soundSynth?.reload('mag_in');
+    }
+
+    releaseGunTrigger() {
+        this.gunTriggerHeld = false;
+    }
+
     tryShootGun() {
+        // Arena weapons use server magazines and damage, never sandbox inventory ammunition.
+        if (this.game?.arenaClient?.isActive) return this.game.arenaClient.attack();
         const item = this.getSelectedItem();
         if (!item) return false;
         const reg = ITEM_REGISTRY[item.itemId];
-        if (!reg || !reg.isGun) return false;
+        if (!reg?.isGun) return false;
+        if (this.isDead || this.isDuelLocked()) return true;
 
-        const now = performance.now();
-        const fireDelays = {
-            'ak47': 110,
-            'm4a1': 90,
-            'awp': 1200,
-            'shotgun': 800,
-            'deagle': 350,
-            'glock': 180,
-            'mp5': 95,
-            'rpg': 1500
-        };
-        const delay = fireDelays[reg.gunType] || reg.fireDelay || 150;
-        if (this.lastGunShotTime && now - this.lastGunShotTime < delay) {
-            return true; // Still cooling down, don't break blocks
-        }
-
-        // Ammo check in survival mode
-        if (!this.isCreative && reg.ammoType) {
-            const ammoCount = this.getItemCount(reg.ammoType);
-            if (ammoCount <= 0) {
-                if (now - (this.lastDryFireTime || 0) > 400) {
-                    this.lastDryFireTime = now;
-                    if (this.game && this.game.soundManager) this.game.soundManager.playClick();
-                    const ammoReg = ITEM_REGISTRY[reg.ammoType];
-                    if (this.game && this.game.ui) this.game.ui.showToast(`⚠️ Немає патронів! Потрібно: ${ammoReg ? ammoReg.name : reg.ammoType}`);
-                }
-                return true;
-            }
-            this.removeItem(reg.ammoType, 1);
-        }
-
-        this.lastGunShotTime = now;
-
-        const wMgr = (window.modManager && window.modManager.weaponManager) || (this.game && this.game.modManager && this.game.modManager.weaponManager);
-        if (!wMgr) return false;
-
-        if (reg.gunType === 'rpg') {
-            if (wMgr.launchRocket) {
-                wMgr.launchRocket({
-                    damage: 250,
-                    blastRadius: 4.8,
-                    speed: 36.0
-                });
+        const now = performance.now(), spec = this.getGunSpec(reg);
+        if (!spec.automatic && this.gunTriggerHeld) return true;
+        this.gunTriggerHeld = true;
+        const state = this.getGunState(now);
+        if (state.reloading) return true;
+        if (now - (this.lastGunShotTime ?? -Infinity) < spec.fireDelay) return true;
+        if (state.ammo <= 0) {
+            if (!this.reloadGun(now) && now - (this.lastDryFireTime ?? -Infinity) > 400) {
+                this.lastDryFireTime = now;
+                this.game?.soundManager?.playClick();
+                const ammoReg = ITEM_REGISTRY[reg.ammoType];
+                this.game?.ui?.showToast(`⚠️ Немає патронів! Потрібно: ${ammoReg ? ammoReg.name : reg.ammoType}`);
             }
             return true;
         }
+        const manager = (window.modManager && window.modManager.weaponManager) || this.game?.modManager?.weaponManager;
+        if (!manager || (reg.gunType === 'rpg' ? !manager.launchRocket : !manager.shoot)) return true;
 
-        let damage = reg.attackDamage || 40;
-        let range = 80;
-        let spread = 0.02;
-        let recoil = 0.035;
-        let bulletCount = 1;
-        let pitch = 1.0;
-
-        if (reg.gunType === 'ak47') {
-            damage = 48; range = 85; spread = 0.024; recoil = 0.038; pitch = 0.95;
-        } else if (reg.gunType === 'm4a1') {
-            damage = 40; range = 90; spread = 0.016; recoil = 0.025; pitch = 1.25;
-        } else if (reg.gunType === 'awp') {
-            damage = 150; range = 180; spread = this.isScoped ? 0.0005 : 0.01; recoil = 0.095; pitch = 0.65;
-        } else if (reg.gunType === 'shotgun') {
-            damage = 22; range = 38; spread = 0.085; recoil = 0.075; bulletCount = 8; pitch = 0.75;
-        } else if (reg.gunType === 'deagle') {
-            damage = 65; range = 65; spread = 0.014; recoil = 0.065; pitch = 0.82;
-        } else if (reg.gunType === 'glock') {
-            damage = 28; range = 55; spread = 0.025; recoil = 0.02; pitch = 1.4;
-        } else if (reg.gunType === 'mp5') {
-            damage = 32; range = 60; spread = 0.022; recoil = 0.022; pitch = 1.3;
+        const interval = now - (this.lastGunShotTime ?? -Infinity);
+        this.gunBurst = interval > 320 ? 0 : Math.min(8, (this.gunBurst || 0) + 1);
+        this.lastGunShotTime = now;
+        if (!this.isCreative) {
+            item.gunAmmo--;
+            this.saveInventoryDebounced();
         }
-
-        wMgr.shoot({
-            damage: damage,
-            range: range,
-            spread: spread,
-            recoilPitch: recoil,
-            recoilYaw: recoil * 0.45,
-            bulletCount: bulletCount,
-            pitch: pitch,
-            volume: 0.4
+        if (reg.gunType === 'rpg') {
+            manager.launchRocket({ damage: spec.damage, blastRadius: 4.8, speed: 36 });
+            return true;
+        }
+        const speed = Math.hypot(this.velocity.x, this.velocity.z);
+        const movement = Math.min(0.04, speed * 0.0025) + (this.onGround ? 0 : 0.025);
+        const spread = (reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread)
+            + movement + (spec.automatic ? this.gunBurst * 0.003 : 0);
+        const result = manager.shoot({
+            damage: spec.damage, range: spec.range, spread,
+            recoilPitch: spec.recoil, recoilYaw: spec.recoil * 0.45,
+            bulletCount: spec.bulletCount || 1, pitch: spec.pitch, volume: 0.4,
         });
-
+        if (result?.hit && result.type !== 'block') {
+            this.gunHitUntil = now + 150;
+            this.gunHitType = result.type;
+        }
         return true;
     }
 

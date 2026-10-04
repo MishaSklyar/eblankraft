@@ -1383,7 +1383,7 @@ class UIManager {
 
         if (btnSaveWorld) {
             btnSaveWorld.onclick = () => {
-                const json = this.game.world.exportJSON();
+                const json = (this.duelSavedSession?.world || this.game.world).exportJSON();
                 localStorage.setItem('eblankraft_saved_world', json);
                 this.showToast("💾 Світ успішно збережено!");
             };
@@ -1393,6 +1393,7 @@ class UIManager {
             btnLoadWorld.onclick = () => {
                 const json = localStorage.getItem('eblankraft_saved_world');
                 if (json) {
+                    if (this.duelSavedSession || this.isDuelQueueSearching) this.cleanupDuel();
                     this.game.world.importJSON(json);
                     this.player.spawnSafe();
                     this.showToast("📂 Світ успішно завантажено!");
@@ -2784,6 +2785,7 @@ class UIManager {
 
     // --- Launch World Gameplay ---
     async launchWorld(worldObj) {
+        if (this.duelSavedSession || this.isDuelQueueSearching) this.cleanupDuel();
         if (this.game.arenaClient?.isActive) this.game.arenaClient.disconnect();
         if (!worldObj) return;
         if (!worldObj.serverRoom && this.game.serverClient) this.game.serverClient.leaveRoom();
@@ -2892,7 +2894,10 @@ class UIManager {
     initMMDuelsHub() {
         const cards = document.querySelectorAll('.mm-arena-card');
         cards.forEach(card => {
+            const supported = ['classic', 'shawarma'].includes(card.dataset.arena);
+            card.style.display = supported ? '' : 'none';
             card.onclick = () => {
+                if (!supported || this.isDuelQueueSearching) return;
                 if (this.soundManager) this.soundManager.playClick();
                 cards.forEach(c => c.classList.remove('active'));
                 card.classList.add('active');
@@ -2906,41 +2911,313 @@ class UIManager {
         if (btnQueue) {
             btnQueue.onclick = () => {
                 if (this.soundManager) this.soundManager.playClick();
+                if (this.isDuelQueueSearching) { this.cancelDuelMatchmaking(); return; }
                 const nick = (nickInput && nickInput.value.trim()) ? nickInput.value.trim() : 'Боєць';
-                btnQueue.textContent = '⏳ Пошук суперника у P2P мережі...';
-                btnQueue.disabled = true;
-
-                setTimeout(() => {
-                    btnQueue.textContent = '⚔️ Суперника знайдено! Підключення до дуелі...';
-                    if (this.soundManager) this.soundManager.playWinFanfare();
-
-                    setTimeout(() => {
-                        btnQueue.textContent = '⚔️ Почати пошук суперника (P2P)';
-                        btnQueue.disabled = false;
-                        if (this.game && this.game.multiplayer) {
-                            this.game.multiplayer.toggleModal(true);
-                        }
-                    }, 1200);
-                }, 2000);
+                const kit = document.querySelector('.mm-arena-card.active')?.dataset.arena || 'classic';
+                if (!this.game.serverClient?.joinDuelQueue(nick, kit)) {
+                    this.showToast('Перевірте адресу сервера: ws:// або wss://.');
+                    return;
+                }
+                this.duelNick = nick;
+                this.duelKit = kit;
+                this.isDuelQueueSearching = true;
+                const started = performance.now();
+                const update = () => { btnQueue.textContent = `⏳ Пошук (${Math.floor((performance.now() - started) / 1000)}с) · Скасувати`; };
+                update();
+                this.duelSearchInterval = setInterval(update, 1000);
             };
         }
 
         if (btnPractice) {
             btnPractice.onclick = () => {
                 if (this.soundManager) this.soundManager.playClick();
-                const duelWorld = {
-                    id: 'world_duel_practice',
-                    name: '⚔️ Дуельна Арена (Тренування)',
-                    mode: 'survival',
-                    type: 'flat',
-                    dim: 'overworld',
-                    seed: 777777,
-                    bonusChest: true,
-                    lastPlayed: Date.now()
-                };
-                this.launchWorld(duelWorld);
-                this.showToast("⚔️ Ласкаво просимо на Тренувальну Арену!");
+                this.cancelDuelMatchmaking();
+                this.startDuelMatch({ is_bot: true, kit: document.querySelector('.mm-arena-card.active')?.dataset.arena || 'classic',
+                    opponent: { id: 'duel-practice', name: 'Бот (тренування)' } });
             };
+        }
+    }
+
+    cancelDuelMatchmaking() {
+        this.isDuelQueueSearching = false;
+        clearInterval(this.duelSearchInterval);
+        this.duelSearchInterval = null;
+        const button = document.getElementById('mm-btn-duel-start-queue');
+        if (button) { button.textContent = '⚔️ Знайти онлайн-суперника'; button.disabled = false; }
+        this.game.serverClient?.leaveDuelQueue();
+        if (this.game.serverClient?.currentRoom === 'pvp_arena') this.game.serverClient.leaveRoom();
+    }
+
+    startDuelMatch(data = {}) {
+        clearInterval(this.duelSearchInterval);
+        this.duelSearchInterval = null;
+        this.isDuelQueueSearching = false;
+        const game = this.game, player = game.player;
+        game.arenaClient?.disconnect();
+        if (this.duelSavedSession) this.cleanupDuel(false);
+        if (data.is_bot) game.serverClient?.leaveRoom();
+        this.duelKit = ['classic', 'shawarma'].includes(data.kit) ? data.kit : 'classic';
+        this.duelOpponentId = data.opponent?.id;
+        this.duelOpponentName = data.opponent?.name || 'Суперник';
+        this.duelRoom = data.room || null;
+        this.duelIsBot = !!data.is_bot;
+        this.duelFinished = false;
+        this.duelLoading = true;
+        this.duelCountdown = 3;
+        this.isDuelActive = true;
+        clearTimeout(player._saveInvTimer);
+        player._saveInvTimer = null;
+        player.saveInventory();
+        const fields = ['inventory', 'inventoryWorldId', 'selectedHotbarIndex', 'health', 'hunger', 'isDead', 'deathReason',
+            'isCreative', 'godMode', 'isFlying', 'canFly', 'noclip', 'instantBreak', 'infiniteBlocks', 'hardcore',
+            'customReach', 'mountedVehicle', 'yaw', 'pitch', 'onGround', 'isBlocking', 'isSprinting', 'name',
+            'gunReload', 'gunTriggerHeld', 'gunBurst', 'gunRecoilPitch', 'isScoped', 'iq'];
+        this.duelSavedSession = { world: game.world, player: Object.fromEntries(fields.map(key => [key, player[key]])),
+            position: player.position.clone(), velocity: player.velocity.clone(), timeOfDay: game.timeOfDay,
+            hidden: [], entities: {}, tnt: game.tntEntities, fov: player.camera?.fov,
+            periodicSpawns: game.mobManager?.handlePeriodicSpawns };
+        const hide = object => { if (object) { this.duelSavedSession.hidden.push([object, object.visible]); object.visible = false; } };
+        for (const chunk of Object.values(game.world.chunks)) { hide(chunk.mesh); hide(chunk.waterMesh); }
+        const manager = game.mobManager;
+        if (manager) {
+            manager.handlePeriodicSpawns = () => {};
+            for (const key of ['mobs', 'itemDrops', 'crystals', 'fireballs', 'dragon']) {
+                this.duelSavedSession.entities[key] = manager[key];
+                const entities = Array.isArray(manager[key]) ? manager[key] : [manager[key]];
+                for (const entity of entities) { if (entity) { hide(entity.mesh); hide(entity.group); hide(entity.beamLine); } }
+                manager[key] = key === 'dragon' ? null : [];
+            }
+        }
+        for (const tnt of game.tntEntities || []) hide(tnt.mesh);
+        game.tntEntities = [];
+        try {
+            const map = data.map || { floorY: 5, min: -18, max: 18, wallHeight: 5, obstacles: [] };
+            game.world = new VoxelWorld(game.scene, game.textureManager, { seed: 777777,
+                worldType: 'pvp_arena', arenaMap: map, chunkRadius: 2, game });
+            player.world = game.world;
+            player.inventory = Array(27).fill(null);
+            if (this.duelKit === 'classic') {
+                player.inventory[0] = { itemId: ITEM_TYPES.DIAMOND_SWORD, count: 1 };
+                player.inventory[1] = { itemId: ITEM_TYPES.SHIELD, count: 1 };
+            }
+            player.selectedHotbarIndex = 0;
+            for (const key of ['isCreative', 'godMode', 'isFlying', 'canFly', 'noclip', 'instantBreak',
+                'infiniteBlocks', 'hardcore', 'isDead', 'isMining', 'isBlocking', 'isSprinting']) player[key] = false;
+            player.mountedVehicle = null;
+            player.customReach = 4.8;
+            player.health = player.hunger = 100;
+            player.position.set(data.spawn?.x ?? 0.5, data.spawn?.y ?? 5.05, data.spawn?.z ?? -14);
+            player.velocity.set(0, 0, 0);
+            player.yaw = data.spawn?.yaw ?? Math.PI;
+            player.pitch = 0;
+            player.gunReload = null;
+            player.gunTriggerHeld = false;
+            player.gunBurst = player.gunRecoilPitch = 0;
+            player.isScoped = false;
+            if (player.camera) { player.camera.fov = 72; player.camera.updateProjectionMatrix(); }
+            player.name = this.duelNick || game.multiplayer?.playerName || 'Боєць';
+            game.timeOfDay = 0.25;
+            player.updateHeldBlock();
+            this.initHotbar();
+            this.closeMainMenu();
+            this.mountDuelHud();
+            this.updateDuelHealth(100, 100);
+            if (data.is_bot) {
+                const id = manager?.spawnBot('duel-practice', 0.5, 5.05, 14);
+                const bot = id && manager.getBot(id);
+                if (!bot) throw new Error('Practice bot could not spawn');
+                bot.health = bot.maxHealth = 100;
+                bot.damage = this.duelKit === 'classic' ? 16 : 12;
+                bot.speed = this.duelKit === 'classic' ? 3.5 : 4.2;
+                this.duelBot = bot;
+                let seconds = 3;
+                this.showDuelCountdown(seconds);
+                this.duelCountdownTimer = setInterval(() => {
+                    this.showDuelCountdown(--seconds);
+                    if (seconds === 0) { clearInterval(this.duelCountdownTimer); this.duelCountdownTimer = null; }
+                }, 1000);
+            } else {
+                const remote = game.multiplayer.addRemotePlayer(this.duelOpponentId, this.duelOpponentName);
+                const z = player.position.z < 0 ? 14 : -14;
+                remote.group.position.set(0.5, 5.05, z);
+                remote.targetPosition.set(0.5, 5.05, z);
+                remote.updateHeldItem(this.duelKit === 'classic' ? ITEM_TYPES.DIAMOND_SWORD : null);
+                if (data.opponent?.skin) remote.setSkin(data.opponent.skin);
+                player.syncInventoryWithServer();
+                game.serverClient.sendRaw({ type: 'duel_ready' });
+            }
+            this.duelLoading = false;
+        } catch (error) {
+            console.error('Duel failed:', error);
+            this.cleanupDuel();
+            this.showToast('Не вдалося відкрити арену. Спробуйте ще раз.');
+        }
+    }
+
+    mountDuelHud() {
+        document.getElementById('duel-hud')?.remove();
+        const hud = document.createElement('div');
+        hud.id = 'duel-hud';
+        hud.innerHTML = `
+            <div class="eblan-duel-panel">
+                <div class="eblan-duel-header">
+                    <span class="eblan-duel-badge">⚔️ PVP ДУЕЛЬ</span>
+                    <span id="duel-hud-label"></span>
+                </div>
+                <div class="eblan-duel-fighters">
+                    <div class="eblan-duel-fighter player">
+                        <div class="eblan-fighter-name">ТИ (ЄБЛАН)</div>
+                        <div class="eblan-hp-bar-bg">
+                            <div id="duel-bar-player" class="eblan-hp-bar-fill player" style="width:100%"></div>
+                        </div>
+                        <div id="duel-hp-player" class="eblan-hp-text">100 HP</div>
+                    </div>
+                    <div class="eblan-duel-vs">VS</div>
+                    <div class="eblan-duel-fighter opponent">
+                        <div id="duel-fighter-opp-name" class="eblan-fighter-name">СУПЕРНИК</div>
+                        <div class="eblan-hp-bar-bg">
+                            <div id="duel-bar-opponent" class="eblan-hp-bar-fill opponent" style="width:100%"></div>
+                        </div>
+                        <div id="duel-hp-opponent" class="eblan-hp-text">100 HP</div>
+                    </div>
+                </div>
+                <div id="duel-hud-health" style="display:none"></div>
+                <div id="duel-countdown" role="status"></div>
+                <button id="duel-leave" class="eblan-btn-pixel danger" style="margin-top:8px">🚪 Втекти з дуелі [ESC]</button>
+            </div>
+            <div id="duel-result" style="display:none">
+                <div id="duel-result-title"></div>
+                <div id="duel-result-subtitle" style="font-size:12px;color:#ffd700;margin-bottom:8px;font-weight:bold;text-shadow:1px 1px 0 #000"></div>
+                <p id="duel-result-reason"></p>
+                <div class="eblan-duel-result-btns">
+                    <button id="duel-rematch" class="eblan-btn-pixel primary">⚔️ Ще один махач</button>
+                    <button id="duel-return" class="eblan-btn-pixel">🚪 В меню</button>
+                </div>
+            </div>`;
+        document.body.appendChild(hud);
+        const kitLabel = this.duelKit === 'classic' ? '🗡️ Меч + щит' : '🥊 Шаурмечний бій';
+        document.getElementById('duel-hud-label').textContent = `${kitLabel} · ${this.duelOpponentName}`;
+        const oppNameEl = document.getElementById('duel-fighter-opp-name');
+        if (oppNameEl) oppNameEl.textContent = this.duelOpponentName || 'СУПЕРНИК';
+        document.getElementById('duel-leave').onclick = () => this.cleanupDuel();
+        document.getElementById('duel-return').onclick = () => this.cleanupDuel();
+        document.getElementById('duel-rematch').onclick = () => {
+            const bot = this.duelIsBot, kit = this.duelKit;
+            this.cleanupDuel();
+            if (bot) this.startDuelMatch({ is_bot: true, kit, opponent: { id: 'duel-practice', name: 'Бот (тренування)' } });
+            else { this.openMainMenu(); this.showMMScreen('duels'); document.getElementById('mm-btn-duel-start-queue')?.click(); }
+        };
+    }
+
+    showDuelCountdown(seconds) {
+        if (!this.isDuelActive || this.duelFinished) return;
+        this.duelCountdown = Math.max(0, seconds);
+        const element = document.getElementById('duel-countdown');
+        if (element) element.textContent = seconds > 0 ? `⏳ Початок через ${seconds}…` : '🔥 Бій, єблани!';
+    }
+
+    updateDuelHealth(targetOrHealth, opponentHealth) {
+        if (!this.isDuelActive) return;
+        if (typeof targetOrHealth === 'number') {
+            this.duelPlayerHealth = targetOrHealth;
+            if (typeof opponentHealth === 'number') this.duelOpponentHealth = opponentHealth;
+        } else if (targetOrHealth === this.game.serverClient?.clientId) this.duelPlayerHealth = opponentHealth;
+        else if (targetOrHealth === this.duelOpponentId) this.duelOpponentHealth = opponentHealth;
+
+        const pHp = Math.max(0, Math.ceil(this.duelPlayerHealth ?? 100));
+        const oHp = Math.max(0, Math.ceil(this.duelOpponentHealth ?? 100));
+
+        const element = document.getElementById('duel-hud-health');
+        if (element) element.textContent = `Ви: ${pHp} HP · Суперник: ${oHp} HP`;
+
+        const playerBar = document.getElementById('duel-bar-player');
+        if (playerBar) playerBar.style.width = `${Math.min(100, Math.max(0, pHp))}%`;
+        const playerHpText = document.getElementById('duel-hp-player');
+        if (playerHpText) playerHpText.textContent = `${pHp} HP`;
+
+        const oppBar = document.getElementById('duel-bar-opponent');
+        if (oppBar) oppBar.style.width = `${Math.min(100, Math.max(0, oHp))}%`;
+        const oppHpText = document.getElementById('duel-hp-opponent');
+        if (oppHpText) oppHpText.textContent = oHp <= 0 ? '0 HP 💀' : `${oHp} HP`;
+    }
+
+    showDuelResult(result = {}) {
+        if (!this.isDuelActive || this.duelFinished || (result.room && result.room !== this.duelRoom)) return;
+        this.duelFinished = true;
+        clearInterval(this.duelCountdownTimer);
+        this.duelCountdownTimer = null;
+        this.game.player.velocity.set(0, 0, 0);
+        if (this.duelIsBot) this.game.mobManager?.commandBot('duel-practice', 'stop');
+        const death = document.getElementById('death-screen');
+        if (death) death.style.display = 'none';
+        const won = result.won ?? result.winner_id === this.game.serverClient?.clientId;
+        const panel = document.getElementById('duel-result');
+        if (panel) panel.style.display = 'block';
+        const title = document.getElementById('duel-result-title');
+        if (title) {
+            title.textContent = won ? '🏆 Перемога' : 'Поразка';
+            title.style.color = won ? '#ffd700' : '#ff5555';
+        }
+        const subtitle = document.getElementById('duel-result-subtitle');
+        if (subtitle) {
+            subtitle.textContent = won ? '🔥 Легендарний Єблан здолав суперника!' : '💀 Тебе попустили на арені!';
+        }
+        const reason = document.getElementById('duel-result-reason');
+        if (reason) reason.textContent = result.reason || 'Дуель завершено.';
+        document.exitPointerLock?.();
+    }
+
+
+    cleanupDuel(leaveRoom = true) {
+        if (this.duelCleaning) return;
+        this.duelCleaning = true;
+        this.cancelDuelMatchmaking();
+        if (leaveRoom && this.game.serverClient?.currentRoom?.startsWith('duel_')) this.game.serverClient.leaveRoom();
+        clearInterval(this.duelCountdownTimer);
+        this.duelCountdownTimer = null;
+        const saved = this.duelSavedSession, game = this.game;
+        if (saved) {
+            clearTimeout(game.player._saveInvTimer);
+            game.player._saveInvTimer = null;
+            game.mobManager?.clearAll();
+            game.world.clearWorld();
+            game.world = saved.world;
+            game.player.world = saved.world;
+            Object.assign(game.player, saved.player);
+            game.player.position.copy(saved.position);
+            game.player.velocity.copy(saved.velocity);
+            game.timeOfDay = saved.timeOfDay;
+            if (game.mobManager) Object.assign(game.mobManager, saved.entities);
+            if (game.mobManager) game.mobManager.handlePeriodicSpawns = saved.periodicSpawns;
+            game.tntEntities = saved.tnt;
+            for (const [object, visible] of saved.hidden) object.visible = visible;
+            this.duelSavedSession = null;
+            game.player.updateHeldBlock();
+            if (game.player.camera && saved.fov !== undefined) {
+                game.player.camera.fov = saved.fov;
+                game.player.camera.updateProjectionMatrix();
+            }
+            this.initHotbar();
+        }
+        game.serverClient?.clearRemotePlayers();
+        this.isDuelActive = this.duelLoading = this.duelFinished = false;
+        this.duelCountdown = 0;
+        this.duelBot = null;
+        this.duelRoom = null;
+        document.getElementById('duel-hud')?.remove();
+        const death = document.getElementById('death-screen');
+        if (death) death.style.display = game.player.isDead ? 'flex' : 'none';
+        this.duelCleaning = false;
+    }
+
+    updateDuel() {
+        if (!this.isDuelActive || !this.duelIsBot || this.duelLoading || this.duelFinished) return;
+        this.updateDuelHealth(this.player.health, this.duelBot?.health ?? 0);
+        if (this.player.isDead) this.showDuelResult({ won: false, reason: 'Бот переміг у тренуванні.' });
+        else if (this.duelBot?.isDead) this.showDuelResult({ won: true, reason: 'Тренувальний бій завершено.' });
+        else if (this.duelCountdown === 0) {
+            this.game.mobManager.commandBot('duel-practice', 'followPlayer');
+            this.game.mobManager.commandBot('duel-practice', 'attack', 'player');
         }
     }
 
@@ -3077,6 +3354,7 @@ class UIManager {
     }
 
     openMainMenu() {
+        if (this.duelSavedSession || this.isDuelQueueSearching) this.cleanupDuel();
         if (this.game.arenaClient?.isActive) this.game.arenaClient.disconnect();
         this.mainMenuOpen = true;
         document.body.classList.add('in-main-menu');
@@ -3210,6 +3488,7 @@ class UIManager {
     }
 
     update(dt) {
+        this.updateDuel();
         // Health Hearts & Hunger Display (Responsive & Compact)
         if (this.hudHealth) {
             const hp = Math.max(0, Math.round(this.player.health));

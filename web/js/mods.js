@@ -736,17 +736,21 @@ class WeaponCombatManager {
         const damage = Number(opts.damage) || 35;
         const range = Number(opts.range) || 65;
         const spread = Math.max(0, Number(opts.spread) || 0);
-        const recoilPitch = Number(opts.recoilPitch) || 0.04;
-        const recoilYaw = Number(opts.recoilYaw) || 0.01;
+        const recoilPitch = Number.isFinite(Number(opts.recoilPitch)) ? Number(opts.recoilPitch) : 0.04;
+        const recoilYaw = Number.isFinite(Number(opts.recoilYaw)) ? Number(opts.recoilYaw) : 0.01;
         const tracerColor = (opts.tracerColor !== undefined) ? opts.tracerColor : 0xffdd44;
         const count = Math.max(1, Math.min(20, Math.floor(Number(opts.bulletCount) || 1)));
+        // The bullet follows the aim at trigger time; the kick affects the next shot.
+        const shotYaw = player.yaw, shotPitch = player.pitch;
 
         // Arm swing animation for shooting visual
         player.armSwing = 0.55;
 
         // Recoil camera pitch/yaw kick
         if (recoilPitch > 0) {
+            const before = player.pitch;
             player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, player.pitch + recoilPitch));
+            player.gunRecoilPitch = (player.gunRecoilPitch || 0) + player.pitch - before;
         }
         if (recoilYaw !== 0) {
             player.yaw += (Math.random() - 0.5) * recoilYaw;
@@ -769,13 +773,15 @@ class WeaponCombatManager {
         );
 
         let bestResult = { hit: false, type: 'none', distance: range };
+        const aim = new THREE.Vector3(
+            -Math.sin(shotYaw) * Math.cos(shotPitch),
+            Math.sin(shotPitch),
+            -Math.cos(shotYaw) * Math.cos(shotPitch)
+        ).normalize();
+        this._spawnMuzzleFlash(origin, aim);
 
         for (let b = 0; b < count; b++) {
-            let dir = new THREE.Vector3(
-                -Math.sin(player.yaw) * Math.cos(player.pitch),
-                Math.sin(player.pitch),
-                -Math.cos(player.yaw) * Math.cos(player.pitch)
-            ).normalize();
+            let dir = aim.clone();
 
             if (spread > 0) {
                 const spreadX = (Math.random() - 0.5) * spread;
@@ -932,6 +938,22 @@ class WeaponCombatManager {
             geom.dispose();
             mat.dispose();
         }, 60);
+    }
+
+    _spawnMuzzleFlash(origin, dir) {
+        if (!this.scene || !THREE.SphereGeometry || !THREE.MeshBasicMaterial) return;
+        const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+        const geometry = new THREE.SphereGeometry(0.1, 5, 4);
+        const material = new THREE.MeshBasicMaterial({ color: 0xffd873, transparent: true, opacity: 0.9 });
+        const flash = new THREE.Mesh(geometry, material);
+        flash.position.copy(origin).addScaledVector(dir, 0.7).addScaledVector(right, 0.18);
+        flash.position.y -= 0.15;
+        this.scene.add(flash);
+        setTimeout(() => {
+            this.scene?.remove(flash);
+            geometry.dispose();
+            material.dispose();
+        }, 45);
     }
 
     launchRocket(opts = {}) {

@@ -3058,16 +3058,47 @@ class UIManager {
         document.getElementById('duel-hud')?.remove();
         const hud = document.createElement('div');
         hud.id = 'duel-hud';
-        hud.style.cssText = 'position:fixed;inset:0;z-index:90;pointer-events:none;color:white;font:700 15px monospace;text-shadow:1px 1px 3px black';
-        hud.innerHTML = `<div style="position:absolute;top:18px;left:50%;transform:translateX(-50%);padding:12px;background:#111d;text-align:center;border:1px solid #ffc34b">
-            <div id="duel-hud-label"></div><div id="duel-hud-health" style="margin-top:8px"></div>
-            <div id="duel-countdown" role="status" style="margin-top:8px;color:#ffc34b"></div>
-            <button id="duel-leave" style="pointer-events:auto;margin-top:8px">Вийти з дуелі</button></div>
-            <div id="duel-result" style="display:none;position:absolute;top:45%;left:50%;transform:translate(-50%,-50%);padding:24px;background:#111f;border:2px solid #ffc34b;text-align:center;pointer-events:auto">
-            <div id="duel-result-title"></div><p id="duel-result-reason"></p>
-            <button id="duel-rematch">Ще одна дуель</button> <button id="duel-return">Повернутися</button></div>`;
+        hud.innerHTML = `
+            <div class="eblan-duel-panel">
+                <div class="eblan-duel-header">
+                    <span class="eblan-duel-badge">⚔️ PVP ДУЕЛЬ</span>
+                    <span id="duel-hud-label"></span>
+                </div>
+                <div class="eblan-duel-fighters">
+                    <div class="eblan-duel-fighter player">
+                        <div class="eblan-fighter-name">ТИ (ЄБЛАН)</div>
+                        <div class="eblan-hp-bar-bg">
+                            <div id="duel-bar-player" class="eblan-hp-bar-fill player" style="width:100%"></div>
+                        </div>
+                        <div id="duel-hp-player" class="eblan-hp-text">100 HP</div>
+                    </div>
+                    <div class="eblan-duel-vs">VS</div>
+                    <div class="eblan-duel-fighter opponent">
+                        <div id="duel-fighter-opp-name" class="eblan-fighter-name">СУПЕРНИК</div>
+                        <div class="eblan-hp-bar-bg">
+                            <div id="duel-bar-opponent" class="eblan-hp-bar-fill opponent" style="width:100%"></div>
+                        </div>
+                        <div id="duel-hp-opponent" class="eblan-hp-text">100 HP</div>
+                    </div>
+                </div>
+                <div id="duel-hud-health" style="display:none"></div>
+                <div id="duel-countdown" role="status"></div>
+                <button id="duel-leave" class="eblan-btn-pixel danger" style="margin-top:8px">🚪 Втекти з дуелі [ESC]</button>
+            </div>
+            <div id="duel-result" style="display:none">
+                <div id="duel-result-title"></div>
+                <div id="duel-result-subtitle" style="font-size:12px;color:#ffd700;margin-bottom:8px;font-weight:bold;text-shadow:1px 1px 0 #000"></div>
+                <p id="duel-result-reason"></p>
+                <div class="eblan-duel-result-btns">
+                    <button id="duel-rematch" class="eblan-btn-pixel primary">⚔️ Ще один махач</button>
+                    <button id="duel-return" class="eblan-btn-pixel">🚪 В меню</button>
+                </div>
+            </div>`;
         document.body.appendChild(hud);
-        document.getElementById('duel-hud-label').textContent = `${this.duelKit === 'classic' ? 'Меч + щит' : 'Кулаки'} · ${this.duelOpponentName}`;
+        const kitLabel = this.duelKit === 'classic' ? '🗡️ Меч + щит' : '🥊 Шаурмечний бій';
+        document.getElementById('duel-hud-label').textContent = `${kitLabel} · ${this.duelOpponentName}`;
+        const oppNameEl = document.getElementById('duel-fighter-opp-name');
+        if (oppNameEl) oppNameEl.textContent = this.duelOpponentName || 'СУПЕРНИК';
         document.getElementById('duel-leave').onclick = () => this.cleanupDuel();
         document.getElementById('duel-return').onclick = () => this.cleanupDuel();
         document.getElementById('duel-rematch').onclick = () => {
@@ -3082,7 +3113,7 @@ class UIManager {
         if (!this.isDuelActive || this.duelFinished) return;
         this.duelCountdown = Math.max(0, seconds);
         const element = document.getElementById('duel-countdown');
-        if (element) element.textContent = seconds > 0 ? `Початок через ${seconds}…` : 'Бій!';
+        if (element) element.textContent = seconds > 0 ? `⏳ Початок через ${seconds}…` : '🔥 Бій, єблани!';
     }
 
     updateDuelHealth(targetOrHealth, opponentHealth) {
@@ -3092,8 +3123,22 @@ class UIManager {
             if (typeof opponentHealth === 'number') this.duelOpponentHealth = opponentHealth;
         } else if (targetOrHealth === this.game.serverClient?.clientId) this.duelPlayerHealth = opponentHealth;
         else if (targetOrHealth === this.duelOpponentId) this.duelOpponentHealth = opponentHealth;
+
+        const pHp = Math.max(0, Math.ceil(this.duelPlayerHealth ?? 100));
+        const oHp = Math.max(0, Math.ceil(this.duelOpponentHealth ?? 100));
+
         const element = document.getElementById('duel-hud-health');
-        if (element) element.textContent = `Ви: ${Math.ceil(this.duelPlayerHealth ?? 100)} HP · Суперник: ${Math.ceil(this.duelOpponentHealth ?? 100)} HP`;
+        if (element) element.textContent = `Ви: ${pHp} HP · Суперник: ${oHp} HP`;
+
+        const playerBar = document.getElementById('duel-bar-player');
+        if (playerBar) playerBar.style.width = `${Math.min(100, Math.max(0, pHp))}%`;
+        const playerHpText = document.getElementById('duel-hp-player');
+        if (playerHpText) playerHpText.textContent = `${pHp} HP`;
+
+        const oppBar = document.getElementById('duel-bar-opponent');
+        if (oppBar) oppBar.style.width = `${Math.min(100, Math.max(0, oHp))}%`;
+        const oppHpText = document.getElementById('duel-hp-opponent');
+        if (oppHpText) oppHpText.textContent = oHp <= 0 ? '0 HP 💀' : `${oHp} HP`;
     }
 
     showDuelResult(result = {}) {
@@ -3109,11 +3154,19 @@ class UIManager {
         const panel = document.getElementById('duel-result');
         if (panel) panel.style.display = 'block';
         const title = document.getElementById('duel-result-title');
-        if (title) title.textContent = won ? '🏆 Перемога' : 'Поразка';
+        if (title) {
+            title.textContent = won ? '🏆 Перемога' : 'Поразка';
+            title.style.color = won ? '#ffd700' : '#ff5555';
+        }
+        const subtitle = document.getElementById('duel-result-subtitle');
+        if (subtitle) {
+            subtitle.textContent = won ? '🔥 Легендарний Єблан здолав суперника!' : '💀 Тебе попустили на арені!';
+        }
         const reason = document.getElementById('duel-result-reason');
         if (reason) reason.textContent = result.reason || 'Дуель завершено.';
         document.exitPointerLock?.();
     }
+
 
     cleanupDuel(leaveRoom = true) {
         if (this.duelCleaning) return;

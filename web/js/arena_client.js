@@ -18,21 +18,31 @@ class ArenaClient {
         this.useHeld = false;
         this.buyOpen = false;
         this.spectatorIndex = 0;
+        this.weaponSpecs = {};
+        this.triggerHeld = false;
+        this.scoreboardOpen = false;
+        this.killFeed = [];
+        this.tracers = [];
+        this.hitUntil = 0;
         this.resetPrediction();
         if (window.addEventListener) {
             window.addEventListener('keydown', event => {
-                if (!this.isConnected || this.mode !== 'dust2' || event.repeat) return;
+                if (!this.isConnected || this.mode !== 'dust2') return;
                 if (event.target?.matches?.('input, textarea, [contenteditable="true"]')) return;
+                if (event.code === 'Tab') { this.scoreboardOpen = true; this.renderScoreboard(); event.preventDefault(); return; }
+                if (event.repeat || this.game.ui?.menuOpen || this.game.ui?.mainMenuOpen) return;
                 if (event.code === 'KeyE') { this.useHeld = true; event.preventDefault(); }
                 if (event.code === 'KeyB') { this.toggleBuy(); event.preventDefault(); }
-                if (event.code === 'KeyR') { this.send({ type: 'arena_reload' }); event.preventDefault(); }
+                if (event.code === 'KeyR') { this.reload(); event.preventDefault(); }
+                if (event.code === 'Digit1' || event.code === 'Digit2') { this.equip(Number(event.code.slice(-1))); event.preventDefault(); }
                 if (event.code === 'BracketLeft') this.spectatorIndex--;
                 if (event.code === 'BracketRight') this.spectatorIndex++;
             });
             window.addEventListener('keyup', event => {
                 if (event.code === 'KeyE') this.useHeld = false;
+                if (event.code === 'Tab') { this.scoreboardOpen = false; this.renderScoreboard(); }
             });
-            window.addEventListener('blur', () => { this.useHeld = false; });
+            window.addEventListener('blur', () => { this.useHeld = false; this.releaseTrigger(); this.scoreboardOpen = false; this.renderScoreboard(); });
         }
         const input = document.getElementById('input-mp-server-url');
         if (input) input.value = localStorage.getItem('eblankraft_pvp_server') || this.defaultUrl();
@@ -192,6 +202,7 @@ class ArenaClient {
                 clearTimeout(this.connectTimeout);
                 this.clientId = message.id;
                 this.mode = message.mode || 'legacy';
+                this.weaponSpecs = message.weaponSpecs || {};
                 this.enterArena(message.map);
                 this.isConnected = mp.isConnected = true;
                 mp.isHost = false;
@@ -213,8 +224,25 @@ class ArenaClient {
             case 'arena_snapshot':
                 if (this.isConnected) this.applySnapshot(message.players, message.match);
                 break;
+            case 'arena_shot':
+                if (this.isConnected && this.mode === 'dust2') this.showShot(message);
+                break;
             case 'arena_hit': {
                 if (!this.isConnected) break;
+                if (message.attackerId === this.clientId) {
+                    this.hitUntil = performance.now() + (message.killed ? 450 : 220);
+                    const marker = document.getElementById('dust2-hit');
+                    if (marker) {
+                        marker.textContent = `${message.headshot ? '✦' : '×'} ${Math.ceil(message.damage)}`;
+                        marker.style.color = message.killed ? '#ff6b6b' : '#fff';
+                        marker.style.display = 'block';
+                    }
+                }
+                if (message.killed) {
+                    this.killFeed.push({ text: `${message.attackerName || message.attackerId} · ${message.weaponName || message.weapon || ''}${message.headshot ? ' · HS' : ''} · ${message.targetName || message.targetId}`, until: performance.now() + 8000 });
+                    this.killFeed = this.killFeed.slice(-5);
+                    this.renderKillFeed();
+                }
                 if (message.targetId === this.clientId) {
                     const player = this.game.player;
                     player.health = message.health;
@@ -252,6 +280,11 @@ class ArenaClient {
             if (state.id === this.clientId) {
                 const player = this.game.player;
                 this.reconcile(state);
+                if (this.localState?.spawn !== state.spawn || this.localState?.heldItem !== state.heldItem) {
+                    this.releaseTrigger();
+                    this.lastAttack = -Infinity;
+                    if (player.isScoped) player.toggleScope?.();
+                }
                 this.localState = state;
                 if (this.mode === 'dust2' && player.inventory[0]?.itemId !== state.heldItem) {
                     player.inventory[0] = { itemId: state.heldItem, count: 1 };
@@ -282,6 +315,7 @@ class ArenaClient {
         this.multiplayer.updatePlayerCount();
         if (this.mode === 'dust2') {
             this.renderDustHud();
+            this.renderScoreboard();
             this.updateBombMarker();
             if (!this.localState?.alive) this.updateSpectator();
         }
@@ -305,19 +339,47 @@ class ArenaClient {
         hud.innerHTML = `<div id="dust2-score" style="position:absolute;top:16px;left:50%;transform:translateX(-50%);padding:9px 14px;background:#111c;border:1px solid #ffffff55;border-radius:6px;text-align:center"></div>
             <div id="dust2-status" style="position:absolute;top:70px;left:50%;transform:translateX(-50%);padding:6px 10px;background:#111a;border-radius:5px"></div>
             <div id="dust2-player" style="position:absolute;bottom:22px;left:24px;padding:8px 10px;background:#111b;border-radius:5px"></div>
-            <div id="dust2-buy" style="display:none;pointer-events:auto;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:340px;padding:14px;background:#111e;border:1px solid #d4af37;border-radius:8px;text-align:center">
+            <div id="dust2-ammo" style="position:absolute;bottom:95px;right:24px;padding:10px 14px;background:#111c;border-radius:5px;font-size:22px"></div>
+            <div id="dust2-hit" style="display:none;position:absolute;top:53%;left:50%;transform:translateX(-50%);font-size:22px"></div>
+            <div id="dust2-feed" style="position:absolute;right:14px;top:110px;text-align:right;font-size:12px"></div>
+            <div id="dust2-progress" style="display:none;position:absolute;top:62%;left:50%;transform:translateX(-50%);padding:10px;background:#111d;border-radius:5px"></div>
+            <div id="dust2-board" style="display:none;position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);width:min(480px,90vw);background:#111e;padding:14px;border-radius:8px;white-space:pre-wrap"></div>
+            <div id="dust2-actions" style="pointer-events:auto;position:absolute;right:16px;bottom:170px;display:flex;gap:6px;flex-wrap:wrap;max-width:240px;justify-content:flex-end">
+                <button class="touch-btn" data-action="reload" aria-label="Перезарядити">R ↻</button>
+                <button class="touch-btn" data-action="equip" aria-label="Змінити зброю">1 / 2</button>
+                <button class="touch-btn" data-action="use" aria-label="Утримуйте для C4">E C4</button>
+                <button class="touch-btn" data-action="buy" aria-label="Магазин">B $</button>
+                <button class="touch-btn" data-action="board" aria-label="Рахунок гравців">Tab</button>
+            </div>
+            <div id="dust2-buy" style="display:none;pointer-events:auto;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,90vw);padding:14px;background:#111e;border:1px solid #d4af37;border-radius:8px;text-align:center">
                 <div style="color:#ffd54f;margin-bottom:8px">BUY PHASE · B закрити</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
                     <button data-buy="armor">Броня $650</button><button data-buy="deagle">Deagle $700</button>
                     <button data-buy="mp5">MP5 $1500</button><button data-buy="ak47">AK-47 $2700 (T)</button>
                     <button data-buy="m4a1">M4A1 $2900 (CT)</button><button data-buy="awp">AWP $4750</button>
                 </div>
+                <button data-action="buy" style="margin-top:10px;width:100%">Продовжити гру</button>
             </div>`;
         document.body.appendChild(hud);
         for (const button of hud.querySelectorAll('[data-buy]')) {
             button.style.cssText = 'padding:8px;background:#27323c;color:#fff;border:1px solid #76899a;border-radius:4px;cursor:pointer;font:700 12px monospace';
             button.onclick = () => this.buy(button.dataset.buy);
         }
+        for (const button of hud.querySelectorAll('[data-action]')) {
+            button.style.cssText += ';padding:8px;min-height:38px;background:#27323c;color:white;border:1px solid #76899a;border-radius:4px;cursor:pointer;touch-action:none;position:static';
+            if (button.dataset.action === 'use') {
+                button.onpointerdown = event => { event.preventDefault(); button.setPointerCapture?.(event.pointerId); this.useHeld = true; };
+                button.onpointerup = button.onpointercancel = () => { this.useHeld = false; };
+                button.onlostpointercapture = () => { this.useHeld = false; };
+            } else button.onclick = () => {
+                const action = button.dataset.action;
+                if (action === 'reload') this.reload();
+                if (action === 'equip') this.equip(this.localState?.slot === 1 ? 2 : 1);
+                if (action === 'buy') this.toggleBuy();
+                if (action === 'board') { this.scoreboardOpen = !this.scoreboardOpen; this.renderScoreboard(); }
+            };
+        }
+        this.renderDustHud();
     }
 
     renderDustHud() {
@@ -327,20 +389,95 @@ class ArenaClient {
         const status = document.getElementById('dust2-status');
         const player = document.getElementById('dust2-player');
         const buy = document.getElementById('dust2-buy');
-        if (score) score.textContent = `T ${match.score.T}  —  ${match.score.CT} CT   |   Раунд ${match.round}`;
+        const alive = team => this.playerStates.filter(p => p.team === team && p.alive).length;
+        if (score) score.textContent = `T ${match.score.T}  —  ${match.score.CT} CT   |   Раунд ${match.round} · живі ${alive('T')}:${alive('CT')}`;
         const bomb = match.bomb || {};
         let objective = `${match.phase.toUpperCase()} · ${Math.ceil(match.remaining)}с`;
         if (bomb.status === 'planted') objective = `💣 C4 ${bomb.site} · ${Math.ceil(bomb.remaining)}с`;
         else if (bomb.status === 'dropped') objective = '💣 C4 скинуто';
-        else if (state.hasBomb) objective = '💣 У вас C4 — утримуйте E на A або B';
-        if (!state.alive) {
+        else if (state.hasBomb && match.phase === 'live') objective += ' · 💣 E на A або B';
+        if (match.phase === 'post' && match.result) {
+            const reasons = { bomb: 'C4 вибухнув', defuse: 'C4 розміновано', elimination: 'Команду знищено', time: 'Час вичерпано' };
+            objective = `${match.result.winner} перемагають · ${reasons[match.result.reason] || match.result.reason} · ${Math.ceil(match.remaining)}с`;
+        } else if (!state.alive) {
             const target = this.spectatorTarget();
             objective = `СПОСТЕРІГАЧ: ${target?.name || 'очікування'} · [ ] змінити ціль`;
         }
         if (status) status.textContent = objective;
-        if (player) player.textContent = `${state.team} · $${state.money} · ${Math.ceil(state.health)} HP${state.armor ? ' · броня' : ''} · ${state.heldItem} · ${state.ammo}/${state.reserveAmmo}${state.reloading ? ' · Перезарядка…' : ' · R — перезарядка'}`;
+        if (player) player.textContent = `${state.team} · $${state.money} · ${Math.ceil(state.health)} HP${state.armor ? ' · броня' : ''} · ${state.kills || 0}/${state.deaths || 0} K/D`;
+        const ammo = document.getElementById('dust2-ammo');
+        const spec = this.weaponSpec();
+        if (ammo) ammo.textContent = `${spec.name || state.heldItem.toUpperCase()} · ${state.ammo} / ${state.reserveAmmo}${state.reloading ? ` · ↻ ${Math.ceil(state.reloadRemaining || 0)}с` : ''}`;
+        const progress = document.getElementById('dust2-progress');
+        if (progress) {
+            progress.style.display = bomb.actor ? 'block' : 'none';
+            progress.textContent = `${bomb.action === 'defuse' ? 'Розмінування' : 'Встановлення'} ${Math.round((bomb.progress || 0) * 100)}% · ${(bomb.actionRemaining || 0).toFixed(1)}с`;
+        }
         if (match.phase !== 'buy' || !state.alive) this.buyOpen = false;
         if (buy) buy.style.display = this.buyOpen ? 'block' : 'none';
+        for (const button of buy?.querySelectorAll?.('[data-buy]') || []) {
+            const item = button.dataset.buy;
+            const cost = item === 'armor' ? 650 : this.weaponSpecs[item]?.cost;
+            button.disabled = match.phase !== 'buy' || !state.alive || state.money < (cost || 0) ||
+                (item === 'armor' && state.armor) || (item === 'ak47' && state.team !== 'T') || (item === 'm4a1' && state.team !== 'CT') || state.primary === item || state.secondary === item;
+            button.style.opacity = button.disabled ? '.4' : '1';
+        }
+    }
+
+    renderScoreboard() {
+        const board = document.getElementById('dust2-board');
+        if (!board) return;
+        board.style.display = this.scoreboardOpen ? 'block' : 'none';
+        board.textContent = ['ГРАВЦІ · K / D · HP', ...['T', 'CT'].flatMap(team => [
+            `\n${team}`, ...this.playerStates.filter(p => p.team === team).sort((a, b) => (b.kills || 0) - (a.kills || 0)).map(p =>
+                `${p.id === this.clientId ? '▸ ' : ''}${p.name}${p.bot ? ' [BOT]' : ''} · ${p.kills || 0}/${p.deaths || 0} · ${p.alive ? Math.ceil(p.health) : '†'}`)
+        ])].join('\n');
+    }
+
+    renderKillFeed() {
+        this.killFeed = this.killFeed.filter(entry => entry.until > performance.now());
+        const feed = document.getElementById('dust2-feed');
+        if (feed) feed.textContent = this.killFeed.map(entry => entry.text).join('\n');
+        if (feed) feed.style.whiteSpace = 'pre-line';
+    }
+
+    weaponSpec() {
+        const weapon = this.localState?.heldItem || 'glock';
+        return this.weaponSpecs[weapon] || { cooldown: weapon === 'awp' ? 1.15 : ['glock', 'deagle'].includes(weapon) ? .3 : .12,
+            automatic: ['mp5', 'ak47', 'm4a1'].includes(weapon), recoil: weapon === 'awp' ? .065 : .025 };
+    }
+
+    reload() {
+        if (!this.isConnected || this.mode !== 'dust2' || this.buyOpen || !this.localState?.alive) return false;
+        return this.send({ type: 'arena_reload' });
+    }
+
+    equip(slot) {
+        if (!this.isConnected || this.mode !== 'dust2' || !this.localState?.alive || this.buyOpen) return false;
+        this.releaseTrigger();
+        return this.send({ type: 'arena_equip', slot });
+    }
+
+    releaseTrigger() { this.triggerHeld = false; }
+
+    showShot(message) {
+        if (message.attackerId !== this.clientId) {
+            this.game.modManager?.soundSynth?.gunshot(.8, .12);
+            const remote = this.multiplayer.remotePlayers.get(message.attackerId);
+            if (remote) remote.armSwing = .55;
+        }
+        if (!window.THREE || !this.game.scene || !message.origin || !message.end) return;
+        const vector = point => new THREE.Vector3(point.x, point.y, point.z);
+        const start = vector(message.origin), end = vector(message.end);
+        if (message.attackerId === this.clientId) {
+            // Offset the tracer from the camera while retaining the server's hit point.
+            start.y -= .15;
+        }
+        const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+        const material = new THREE.LineBasicMaterial({ color: 0xffd36b, transparent: true, opacity: .8 });
+        const line = new THREE.Line(geometry, material);
+        this.game.scene.add(line);
+        this.tracers.push({ line, until: performance.now() + 90 });
     }
 
     toggleBuy() {
@@ -517,7 +654,24 @@ class ArenaClient {
 
     updatePlayer(dt, input, jump) {
         const player = this.game.player;
-        const paused = this.game.ui?.mainMenuOpen || this.game.ui?.menuOpen || this.buyOpen;
+        const frozen = this.mode === 'dust2' && this.match && this.match.phase !== 'live';
+        const paused = this.game.ui?.mainMenuOpen || this.game.ui?.menuOpen || this.buyOpen || frozen;
+        const controls = this.game.controls;
+        if (paused || !((controls?.mouseLeftDown && controls?.isPointerLocked) || controls?.attackBtnPressed || controls?.breakBtnPressed)) this.releaseTrigger();
+        this.useHeld = paused ? false : this.useHeld;
+        const now = performance.now();
+        if (now >= this.hitUntil) {
+            const marker = document.getElementById('dust2-hit');
+            if (marker) marker.style.display = 'none';
+        }
+        this.renderKillFeed();
+        this.tracers = this.tracers.filter(entry => {
+            if (now < entry.until) return true;
+            this.game.scene?.remove(entry.line);
+            entry.line.geometry.dispose();
+            entry.line.material.dispose();
+            return false;
+        });
         const spectating = this.mode === 'dust2' && !this.localState?.alive;
         const control = {
             strafe: paused || spectating ? 0 : Math.max(-1, Math.min(1, input.x)),
@@ -526,7 +680,7 @@ class ArenaClient {
             yaw: Math.atan2(Math.sin(player.yaw), Math.cos(player.yaw)),
         };
         this.sendInput(control.strafe, control.forward, control.jump, control.sprint);
-        if (this.predicted && this.localState?.alive && performance.now() - this.lastSnapshot < 500) {
+        if (!frozen && this.predicted && this.localState?.alive && performance.now() - this.lastSnapshot < 500) {
             const frame = { seq: this.seq, control, dt: Math.max(0, Math.min(dt, 0.1)) };
             this.predict(this.predicted, control, frame.dt);
             this.pendingFrames.push(frame);
@@ -551,15 +705,32 @@ class ArenaClient {
 
     attack() {
         const now = performance.now(), player = this.game.player;
-        const cooldown = this.mode === 'dust2' ? 75 : 550;
-        if (!this.isConnected || player.isDead || this.buyOpen || now - this.lastAttack < cooldown) return false;
+        const dust = this.mode === 'dust2';
+        const spec = this.weaponSpec();
+        const cooldown = dust ? spec.cooldown * 1000 : 550;
+        // Arena controls consume the action even when firing is unavailable.
+        if (!this.isConnected || player.isDead || this.buyOpen || this.game.ui?.menuOpen || this.game.ui?.mainMenuOpen ||
+            (dust && (this.match?.phase !== 'live' || !this.localState?.alive))) return dust;
+        if (dust && !spec.automatic && this.triggerHeld) return true;
+        if (now - this.lastAttack < cooldown) return dust;
+        if (dust && (this.localState.reloading || this.localState.ammo <= 0)) {
+            if (!this.localState.reloading && this.localState.reserveAmmo > 0) this.reload();
+            return true;
+        }
         const controls = this.game.controls;
         this.sendInput(controls?.inputVector.x || 0, controls?.inputVector.y || 0,
             controls?.jumpPressed || false, player.isSprinting, true);
-        if (!this.send({ type: 'arena_attack' })) return false;
+        if (!this.send({ type: 'arena_attack' })) return dust;
         this.lastAttack = now;
-        player.armSwing = 1;
+        this.triggerHeld = true;
+        player.armSwing = dust ? .55 : 1;
         player.attackCooldown = 0;
+        if (dust) {
+            this.localState.ammo = Math.max(0, this.localState.ammo - 1);
+            player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, player.pitch + (spec.recoil || .025)));
+            this.game.modManager?.soundSynth?.gunshot(this.localState.heldItem === 'awp' ? .4 : .85, .35);
+            this.renderDustHud();
+        }
         return true;
     }
 
@@ -571,6 +742,7 @@ class ArenaClient {
         const socket = this.socket;
         this.socket = null;
         this.useHeld = false;
+        this.releaseTrigger();
         clearTimeout(this.connectTimeout);
         clearInterval(this.heartbeat);
         this.isConnected = false;
@@ -579,6 +751,7 @@ class ArenaClient {
         this.multiplayer.remotePlayers.clear();
         if (this.savedSession) {
             const saved = this.savedSession, player = this.game.player;
+            if (player.isScoped) player.toggleScope?.();
             if (this.game.world !== saved.world) this.game.world.clearWorld();
             this.game.world = saved.world;
             player.world = saved.world;
@@ -601,6 +774,15 @@ class ArenaClient {
         this.playerStates = [];
         this.mode = 'legacy';
         this.buyOpen = false;
+        this.scoreboardOpen = false;
+        this.weaponSpecs = {};
+        this.killFeed = [];
+        for (const entry of this.tracers) {
+            this.game.scene?.remove(entry.line);
+            entry.line.geometry.dispose();
+            entry.line.material.dispose();
+        }
+        this.tracers = [];
         for (const marker of this.siteMarkers || []) {
             this.game.scene?.remove(marker);
             marker.material.map?.dispose();
@@ -609,6 +791,7 @@ class ArenaClient {
         this.siteMarkers = [];
         if (this.bombMarker) {
             this.game.scene?.remove(this.bombMarker);
+            this.bombMarker.traverse?.(object => { object.geometry?.dispose(); object.material?.dispose(); });
             this.bombMarker = null;
         }
         const hud = document.getElementById('dust2-hud');

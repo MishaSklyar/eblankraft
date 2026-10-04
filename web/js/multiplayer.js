@@ -1345,7 +1345,10 @@ class MultiplayerManager {
     // Check PvP Raycast hit against remote players (Precision Modern Hitbox)
     checkPvPHit(origin, dir, reach, baseDmg, isCrit = false, isSweep = false, knockback = null) {
         if (this.game.arenaClient?.isActive) return this.game.arenaClient.attack();
-        if (!this.isConnected || this.remotePlayers.size === 0) return false;
+        const sc = this.game.serverClient;
+        if ((!this.isConnected && !sc?.currentRoom) || this.remotePlayers.size === 0) return false;
+        if (sc?.currentRoom?.startsWith('coop_')) return false;
+        if (this.game.ui?.isDuelActive && (this.game.ui.duelLoading || this.game.ui.duelCountdown > 0 || this.game.ui.duelFinished)) return false;
 
         let hit = false;
         for (let [peerId, remote] of this.remotePlayers.entries()) {
@@ -1359,6 +1362,9 @@ class MultiplayerManager {
                 const perpDist = toRemote.sub(dir.clone().multiplyScalar(distAlongRay)).length();
                 const hitboxRadius = 0.72; // Precision cylinder hitbox
                 if (perpDist <= hitboxRadius) {
+                    if (sc?.isConnected && sc.currentRoom?.startsWith('duel_')) {
+                        return sc.requestAttack(peerId, isCrit);
+                    }
                     const kbObj = knockback ? { x: knockback.x, y: knockback.y, z: knockback.z } : null;
                     let packet = {
                         type: 'pvp_hit',
@@ -1391,6 +1397,17 @@ class MultiplayerManager {
             }
         }
         return hit;
+    }
+
+    addRemotePlayer(peerId, name) {
+        let remote = this.remotePlayers.get(peerId);
+        if (!remote) {
+            remote = new RemotePlayer(peerId, name, this.game.scene, this.game.textureManager,
+                this.game.soundManager, this.game.particleSystem);
+            this.remotePlayers.set(peerId, remote);
+            this.updatePlayerCount();
+        }
+        return remote;
     }
 
     removeRemotePlayer(peerId) {
@@ -1436,6 +1453,7 @@ class MultiplayerManager {
     }
 
     disconnect() {
+        if (this.game.ui?.duelSavedSession || this.game.ui?.isDuelQueueSearching) this.game.ui.cleanupDuel();
         if (this.game.arenaClient) this.game.arenaClient.disconnect();
         this.isConnected = false;
         this.isHost = false;

@@ -141,6 +141,13 @@ class SharedWorldClient {
                 this.roomPackets = [];
                 this.clearRemotePlayers();
                 this.updateBadge("СЕРВЕР: ОФЛАЙН — перевірте адресу та запуск сервера", "#888888");
+                if (this.pendingDuel || this.currentRoom?.startsWith('duel_')) {
+                    this.pendingDuel = null;
+                    this.currentRoom = null;
+                    this.game.ui?.cleanupDuel();
+                    this.game.ui?.showToast('Дуель перервана: з’єднання із сервером втрачено.');
+                    return;
+                }
 
                 // Attempt reconnect
                 if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -219,6 +226,8 @@ class SharedWorldClient {
     }
 
     leaveRoom() {
+        this.pendingDuel = null;
+        if (this.game.ui?.duelSavedSession && !this.game.ui.duelCleaning) this.game.ui.cleanupDuel(false);
         this.sendRaw({ type: 'leave' });
         this.currentRoom = null;
         this.roomGeneration++;
@@ -306,7 +315,8 @@ class SharedWorldClient {
             pitch: Math.round(pitch * 100) / 100,
             held_item: heldItem || null,
             is_walking: !!isWalking,
-            is_sprinting: !!isSprinting
+            is_sprinting: !!isSprinting,
+            is_blocking: !!this.game.player?.isBlocking
         });
     }
 
@@ -360,17 +370,36 @@ class SharedWorldClient {
         });
     }
 
-    joinDuelQueue(playerName = 'Боєць', kitId = 'classic_sword') {
+    joinDuelQueue(playerName = 'Боєць', kitId = 'classic') {
+        if (!['classic', 'shawarma'].includes(kitId)) return false;
+        let url;
+        try {
+            url = new URL(this.computeServerUrl());
+            if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) return false;
+        } catch (error) { return false; }
+        this.game.arenaClient?.disconnect();
+        if (this.socket && this.serverUrl !== url.href) {
+            const old = this.socket;
+            old.onclose = old.onopen = old.onmessage = old.onerror = null;
+            old.close();
+            this.socket = null;
+            this.isConnected = this.isConnecting = false;
+            this.stopPingLoop();
+        }
+        this.serverUrl = url.href;
+        this.pendingDuel = { name: playerName, kit: kitId };
         this.joinRoom('pvp_arena', playerName);
-        this.sendRaw({
-            type: 'join_duel_queue',
-            name: playerName,
-            player_name: playerName,
-            kit: kitId
-        });
+        if (!this.isConnected) this.connect();
+        if (!this.isConnected && !this.isConnecting) {
+            this.pendingDuel = null;
+            this.currentRoom = null;
+            return false;
+        }
+        return true;
     }
 
     leaveDuelQueue() {
+        this.pendingDuel = null;
         this.sendRaw({
             type: 'leave_duel_queue'
         });
@@ -415,6 +444,10 @@ class SharedWorldClient {
 
             case 'welcome': {
                 this.clientId = msg.id;
+                if (this.pendingDuel && msg.room === 'pvp_arena') {
+                    this.sendRaw({ type: 'join_duel_queue', player_name: this.pendingDuel.name,
+                        kit: this.pendingDuel.kit });
+                }
                 console.log(`[Shared WS] Joined room '${msg.room}' with Client ID: ${msg.id}`);
 
                 if (this.game && this.game.world && Array.isArray(msg.blocks)) {
@@ -435,6 +468,7 @@ class SharedWorldClient {
                                 rp.targetPosition.set(p.x, p.y, p.z);
                                 rp.group.position.set(p.x, p.y, p.z);
                                 if (p.skin) rp.setSkin(p.skin);
+                                rp.updateHeldItem(this.resolveHeldItem(p.held_item));
                             }
                         }
                     });
@@ -452,6 +486,7 @@ class SharedWorldClient {
                         rp.targetPosition.set(p.x, p.y, p.z);
                         rp.group.position.set(p.x, p.y, p.z);
                         if (p.skin) rp.setSkin(p.skin);
+                        rp.updateHeldItem(this.resolveHeldItem(p.held_item));
                     }
                     if (mp.showToast) mp.showToast(`👋 Гравець [${p.name}] приєднався до сервера!`);
                 }
@@ -677,6 +712,11 @@ class SharedWorldClient {
             }
 
             case 'duel_matched': {
+                if (!this.pendingDuel) {
+                    this.sendRaw({ type: 'leave' });
+                    break;
+                }
+                this.pendingDuel = null;
                 if (msg.room) {
                     this.currentRoom = msg.room;
                 }
@@ -685,6 +725,15 @@ class SharedWorldClient {
                 }
                 break;
             }
+
+            case 'duel_queue_status':
+                this.game.ui?.showToast('Очікуємо суперника з таким самим набором.');
+                break;
+
+            case 'duel_error':
+                this.game.ui?.cancelDuelMatchmaking();
+                this.game.ui?.showToast(msg.message);
+                break;
 
             case 'duel_countdown': {
                 if (this.game && this.game.ui) {

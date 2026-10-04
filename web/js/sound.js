@@ -1218,6 +1218,198 @@ class SoundManager {
             window.speechSynthesis.speak(utterance);
         } catch (e) {}
     }
+
+    // --- PROCEDURAL C418-STYLE MAIN MENU AMBIENT MUSIC ENGINE ---
+    startMenuMusic() {
+        if (!this.enabled || this.menuMusicRunning) return;
+        this.init();
+        if (!this.ctx) return;
+
+        this.menuMusicRunning = true;
+        this.menuMusicVolume = (this.menuMusicVolume !== undefined) ? this.menuMusicVolume : 0.25;
+
+        try {
+            this.menuMusicMasterGain = this.ctx.createGain();
+            this.menuMusicMasterGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
+            this.menuMusicMasterGain.gain.linearRampToValueAtTime(this.menuMusicVolume, this.ctx.currentTime + 2.0);
+            this.menuMusicMasterGain.connect(this.getDestination());
+        } catch (e) {
+            return;
+        }
+
+        // Pentatonic C418-style note frequencies (C4, D4, E4, G4, A4, C5, D5, E5, G5)
+        const notes = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25, 783.99];
+        // Chord progressions (soft pads)
+        const chords = [
+            [130.81, 196.00, 261.63, 329.63], // Cmaj
+            [110.00, 164.81, 220.00, 261.63], // Amin
+            [146.83, 220.00, 293.66, 349.23], // Fmaj / Dmin
+            [98.00, 146.83, 196.00, 246.94]   // Gmaj
+        ];
+
+        let chordIdx = 0;
+
+        const playPadChord = () => {
+            if (!this.menuMusicRunning || !this.ctx || !this.menuMusicMasterGain) return;
+            const now = this.ctx.currentTime;
+            const chord = chords[chordIdx % chords.length];
+            chordIdx++;
+
+            chord.forEach((freq, idx) => {
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    const filter = this.ctx.createBiquadFilter();
+
+                    osc.type = (idx === 0) ? 'sine' : 'triangle';
+                    osc.frequency.setValueAtTime(freq, now);
+
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(450 + idx * 80, now);
+                    filter.frequency.linearRampToValueAtTime(300, now + 4.5);
+
+                    gain.gain.setValueAtTime(0.001, now);
+                    gain.gain.linearRampToValueAtTime(0.045 / (idx + 1), now + 1.2);
+                    gain.gain.linearRampToValueAtTime(0.0001, now + 5.5);
+
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(this.menuMusicMasterGain);
+
+                    osc.start(now);
+                    osc.stop(now + 5.6);
+                } catch (e) {}
+            });
+
+            // Random delicate piano melody note on top
+            if (Math.random() > 0.15) {
+                const noteDelay = 1.0 + Math.random() * 2.0;
+                setTimeout(() => {
+                    if (!this.menuMusicRunning || !this.ctx || !this.menuMusicMasterGain) return;
+                    try {
+                        const mNow = this.ctx.currentTime;
+                        const mFreq = notes[Math.floor(Math.random() * notes.length)];
+                        const mOsc = this.ctx.createOscillator();
+                        const mGain = this.ctx.createGain();
+                        const mFilt = this.ctx.createBiquadFilter();
+
+                        mOsc.type = 'sine';
+                        mOsc.frequency.setValueAtTime(mFreq, mNow);
+
+                        mFilt.type = 'lowpass';
+                        mFilt.frequency.setValueAtTime(1200, mNow);
+
+                        mGain.gain.setValueAtTime(0.001, mNow);
+                        mGain.gain.linearRampToValueAtTime(0.08, mNow + 0.04);
+                        mGain.gain.exponentialRampToValueAtTime(0.0001, mNow + 3.2);
+
+                        mOsc.connect(mFilt);
+                        mFilt.connect(mGain);
+                        mGain.connect(this.menuMusicMasterGain);
+
+                        mOsc.start(mNow);
+                        mOsc.stop(mNow + 3.3);
+                    } catch (e) {}
+                }, noteDelay * 1000);
+            }
+
+            if (this.menuMusicRunning) {
+                this.menuMusicTimeout = setTimeout(playPadChord, 4800 + Math.random() * 1200);
+            }
+        };
+
+        playPadChord();
+    }
+
+    stopMenuMusic(fadeDuration = 1.0) {
+        if (!this.menuMusicRunning) return;
+        this.menuMusicRunning = false;
+        if (this.menuMusicTimeout) {
+            clearTimeout(this.menuMusicTimeout);
+            this.menuMusicTimeout = null;
+        }
+        if (this.menuMusicMasterGain && this.ctx) {
+            try {
+                const now = this.ctx.currentTime;
+                this.menuMusicMasterGain.gain.cancelScheduledValues(now);
+                this.menuMusicMasterGain.gain.linearRampToValueAtTime(0.0001, now + fadeDuration);
+                setTimeout(() => {
+                    try {
+                        if (this.menuMusicMasterGain) {
+                            this.menuMusicMasterGain.disconnect();
+                            this.menuMusicMasterGain = null;
+                        }
+                    } catch (e) {}
+                }, fadeDuration * 1000 + 100);
+            } catch (e) {
+                this.menuMusicMasterGain = null;
+            }
+        }
+    }
+
+    setMenuMusicVolume(vol) {
+        this.menuMusicVolume = Math.max(0, Math.min(1, vol));
+        if (this.menuMusicMasterGain && this.ctx) {
+            try {
+                this.menuMusicMasterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+                this.menuMusicMasterGain.gain.linearRampToValueAtTime(this.menuMusicVolume, this.ctx.currentTime + 0.1);
+            } catch (e) {}
+        }
+    }
+
+    playSplashBounce() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(220, now);
+            osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+            osc.frequency.exponentialRampToValueAtTime(440, now + 0.18);
+
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+            osc.connect(gain);
+            gain.connect(this.getDestination());
+            osc.start(now);
+            osc.stop(now + 0.21);
+        } catch (e) {}
+    }
+
+    playSuperEblanFanfare() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+            const now = this.ctx.currentTime;
+            // Majestic fanfare notes: C4 -> E4 -> G4 -> C5
+            const fanfareNotes = [261.63, 329.63, 392.00, 523.25];
+            fanfareNotes.forEach((freq, idx) => {
+                const noteTime = now + idx * 0.12;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = (idx === fanfareNotes.length - 1) ? 'sawtooth' : 'triangle';
+                osc.frequency.setValueAtTime(freq, noteTime);
+
+                const dur = (idx === fanfareNotes.length - 1) ? 0.9 : 0.2;
+                gain.gain.setValueAtTime(0.001, noteTime);
+                gain.gain.linearRampToValueAtTime(0.28, noteTime + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, noteTime + dur);
+
+                osc.connect(gain);
+                gain.connect(this.getDestination());
+                osc.start(noteTime);
+                osc.stop(noteTime + dur + 0.05);
+            });
+            this.speakRandomMeme(["Оце так СУПЕРЄБЛАН!", "Боже, яка міць!", "Тепер ти справжній VIP!"]);
+        } catch (e) {}
+    }
 }
 
 window.SoundManager = SoundManager;

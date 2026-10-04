@@ -219,6 +219,7 @@ class Controls {
             const stopAttack = (e) => {
                 this.attackBtnPressed = false;
                 this.attackHoldTimer = 0;
+                this.releaseFireTrigger();
             };
             btnAttack.addEventListener('touchstart', startAttack, { passive: false });
             btnAttack.addEventListener('touchend', stopAttack);
@@ -243,6 +244,7 @@ class Controls {
             const stopBreak = (e) => {
                 this.breakBtnPressed = false;
                 this.attackHoldTimer = 0;
+                this.releaseFireTrigger();
                 this.player.isMining = false;
                 this.player.miningProgress = 0;
             };
@@ -319,7 +321,7 @@ class Controls {
             if (this.isPointerLocked) return;
             if (this.player.isDead) return;
             if (window.game && window.game.ui && (window.game.ui.mainMenuOpen || window.game.ui.inventoryOpen || window.game.ui.menuOpen || window.game.ui.layoutModalOpen || window.game.ui.dragModeOpen)) return;
-            if (e.target.closest('#main-menu, .modal-overlay, #pause-menu, #inventory-modal, #crafting-modal, #blockly-modal, #game-dev-console, #mods-modal, .touch-btn, #btn-chat-toggle, #btn-menu-toggle')) {
+            if (e.target.closest('#main-menu, .modal-overlay, #pause-menu, #inventory-modal, #crafting-modal, #blockly-modal, #game-dev-console, #mods-modal, #dust2-hud, #gun-hud, .touch-btn, #btn-chat-toggle, #btn-menu-toggle')) {
                 return;
             }
             requestLock();
@@ -334,6 +336,7 @@ class Controls {
                 this.mouseRightDown = false;
                 this.mouseMiddleDown = false;
                 this.attackHoldTimer = 0;
+                this.releaseFireTrigger();
                 if (this.mouseMiningInterval) {
                     clearInterval(this.mouseMiningInterval);
                     this.mouseMiningInterval = null;
@@ -376,6 +379,10 @@ class Controls {
                     this.player.isMining = true;
                 }
             } else if (e.button === 2) { // Right Click = Place, Eat, or Block (Shield/Sword)
+                if (this.game?.arenaClient?.isActive) {
+                    if (this.game.arenaClient.localState?.heldItem === 'awp' && !this.player.isDead) this.player.toggleScope?.();
+                    return;
+                }
                 const held = this.player.getSelectedItem();
                 const reg = (held && window.ITEM_REGISTRY) ? ITEM_REGISTRY[held.itemId] : null;
                 if (reg && (reg.isShield || reg.isSword)) {
@@ -391,6 +398,7 @@ class Controls {
             if (e.button === 0) {
                 this.mouseLeftDown = false;
                 this.attackHoldTimer = 0;
+                this.releaseFireTrigger();
                 this.player.isMining = false;
                 this.player.miningProgress = 0;
             } else if (e.button === 2) {
@@ -423,6 +431,10 @@ class Controls {
             }
 
             e.preventDefault();
+            if (this.game?.arenaClient?.isActive) {
+                this.game.arenaClient.equip(this.game.arenaClient.localState?.slot === 1 ? 2 : 1);
+                return;
+            }
             let nextSlot = this.player.selectedHotbarIndex + (e.deltaY > 0 ? 1 : -1);
             if (nextSlot < 0) nextSlot = 8;
             if (nextSlot > 8) nextSlot = 0;
@@ -587,7 +599,10 @@ class Controls {
                 this.player.detonateTNT();
             } else if (e.code === 'KeyR') {
                 if (window.game?.arenaClient?.isActive && window.game.arenaClient.mode === 'dust2') return;
-                if (e.shiftKey) {
+                if (this.player.getGunState?.()) {
+                    e.preventDefault();
+                    if (!e.repeat) this.player.reloadGun?.();
+                } else if (e.shiftKey) {
                     this.player.spawnSafe();
                 } else {
                     this.player.tryDodgeRoll(this.inputVector);
@@ -599,6 +614,7 @@ class Controls {
 
             // Hotbar 1..9
             if (e.key >= '1' && e.key <= '9') {
+                if (this.game?.arenaClient?.isActive) { e.preventDefault(); return; }
                 const idx = parseInt(e.key) - 1;
                 if (window.game && window.game.ui) window.game.ui.selectHotbarSlot(idx);
             }
@@ -633,10 +649,77 @@ class Controls {
             this.attackBtnPressed = false;
             this.breakBtnPressed = false;
             this.attackHoldTimer = 0;
+            this.releaseFireTrigger();
         });
     }
 
+    releaseFireTrigger() {
+        this.player.releaseGunTrigger?.();
+        this.game?.arenaClient?.releaseTrigger();
+    }
+
+    updateGunHud() {
+        const state = this.game?.arenaClient?.isActive ? null : this.player.getGunState?.();
+        let hud = document.getElementById('gun-hud');
+        const visible = !!state && !this.player.isDead && !this.game?.ui?.mainMenuOpen && !this.game?.ui?.menuOpen && !this.game?.ui?.inventoryOpen;
+        if (!visible) { if (hud) hud.style.display = 'none'; return; }
+        if (!hud && document.createElement && document.body?.appendChild) {
+            hud = document.createElement('div');
+            hud.id = 'gun-hud';
+            hud.innerHTML = `
+                <div class="eblan-gun-info">
+                    <div id="gun-name-badge" class="eblan-gun-title">🔫 СТВОЛ</div>
+                    <div class="eblan-gun-ammo-row">
+                        <span id="gun-ammo-main" class="eblan-gun-count-big">0</span>
+                        <span id="gun-ammo-capacity" class="eblan-gun-reserve">/ 0</span>
+                        <span id="gun-ammo-reserve" class="eblan-gun-reserve" style="margin-left:4px">🎒 0</span>
+                    </div>
+                    <div id="gun-ammo-status" class="eblan-gun-status">⚡ ГОТОВИЙ ДО СТРІЛЯНИНИ</div>
+                    <span id="gun-ammo-label" style="display:none"></span>
+                </div>
+                <button id="gun-reload-btn" class="eblan-gun-reload-btn" aria-label="Перезарядити зброю">[ R ] 🔄 ЗАРЯДИТИ</button>
+            `;
+            document.body.appendChild(hud);
+            const btn = document.getElementById('gun-reload-btn');
+            if (btn) btn.onclick = () => this.player.reloadGun?.();
+        }
+        if (!hud) return;
+        hud.style.display = 'flex';
+        const label = document.getElementById('gun-ammo-label');
+        if (label) label.textContent = `${state.gunType.toUpperCase()} · ${state.ammo}/${state.capacity} · ${Number.isFinite(state.reserve) ? state.reserve : '∞'}${state.reloading ? ` · ↻ ${state.reloadRemaining.toFixed(1)}с` : ''}${performance.now() < (this.player.gunHitUntil || 0) ? ' · × HIT' : ''}`;
+
+        const nameBadge = document.getElementById('gun-name-badge');
+        if (nameBadge) nameBadge.textContent = `🔫 ${state.gunType.toUpperCase()}`;
+        const mainCount = document.getElementById('gun-ammo-main');
+        if (mainCount) {
+            mainCount.textContent = state.ammo;
+            mainCount.classList.toggle('low', state.ammo <= Math.ceil(state.capacity * 0.25));
+        }
+        const capEl = document.getElementById('gun-ammo-capacity');
+        if (capEl) capEl.textContent = `/ ${state.capacity}`;
+        const resEl = document.getElementById('gun-ammo-reserve');
+        if (resEl) resEl.textContent = `🎒 ${Number.isFinite(state.reserve) ? state.reserve : '∞'}`;
+        const statusEl = document.getElementById('gun-ammo-status');
+        if (statusEl) {
+            if (state.reloading) {
+                statusEl.textContent = `⚠️ ПЕРЕЗАРЯДКА (${state.reloadRemaining.toFixed(1)}с)...`;
+                statusEl.className = 'eblan-gun-status';
+            } else if (performance.now() < (this.player.gunHitUntil || 0)) {
+                statusEl.textContent = `💥 ВЛУЧИВ ПО ЄБЛАНУ!`;
+                statusEl.className = 'eblan-gun-status hit';
+            } else if (state.ammo === 0) {
+                statusEl.textContent = `❌ ПУСТО! ТИСНИ [ R ]`;
+                statusEl.className = 'eblan-gun-status hit';
+            } else {
+                statusEl.textContent = `⚡ ГОТОВИЙ ДО СТРІЛЯНИНИ`;
+                statusEl.className = 'eblan-gun-status';
+            }
+        }
+    }
+
+
     update(dt) {
+        this.updateGunHud();
         if (this.game && this.game.ui && this.game.ui.mainMenuOpen) {
             this.inputVector.set(0, 0);
             this.jumpPressed = false;
@@ -644,7 +727,8 @@ class Controls {
         }
 
         // Continuous auto-attack / auto-fire when holding down attack button, left click, or break button
-        const isAttackingHold = (this.mouseLeftDown && this.isPointerLocked) || this.attackBtnPressed || this.breakBtnPressed;
+        const paused = this.game?.ui?.menuOpen || this.game?.ui?.inventoryOpen || this.game?.arenaClient?.buyOpen || this.player.isDuelLocked?.();
+        const isAttackingHold = !paused && ((this.mouseLeftDown && this.isPointerLocked) || this.attackBtnPressed || this.breakBtnPressed);
         if (isAttackingHold) {
             const heldItem = this.player.getSelectedItem();
             const heldReg = (heldItem && window.ITEM_REGISTRY) ? ITEM_REGISTRY[heldItem.itemId] : null;
@@ -669,6 +753,7 @@ class Controls {
             }
         } else {
             this.attackHoldTimer = 0;
+            this.releaseFireTrigger();
         }
 
         // Integrate keyboard into inputVector (supports WASD, Arrow keys, and Cyrillic Ц/Ы/В/Ф)
