@@ -45,7 +45,7 @@ WEAPONS = {
     "glock": {"cost": 0, "damage": 25, "cooldown": .28, "range": 30},
     "deagle": {"cost": 700, "damage": 42, "cooldown": .42, "range": 34},
     "mp5": {"cost": 1500, "damage": 23, "cooldown": .11, "range": 28},
-    "ak47": {"cost": 2700, "damage": 35, "cooldown": .12, "range": 40},
+    "ak47": {"cost": 2700, "damage": 35, "cooldown": .11, "range": 85},
     "m4a1": {"cost": 2900, "damage": 33, "cooldown": .12, "range": 40},
     "awp": {"cost": 4750, "damage": 105, "cooldown": 1.15, "range": 52},
 }
@@ -59,7 +59,7 @@ for name, (label, automatic, spread, recoil, headshot, armor, falloff) in {
     "glock": ("Glock-18", False, .0035, .005, 3.6, .55, .94),
     "deagle": ("Desert Eagle", False, .002, .018, 2.5, .80, .97),
     "mp5": ("MP5", True, .004, .006, 3.0, .60, .92),
-    "ak47": ("AK-47", True, .0018, .011, 4.0, .78, .98),
+    "ak47": ("AK-47", True, .012, .038, 4.0, .78, .98),
     "m4a1": ("M4A1", True, .0015, .008, 3.5, .72, .98),
     "awp": ("AWP", False, .0005, .025, 2.0, .95, .99),
 }.items():
@@ -612,12 +612,31 @@ class ArenaService:
         if not target: return
         key = f"{label}:{target[0]}:{target[1]}"
         if bot.route_key != key: bot.route_key, bot.route, bot.route_index = key, self._bot_route(bot, room, planted or room.bomb_carrier is None), 0
-        while bot.route_index < len(bot.route) - 1 and flat_distance(bot, bot.route[bot.route_index]) < .2: bot.route_index += 1
+        while bot.route_index < len(bot.route) - 1 and flat_distance(bot, bot.route[bot.route_index]) < .45: bot.route_index += 1
         point = bot.route[bot.route_index] if bot.route else target; dx, dz = point[0] - bot.x, point[1] - bot.z
-        bot.yaw, bot.pitch, bot.objective = math.atan2(-dx, -dz), 0, label
-        bot.arena_input.update({"strafe": 0, "forward": 1 if math.hypot(dx, dz) > (.1 if bot.route_index < len(bot.route) - 1 else 1.1) else 0, "jump": False, "sprint": True})
+        forward = math.hypot(dx, dz) > (.1 if bot.route_index < len(bot.route) - 1 else 1.1)
+        speed = math.hypot(bot.vx, bot.vz)
+        jump = False
         if len(point) > 2 and point[2] > bot.y + .5 and bot.on_ground:
-            bot.arena_input["jump"] = not bot.jump_held
+            jump = not bot.jump_held
+        elif forward and bot.on_ground and speed < 0.6:
+            bot.stuck_ticks = getattr(bot, "stuck_ticks", 0) + 1
+            if bot.stuck_ticks > 5:
+                jump = not bot.jump_held
+                bot.stuck_ticks = 0
+        else:
+            bot.stuck_ticks = 0
+        if forward:
+            bot.yaw, bot.pitch = math.atan2(-dx, -dz), 0
+        elif label == "hold site":
+            # Hold angle and scan chokepoints instead of staring at walls
+            site = "A" if bot.slot % 2 == 0 else "B"
+            base_yaw = -0.8 if site == "A" else 1.2
+            bot.yaw, bot.pitch = (base_yaw + 0.5 * math.sin(now * 0.9 + bot.slot) + math.pi) % (2 * math.pi) - math.pi, 0
+        else:
+            bot.yaw, bot.pitch = math.atan2(-dx, -dz), 0
+        bot.objective = label
+        bot.arena_input.update({"strafe": 0, "forward": 1 if forward else 0, "jump": jump, "sprint": True})
         if bot.team == "T" and room.bomb_carrier == bot.id and flat_distance(bot, DUST2_MAP["sites"][room.target_site]) < 2.2: bot.arena_input["use"] = True
         if bot.team == "CT" and planted and flat_distance(bot, room.bomb_position) < 2.2: bot.arena_input["use"] = True
 

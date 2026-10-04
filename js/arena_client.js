@@ -286,11 +286,27 @@ class ArenaClient {
                     if (player.isScoped) player.toggleScope?.();
                 }
                 this.localState = state;
-                if (this.mode === 'dust2' && player.inventory[0]?.itemId !== state.heldItem) {
-                    player.inventory[0] = { itemId: state.heldItem, count: 1 };
-                    player.selectedHotbarIndex = 0;
-                    player.updateHeldBlock();
-                    this.game.ui?.initHotbar();
+                if (this.mode === 'dust2') {
+                    const primary = state.primary;
+                    const secondary = state.secondary || 'glock';
+                    let desiredSlot = 0;
+                    if (primary) {
+                        player.inventory[0] = { itemId: primary, count: 1 };
+                        player.inventory[1] = { itemId: secondary, count: 1 };
+                        desiredSlot = (state.heldItem === primary) ? 0 : 1;
+                    } else {
+                        player.inventory[0] = { itemId: secondary, count: 1 };
+                        if (player.inventory[1]?.itemId === secondary) player.inventory[1] = null;
+                        desiredSlot = 0;
+                    }
+                    if (state.hasBomb && window.ITEM_TYPES?.TNT) {
+                        player.inventory[primary ? 2 : 1] = { itemId: window.ITEM_TYPES.TNT, count: 1 };
+                    }
+                    if (player.selectedHotbarIndex !== desiredSlot || !player.getHeldItem()) {
+                        player.selectedHotbarIndex = desiredSlot;
+                        player.updateHeldBlock();
+                        this.game.ui?.initHotbar();
+                    }
                 }
                 player.health = state.health;
                 player.isDead = !state.alive;
@@ -478,8 +494,15 @@ class ArenaClient {
 
     weaponSpec() {
         const weapon = this.localState?.heldItem || 'glock';
-        return this.weaponSpecs[weapon] || { cooldown: weapon === 'awp' ? 1.15 : ['glock', 'deagle'].includes(weapon) ? .3 : .12,
-            automatic: ['mp5', 'ak47', 'm4a1'].includes(weapon), recoil: weapon === 'awp' ? .065 : .025 };
+        const singleSpec = window.FIREARM_SPECS?.[weapon];
+        const serverSpec = this.weaponSpecs[weapon] || {};
+        return {
+            ...serverSpec,
+            cooldown: (weapon === 'ak47' && singleSpec) ? (singleSpec.fireDelay / 1000) : (serverSpec.cooldown || (weapon === 'awp' ? 1.15 : ['glock', 'deagle'].includes(weapon) ? .3 : .11)),
+            automatic: singleSpec ? singleSpec.automatic : ['mp5', 'ak47', 'm4a1'].includes(weapon),
+            recoil: (weapon === 'ak47' && singleSpec) ? singleSpec.recoil : (serverSpec.recoil || (weapon === 'awp' ? .065 : .025)),
+            pitch: singleSpec?.pitch || (weapon === 'ak47' ? 0.95 : (weapon === 'awp' ? 0.4 : 0.85))
+        };
     }
 
     reload() {
@@ -490,6 +513,13 @@ class ArenaClient {
     equip(slot) {
         if (!this.isConnected || this.mode !== 'dust2' || !this.localState?.alive || this.buyOpen) return false;
         this.releaseTrigger();
+        if (slot === 1 && !this.localState?.primary) return false;
+        const player = this.game.player;
+        if (player) {
+            player.selectedHotbarIndex = (slot === 1 && this.localState?.primary) ? 0 : (this.localState?.primary ? 1 : 0);
+            player.updateHeldBlock();
+            this.game.ui?.initHotbar();
+        }
         return this.send({ type: 'arena_equip', slot });
     }
 
@@ -767,6 +797,10 @@ class ArenaClient {
         // Arena controls consume the action even when firing is unavailable.
         if (!this.isConnected || player.isDead || this.buyOpen || this.game.ui?.menuOpen || this.game.ui?.mainMenuOpen ||
             (dust && (this.match?.phase !== 'live' || !this.localState?.alive))) return dust;
+        if (dust) {
+            const held = player.getHeldItem?.();
+            if (!held || !held.itemId) return dust;
+        }
         if (dust && !spec.automatic && this.triggerHeld) return true;
         if (now - this.lastAttack < cooldown) return dust;
         if (dust && (this.localState.reloading || this.localState.ammo <= 0)) {
@@ -783,8 +817,38 @@ class ArenaClient {
         player.attackCooldown = 0;
         if (dust) {
             this.localState.ammo = Math.max(0, this.localState.ammo - 1);
-            player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, player.pitch + (spec.recoil || .025)));
-            this.game.modManager?.soundSynth?.gunshot(this.localState.heldItem === 'awp' ? .4 : .85, .35);
+            
+            // Singleplayer firearm recoil & camera trauma
+            const weapon = this.localState.heldItem;
+            const singleSpec = window.FIREARM_SPECS?.[weapon];
+            const recoilPitch = (weapon === 'ak47' && singleSpec ? singleSpec.recoil : spec.recoil) || 0.038;
+            const recoilYaw = recoilPitch * 0.45;
+            
+            const beforePitch = player.pitch;
+            player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, player.pitch + recoilPitch));
+            player.gunRecoilPitch = (player.gunRecoilPitch || 0) + (player.pitch - beforePitch);
+            player.yaw += (Math.random() - 0.5) * recoilYaw;
+
+            // Camera shake trauma from singleplayer
+            if (this.game.cameraShakeTrauma !== undefined) {
+                this.game.cameraShakeTrauma = Math.min(1.0, (this.game.cameraShakeTrauma || 0) + 0.12);
+            }
+
+            // Gunshot sound matching singleplayer pitch
+            const soundPitch = spec.pitch || singleSpec?.pitch || (weapon === 'ak47' ? 0.95 : (weapon === 'awp' ? 0.4 : 0.85));
+            this.game.modManager?.soundSynth?.gunshot(soundPitch, 0.35);
+
+            // Muzzle flash from singleplayer weaponManager
+            if (window.THREE && this.game.scene) {
+                const origin = new THREE.Vector3(player.position.x, player.position.y + player.eyeHeight, player.position.z);
+                const aim = new THREE.Vector3(
+                    -Math.sin(player.yaw) * Math.cos(player.pitch),
+                    Math.sin(player.pitch),
+                    -Math.cos(player.yaw) * Math.cos(player.pitch)
+                ).normalize();
+                this.game.modManager?.weaponManager?._spawnMuzzleFlash?.(origin, aim);
+            }
+
             this.renderDustHud();
         }
         return true;

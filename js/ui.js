@@ -353,6 +353,16 @@ class UIManager {
 
     selectHotbarSlot(index) {
         if (index < 0 || index >= 9) return;
+        if (this.game?.arenaClient?.isActive && this.game.arenaClient.mode === 'dust2') {
+            const ac = this.game.arenaClient;
+            if (index === 0) {
+                ac.equip(ac.localState?.primary ? 1 : 2);
+            } else if (index === 1 && ac.localState?.primary) {
+                ac.equip(2);
+            } else {
+                return;
+            }
+        }
         this.player.selectedHotbarIndex = index;
         if (this.player) this.player.attackCooldown = 0.0; // Reset attack cooldown on weapon switch
         this.player.updateHeldBlock();
