@@ -627,6 +627,7 @@ class ParticleSystem {
                         p.vx *= 0.7;
                         p.vz *= 0.7;
                     }
+                }
             }
         }
 
