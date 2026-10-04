@@ -3027,8 +3027,8 @@ class UIManager {
                 const bot = id && manager.getBot(id);
                 if (!bot) throw new Error('Practice bot could not spawn');
                 bot.health = bot.maxHealth = 100;
-                bot.damage = this.duelKit === 'classic' ? 16 : 12;
-                bot.speed = this.duelKit === 'classic' ? 3.5 : 4.2;
+                bot.damage = this.duelKit === 'classic' ? 12 : 9;
+                bot.speed = this.duelKit === 'classic' ? 3.1 : 3.6;
                 this.duelBot = bot;
                 let seconds = 3;
                 this.showDuelCountdown(seconds);

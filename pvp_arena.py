@@ -495,6 +495,8 @@ class ArenaService:
         speed = math.hypot(attacker.vx, attacker.vz)
         spread = spec["spread"] + min(1.5, speed / 7.2) * .018 + (0 if attacker.on_ground else .045)
         spread += min(8, attacker.burst_count) * spec["recoil"] * .45
+        if getattr(attacker, "is_bot", False):
+            spread += .024 + min(.016, attacker.burst_count * .004)
         attacker.shots_fired += 1
         # A stable disk pattern avoids global random state and is reproducible in
         # authoritative replays. Moving, jumping and long bursts widen the disk.
@@ -527,6 +529,8 @@ class ArenaService:
         if target.armor: damage *= spec["armorMultiplier"]
         damage = round(damage, 1)
         target.health = max(0, round(target.health - damage, 1))
+        target.last_hit_at = now
+        target.last_hit_by = attacker.id
         if not target.health: self._die(room, target, attacker, now)
         return {"type": "arena_hit", "attackerId": attacker.id, "targetId": target.id, "damage": damage,
                 "health": target.health, "alive": target.is_alive, "killed": not target.is_alive,
@@ -571,18 +575,35 @@ class ArenaService:
             direction = ((enemy.x - bot.x) / distance, 0, (enemy.z - bot.z) / distance) if distance else (0, 0, 0)
             origin = (bot.x, bot.y + 1.4, bot.z)
             if abs(enemy.y - bot.y) < 1.5 and not blocked_ray(origin, direction, distance):
-                visible.append((distance, enemy))
+                aim = math.atan2(-(enemy.x - bot.x), -(enemy.z - bot.z))
+                angle = abs((aim - bot.yaw + math.pi) % (2 * math.pi) - math.pi)
+                alert = angle < 1.35 or distance < 2.8 or (enemy.id == getattr(bot, "last_hit_by", None) and now - getattr(bot, "last_hit_at", 0) < 3.0)
+                if alert:
+                    visible.append((distance, enemy))
         enemies = visible
         if enemies:
             distance, enemy = min(enemies, key=lambda pair: pair[0])
-            if bot.target_id != enemy.id: bot.target_id, bot.target_seen_at = enemy.id, now
+            if bot.target_id != enemy.id:
+                bot.target_id, bot.target_seen_at = enemy.id, now
+                bot.burst_pause_until = 0
             aim = math.atan2(-(enemy.x - bot.x), -(enemy.z - bot.z))
             turn = (aim - bot.yaw + math.pi) % (2 * math.pi) - math.pi
-            bot.yaw = (bot.yaw + max(-.24, min(.24, turn)) + math.pi) % (2 * math.pi) - math.pi
-            bot.pitch = math.atan2(enemy.y + .95 - (bot.y + 1.62), max(.1, distance))
-            bot.attack_pending = now - bot.target_seen_at >= .28 + .06 * bot.slot and abs(turn) < .12
+            turn_rate = .12
+            step = max(-turn_rate, min(turn_rate, turn))
+            bot.yaw = (bot.yaw + step + math.pi) % (2 * math.pi) - math.pi
+            bot.pitch = math.atan2(enemy.y + .72 - (bot.y + 1.62), max(.1, distance))
+            if getattr(bot, "burst_pause_until", 0) > now:
+                bot.attack_pending = False
+            elif getattr(bot, "burst_count", 0) >= (3 if distance > 10 else 5) and WEAPONS[bot.weapon]["automatic"]:
+                bot.burst_pause_until = now + .35
+                bot.attack_pending = False
+            else:
+                reaction_time = .44 + .06 * (bot.slot % 3)
+                remaining = turn - step
+                bot.attack_pending = now - bot.target_seen_at >= reaction_time and abs(remaining) < .10
             bot.objective = "engage"; bot.arena_input.update({"strafe": 0, "forward": 0, "jump": False, "sprint": False}); return
         bot.target_id, bot.target_seen_at, bot.attack_pending = None, None, False
+        bot.burst_pause_until = 0
         planted = room.bomb_planted_at is not None
         if bot.team == "T":
             target, label = (room.bomb_position, "defend bomb") if planted else ((room.bomb_position, "recover C4") if room.bomb_carrier is None else (DUST2_MAP["sites"][room.target_site], f"plant {room.target_site}"))
