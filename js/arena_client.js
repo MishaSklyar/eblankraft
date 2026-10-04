@@ -508,11 +508,32 @@ class ArenaClient {
             // Offset the tracer from the camera while retaining the server's hit point.
             start.y -= .15;
         }
-        const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-        const material = new THREE.LineBasicMaterial({ color: 0xffd36b, transparent: true, opacity: .8 });
-        const line = new THREE.Line(geometry, material);
-        this.game.scene.add(line);
-        this.tracers.push({ line, until: performance.now() + 90 });
+        if (this.game.particleSystem?.spawnTracer) {
+            this.game.particleSystem.spawnTracer(start, end, 0xffd36b);
+        } else {
+            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const material = new THREE.LineBasicMaterial({ color: 0xffd36b, transparent: true, opacity: .8 });
+            const line = new THREE.Line(geometry, material);
+            this.game.scene.add(line);
+            this.tracers.push({ line, until: performance.now() + 90 });
+        }
+        // Spawn bullet hole & impact on environment hit
+        const hitPlayer = this.playerStates.some(p => p.alive && p.id !== message.attackerId && end.distanceTo(new THREE.Vector3(p.x, p.y + 1, p.z)) < 1.0);
+        if (!hitPlayer) {
+            const dir = end.clone().sub(start).normalize();
+            const normal = dir.clone().negate();
+            const ax = Math.abs(normal.x), ay = Math.abs(normal.y), az = Math.abs(normal.z);
+            if (ax >= ay && ax >= az) normal.set(Math.sign(normal.x) || 1, 0, 0);
+            else if (ay >= ax && ay >= az) normal.set(0, Math.sign(normal.y) || 1, 0);
+            else normal.set(0, 0, Math.sign(normal.z) || 1);
+
+            if (this.game.particleSystem?.spawnBulletHole) {
+                this.game.particleSystem.spawnBulletHole(end.x, end.y, end.z, normal);
+            }
+            if (this.game.particleSystem?.spawnBulletImpact) {
+                this.game.particleSystem.spawnBulletImpact(end.x, end.y, end.z, normal);
+            }
+        }
     }
 
     toggleBuy() {

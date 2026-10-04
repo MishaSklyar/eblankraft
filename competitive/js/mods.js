@@ -900,8 +900,27 @@ class WeaponCombatManager {
             }
             return { hit: true, type: 'player', peerId: hitTarget.peerId, distance: closestDist, point: { x: hitPoint.x, y: hitPoint.y, z: hitPoint.z } };
         } else if (hitType === 'block' && hitBlock) {
+            let normal = new THREE.Vector3(0, 1, 0);
+            const relX = hitPoint.x - (hitBlock.x + 0.5);
+            const relY = hitPoint.y - (hitBlock.y + 0.5);
+            const relZ = hitPoint.z - (hitBlock.z + 0.5);
+            const absX = Math.abs(relX), absY = Math.abs(relY), absZ = Math.abs(relZ);
+            if (absX >= absY && absX >= absZ) {
+                normal.set(Math.sign(relX) || 1, 0, 0);
+            } else if (absY >= absX && absY >= absZ) {
+                normal.set(0, Math.sign(relY) || 1, 0);
+            } else {
+                normal.set(0, 0, Math.sign(relZ) || 1);
+            }
+
             if (this.game.particleSystem) {
                 this.game.particleSystem.spawnBlockBreakParticles(hitPoint.x, hitPoint.y, hitPoint.z, hitBlock.type, 5);
+                if (this.game.particleSystem.spawnBulletHole) {
+                    this.game.particleSystem.spawnBulletHole(hitPoint.x, hitPoint.y, hitPoint.z, normal, hitBlock.type);
+                }
+                if (this.game.particleSystem.spawnBulletImpact) {
+                    this.game.particleSystem.spawnBulletImpact(hitPoint.x, hitPoint.y, hitPoint.z, normal);
+                }
             }
             return { hit: true, type: 'block', distance: closestDist, point: { x: hitPoint.x, y: hitPoint.y, z: hitPoint.z }, block: hitBlock };
         }
@@ -923,21 +942,25 @@ class WeaponCombatManager {
         const start = origin.clone().addScaledVector(right, 0.18).add(new THREE.Vector3(0, -0.15, 0)).addScaledVector(dir, 0.35);
         const end = origin.clone().addScaledVector(dir, length);
 
-        const geom = new THREE.BufferGeometry().setFromPoints([start, end]);
-        const mat = new THREE.LineBasicMaterial({
-            color: color,
-            linewidth: 2,
-            transparent: true,
-            opacity: 0.95
-        });
-        const line = new THREE.Line(geom, mat);
-        this.scene.add(line);
+        if (this.game.particleSystem?.spawnTracer) {
+            this.game.particleSystem.spawnTracer(start, end, color);
+        } else {
+            const geom = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const mat = new THREE.LineBasicMaterial({
+                color: color,
+                linewidth: 2,
+                transparent: true,
+                opacity: 0.95
+            });
+            const line = new THREE.Line(geom, mat);
+            this.scene.add(line);
 
-        setTimeout(() => {
-            if (this.scene) this.scene.remove(line);
-            geom.dispose();
-            mat.dispose();
-        }, 60);
+            setTimeout(() => {
+                if (this.scene) this.scene.remove(line);
+                geom.dispose();
+                mat.dispose();
+            }, 60);
+        }
     }
 
     _spawnMuzzleFlash(origin, dir) {

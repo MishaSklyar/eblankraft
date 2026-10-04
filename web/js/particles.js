@@ -17,6 +17,161 @@ class ParticleSystem {
         this.explosionMaterials = [
             0xff2200, 0xff7700, 0xffcc00, 0x333333, 0x555555, 0xffffff
         ].map(c => new THREE.MeshBasicMaterial({ color: c }));
+        this.bulletHoles = [];
+        this.tracers = [];
+        this._bulletHoleTexture = null;
+    }
+
+    _getBulletHoleTexture() {
+        if (this._bulletHoleTexture) return this._bulletHoleTexture;
+        try {
+            if (typeof document !== 'undefined' && document.createElement) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext ? canvas.getContext('2d') : null;
+                if (ctx) {
+                    // Outer scorched smoke gradient
+                    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+                    grad.addColorStop(0, 'rgba(8, 8, 10, 0.98)');
+                    grad.addColorStop(0.35, 'rgba(20, 20, 24, 0.92)');
+                    grad.addColorStop(0.7, 'rgba(40, 36, 32, 0.65)');
+                    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(32, 32, 30, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Deep center cavity
+                    ctx.fillStyle = '#050507';
+                    ctx.beginPath();
+                    for (let i = 0; i < 12; i++) {
+                        const angle = (i / 12) * Math.PI * 2;
+                        const r = 10 + (Math.sin(i * 4.2) * 3);
+                        const x = 32 + Math.cos(angle) * r;
+                        const y = 32 + Math.sin(angle) * r;
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Radiating fracture cracks
+                    ctx.strokeStyle = '#18181c';
+                    ctx.lineWidth = 1.6;
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (i / 8) * Math.PI * 2 + (i % 2 ? 0.25 : -0.2);
+                        ctx.beginPath();
+                        ctx.moveTo(32 + Math.cos(angle) * 8, 32 + Math.sin(angle) * 8);
+                        ctx.lineTo(32 + Math.cos(angle) * (20 + (i % 3) * 4), 32 + Math.sin(angle) * (20 + (i % 3) * 4));
+                        ctx.stroke();
+                    }
+
+                    if (typeof THREE !== 'undefined' && THREE.CanvasTexture) {
+                        this._bulletHoleTexture = new THREE.CanvasTexture(canvas);
+                        return this._bulletHoleTexture;
+                    }
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    spawnBulletHole(x, y, z, normal, blockType = null) {
+        if (!this.scene || typeof THREE === 'undefined' || !THREE.PlaneGeometry || !THREE.MeshBasicMaterial || !THREE.Mesh) return;
+        if (!this.bulletHoles) this.bulletHoles = [];
+
+        // Cap decal count at 60 for 60fps performance
+        while (this.bulletHoles.length >= 60) {
+            const old = this.bulletHoles.shift();
+            if (old && old.mesh) {
+                this.scene.remove(old.mesh);
+                old.mesh.geometry?.dispose();
+                if (old.mesh.material) {
+                    if (Array.isArray(old.mesh.material)) old.mesh.material.forEach(m => m.dispose());
+                    else old.mesh.material.dispose();
+                }
+            }
+        }
+
+        const texture = this._getBulletHoleTexture();
+        const mat = texture
+            ? new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.94, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+            : new THREE.MeshBasicMaterial({ color: 0x111116, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+
+        const geom = new THREE.PlaneGeometry(0.18, 0.18);
+        const mesh = new THREE.Mesh(geom, mat);
+
+        const nx = normal?.x || 0, ny = normal?.y || 0, nz = normal?.z || 1;
+        mesh.position.set(
+            x + nx * 0.008,
+            y + ny * 0.008,
+            z + nz * 0.008
+        );
+
+        mesh.lookAt(new THREE.Vector3(x + nx, y + ny, z + nz));
+        mesh.rotateZ(Math.random() * Math.PI * 2);
+
+        this.scene.add(mesh);
+        this.bulletHoles.push({ mesh, createdAt: performance.now() });
+    }
+
+    spawnBulletImpact(x, y, z, normal) {
+        if (!this.scene || typeof THREE === 'undefined' || !THREE.BoxGeometry || !THREE.MeshBasicMaterial || !THREE.Mesh) return;
+        const sparkCount = 6;
+        while (this.particles.length + sparkCount > 80) {
+            const old = this.particles.shift();
+            if (old && old.mesh) this.scene.remove(old.mesh);
+        }
+
+        const sparkColors = [0xfff066, 0xffaa00, 0xff4400, 0xffffff];
+        const nx = normal?.x || 0, ny = normal?.y || 1, nz = normal?.z || 0;
+
+        for (let i = 0; i < sparkCount; i++) {
+            const geom = new THREE.BoxGeometry(0.04, 0.04, 0.04);
+            const mat = new THREE.MeshBasicMaterial({ color: sparkColors[i % sparkColors.length] });
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.position.set(x, y, z);
+
+            const spread = 2.2;
+            const vx = nx * (2.0 + Math.random() * 2.0) + (Math.random() - 0.5) * spread;
+            const vy = ny * (2.0 + Math.random() * 2.0) + (Math.random() - 0.5) * spread;
+            const vz = nz * (2.0 + Math.random() * 2.0) + (Math.random() - 0.5) * spread;
+
+            this.scene.add(mesh);
+            this.particles.push({
+                mesh,
+                vx, vy, vz,
+                rx: Math.random() * 12,
+                ry: Math.random() * 12,
+                gravity: 14.0,
+                scale: 1.0,
+                life: 0.45,
+                decay: 2.2 + Math.random() * 1.5
+            });
+        }
+    }
+
+    spawnTracer(start, end, color = 0xffe066) {
+        if (!this.scene || typeof THREE === 'undefined' || !THREE.BufferGeometry || !THREE.LineBasicMaterial || !THREE.Line) return;
+
+        const geom = new THREE.BufferGeometry().setFromPoints([start, end]);
+        const mat = new THREE.LineBasicMaterial({
+            color: color,
+            linewidth: 2,
+            transparent: true,
+            opacity: 0.95
+        });
+        const line = new THREE.Line(geom, mat);
+        this.scene.add(line);
+
+        if (!this.tracers) this.tracers = [];
+        this.tracers.push({
+            line,
+            startTime: performance.now(),
+            duration: 130,
+            startOpacity: 0.95
+        });
     }
 
     // Spawn digging / breaking chips
@@ -471,6 +626,51 @@ class ParticleSystem {
                         p.vy = -p.vy * 0.4;
                         p.vx *= 0.7;
                         p.vz *= 0.7;
+                    }
+            }
+        }
+
+        // Update bullet tracers (smooth fadeout)
+        if (this.tracers && this.tracers.length > 0) {
+            const now = performance.now();
+            for (let i = this.tracers.length - 1; i >= 0; i--) {
+                const tr = this.tracers[i];
+                const elapsed = now - tr.startTime;
+                if (elapsed >= tr.duration) {
+                    if (this.scene) this.scene.remove(tr.line);
+                    tr.line.geometry?.dispose();
+                    if (tr.line.material) {
+                        if (Array.isArray(tr.line.material)) tr.line.material.forEach(m => m.dispose());
+                        else tr.line.material.dispose();
+                    }
+                    this.tracers.splice(i, 1);
+                } else {
+                    const alpha = 1.0 - (elapsed / tr.duration);
+                    if (tr.line.material) {
+                        tr.line.material.opacity = alpha * (tr.startOpacity || 0.95);
+                    }
+                }
+            }
+        }
+
+        // Update bullet holes (slow fadeout after 25 seconds)
+        if (this.bulletHoles && this.bulletHoles.length > 0) {
+            const now = performance.now();
+            for (let i = this.bulletHoles.length - 1; i >= 0; i--) {
+                const bh = this.bulletHoles[i];
+                const elapsed = now - bh.createdAt;
+                if (elapsed > 25000) {
+                    const fade = (elapsed - 25000) / 5000;
+                    if (fade >= 1.0) {
+                        if (this.scene) this.scene.remove(bh.mesh);
+                        bh.mesh.geometry?.dispose();
+                        if (bh.mesh.material) {
+                            if (Array.isArray(bh.mesh.material)) bh.mesh.material.forEach(m => m.dispose());
+                            else bh.mesh.material.dispose();
+                        }
+                        this.bulletHoles.splice(i, 1);
+                    } else if (bh.mesh.material) {
+                        bh.mesh.material.opacity = (1.0 - fade) * 0.92;
                     }
                 }
             }
