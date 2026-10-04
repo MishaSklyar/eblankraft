@@ -335,38 +335,38 @@ class ArenaClient {
         if (!document.createElement || document.getElementById('dust2-hud')) return;
         const hud = document.createElement('div');
         hud.id = 'dust2-hud';
-        hud.style.cssText = 'position:fixed;inset:0;z-index:80;pointer-events:none;font:700 14px/1.25 monospace;color:#fff;text-shadow:1px 1px 2px #000;';
-        hud.innerHTML = `<div id="dust2-score" style="position:absolute;top:16px;left:50%;transform:translateX(-50%);padding:9px 14px;background:#111c;border:1px solid #ffffff55;border-radius:6px;text-align:center"></div>
-            <div id="dust2-status" style="position:absolute;top:70px;left:50%;transform:translateX(-50%);padding:6px 10px;background:#111a;border-radius:5px"></div>
-            <div id="dust2-player" style="position:absolute;bottom:22px;left:24px;padding:8px 10px;background:#111b;border-radius:5px"></div>
-            <div id="dust2-ammo" style="position:absolute;bottom:95px;right:24px;padding:10px 14px;background:#111c;border-radius:5px;font-size:22px"></div>
-            <div id="dust2-hit" style="display:none;position:absolute;top:53%;left:50%;transform:translateX(-50%);font-size:22px"></div>
-            <div id="dust2-feed" style="position:absolute;right:14px;top:110px;text-align:right;font-size:12px"></div>
-            <div id="dust2-progress" style="display:none;position:absolute;top:62%;left:50%;transform:translateX(-50%);padding:10px;background:#111d;border-radius:5px"></div>
-            <div id="dust2-board" style="display:none;position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);width:min(480px,90vw);background:#111e;padding:14px;border-radius:8px;white-space:pre-wrap"></div>
-            <div id="dust2-actions" style="pointer-events:auto;position:absolute;right:16px;bottom:170px;display:flex;gap:6px;flex-wrap:wrap;max-width:240px;justify-content:flex-end">
-                <button class="touch-btn" data-action="reload" aria-label="Перезарядити">R ↻</button>
-                <button class="touch-btn" data-action="equip" aria-label="Змінити зброю">1 / 2</button>
-                <button class="touch-btn" data-action="use" aria-label="Утримуйте для C4">E C4</button>
-                <button class="touch-btn" data-action="buy" aria-label="Магазин">B $</button>
-                <button class="touch-btn" data-action="board" aria-label="Рахунок гравців">Tab</button>
+        hud.innerHTML = `<div id="dust2-score"></div>
+            <div id="dust2-status"></div>
+            <div id="dust2-player"></div>
+            <div id="dust2-ammo"></div>
+            <div id="dust2-hit" style="display:none">💥 ВЛУЧИВ!</div>
+            <div id="dust2-feed"></div>
+            <div id="dust2-progress" style="display:none"></div>
+            <div id="dust2-board" style="display:none"></div>
+            <div id="dust2-actions">
+                <button class="eblan-btn-pixel" data-action="reload" aria-label="Перезарядити">R ↻</button>
+                <button class="eblan-btn-pixel" data-action="equip" aria-label="Змінити зброю">1 / 2</button>
+                <button class="eblan-btn-pixel danger" data-action="use" aria-label="Утримуйте для C4">💣 E C4</button>
+                <button class="eblan-btn-pixel primary" data-action="buy" aria-label="Магазин">🛒 B $</button>
+                <button class="eblan-btn-pixel" data-action="board" aria-label="Рахунок гравців">📊 Tab</button>
             </div>
-            <div id="dust2-buy" style="display:none;pointer-events:auto;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,90vw);padding:14px;background:#111e;border:1px solid #d4af37;border-radius:8px;text-align:center">
-                <div style="color:#ffd54f;margin-bottom:8px">BUY PHASE · B закрити</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
-                    <button data-buy="armor">Броня $650</button><button data-buy="deagle">Deagle $700</button>
-                    <button data-buy="mp5">MP5 $1500</button><button data-buy="ak47">AK-47 $2700 (T)</button>
-                    <button data-buy="m4a1">M4A1 $2900 (CT)</button><button data-buy="awp">AWP $4750</button>
+            <div id="dust2-buy" style="display:none">
+                <div style="color:#ffd700;font-size:16px;font-weight:900;margin-bottom:12px;text-shadow:2px 2px 0 #000">🛒 ВОЄНТОРГ ЄБЛАНА · B закрити</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <button class="eblan-btn-pixel" data-buy="armor">🛡️ Броня $650</button>
+                    <button class="eblan-btn-pixel" data-buy="deagle">🔫 Deagle $700</button>
+                    <button class="eblan-btn-pixel" data-buy="mp5">⚡ MP5 $1500</button>
+                    <button class="eblan-btn-pixel" data-buy="ak47">🔥 AK-47 $2700 (T)</button>
+                    <button class="eblan-btn-pixel" data-buy="m4a1">🎯 M4A1 $2900 (CT)</button>
+                    <button class="eblan-btn-pixel" data-buy="awp">💥 AWP $4750</button>
                 </div>
-                <button data-action="buy" style="margin-top:10px;width:100%">Продовжити гру</button>
+                <button class="eblan-btn-pixel primary" data-action="buy" style="margin-top:12px;width:100%">▶ Продовжити бій</button>
             </div>`;
         document.body.appendChild(hud);
         for (const button of hud.querySelectorAll('[data-buy]')) {
-            button.style.cssText = 'padding:8px;background:#27323c;color:#fff;border:1px solid #76899a;border-radius:4px;cursor:pointer;font:700 12px monospace';
             button.onclick = () => this.buy(button.dataset.buy);
         }
         for (const button of hud.querySelectorAll('[data-action]')) {
-            button.style.cssText += ';padding:8px;min-height:38px;background:#27323c;color:white;border:1px solid #76899a;border-radius:4px;cursor:pointer;touch-action:none;position:static';
             if (button.dataset.action === 'use') {
                 button.onpointerdown = event => { event.preventDefault(); button.setPointerCapture?.(event.pointerId); this.useHeld = true; };
                 button.onpointerup = button.onpointercancel = () => { this.useHeld = false; };
@@ -390,7 +390,11 @@ class ArenaClient {
         const player = document.getElementById('dust2-player');
         const buy = document.getElementById('dust2-buy');
         const alive = team => this.playerStates.filter(p => p.team === team && p.alive).length;
-        if (score) score.textContent = `T ${match.score.T}  —  ${match.score.CT} CT   |   Раунд ${match.round} · живі ${alive('T')}:${alive('CT')}`;
+        if (score) {
+            const tWins = match.score.T || 0;
+            const ctWins = match.score.CT || 0;
+            score.innerHTML = `<span style="color:#ffaa00">💣 ТЕРОРИ ${tWins}</span>  —  <span style="color:#55aaff">${ctWins} СПЕЦНАЗ 🛡️</span>   |   <span style="color:#ffd700">Раунд ${match.round}</span>   |   🟢 ${alive('T')} : ${alive('CT')}`;
+        }
         const bomb = match.bomb || {};
         let objective = `${match.phase.toUpperCase()} · ${Math.ceil(match.remaining)}с`;
         if (bomb.status === 'planted') objective = `💣 C4 ${bomb.site} · ${Math.ceil(bomb.remaining)}с`;
@@ -404,10 +408,19 @@ class ArenaClient {
             objective = `СПОСТЕРІГАЧ: ${target?.name || 'очікування'} · [ ] змінити ціль`;
         }
         if (status) status.textContent = objective;
-        if (player) player.textContent = `${state.team} · $${state.money} · ${Math.ceil(state.health)} HP${state.armor ? ' · броня' : ''} · ${state.kills || 0}/${state.deaths || 0} K/D`;
+        if (player) {
+            const teamLabel = state.team === 'T' ? '💣 ТЕРОР' : '🛡️ СПЕЦНАЗ';
+            const teamColor = state.team === 'T' ? '#ffaa00' : '#55aaff';
+            const hp = Math.max(0, Math.ceil(state.health));
+            const armorText = state.armor ? ' · 🛡️ Броня' : '';
+            player.innerHTML = `<span style="color:${teamColor};font-weight:bold">${teamLabel}</span> · <span style="color:#ffd700">$${state.money}</span> · <span style="color:${hp <= 25 ? '#ff4444' : '#55ff55'}">❤️ ${hp} HP</span>${armorText} · 💀 ${state.kills || 0}/${state.deaths || 0} K/D`;
+        }
         const ammo = document.getElementById('dust2-ammo');
         const spec = this.weaponSpec();
-        if (ammo) ammo.textContent = `${spec.name || state.heldItem.toUpperCase()} · ${state.ammo} / ${state.reserveAmmo}${state.reloading ? ` · ↻ ${Math.ceil(state.reloadRemaining || 0)}с` : ''}`;
+        if (ammo) {
+            const reloadStr = state.reloading ? ` · <span style="color:#ffaa00">🔄 ${Math.ceil(state.reloadRemaining || 0)}с</span>` : '';
+            ammo.innerHTML = `🔫 <span style="color:#ffd700">${(spec.name || state.heldItem).toUpperCase()}</span> · <span style="font-size:20px;font-weight:900">${state.ammo}</span> / ${state.reserveAmmo}${reloadStr}`;
+        }
         const progress = document.getElementById('dust2-progress');
         if (progress) {
             progress.style.display = bomb.actor ? 'block' : 'none';
@@ -428,10 +441,32 @@ class ArenaClient {
         const board = document.getElementById('dust2-board');
         if (!board) return;
         board.style.display = this.scoreboardOpen ? 'block' : 'none';
-        board.textContent = ['ГРАВЦІ · K / D · HP', ...['T', 'CT'].flatMap(team => [
-            `\n${team}`, ...this.playerStates.filter(p => p.team === team).sort((a, b) => (b.kills || 0) - (a.kills || 0)).map(p =>
-                `${p.id === this.clientId ? '▸ ' : ''}${p.name}${p.bot ? ' [BOT]' : ''} · ${p.kills || 0}/${p.deaths || 0} · ${p.alive ? Math.ceil(p.health) : '†'}`)
-        ])].join('\n');
+        board.innerHTML = `
+            <div style="font-size:16px;font-weight:900;color:#ffd700;margin-bottom:12px;text-align:center;text-shadow:2px 2px 0 #000">📊 ТАБЛИЦЯ ЛІДЕРІВ · DUST2 ЄБЛАН</div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:200px">
+                    <div style="color:#ffaa00;font-weight:bold;border-bottom:2px solid #ffaa00;margin-bottom:6px;padding-bottom:2px">💣 ТЕРОРИСТИ</div>
+                    ${this.playerStates.filter(p => p.team === 'T').sort((a, b) => (b.kills || 0) - (a.kills || 0)).map(p =>
+                        `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #333;font-size:12px;color:${p.id === this.clientId ? '#55ff55' : '#fff'}">
+                            <span>${p.id === this.clientId ? '▸ ' : ''}${p.name}${p.bot ? ' [BOT]' : ''}</span>
+                            <span>${p.kills || 0}/${p.deaths || 0} · ${p.alive ? Math.ceil(p.health) + ' HP' : '💀 †'}</span>
+                        </div>`
+                    ).join('')}
+                </div>
+                <div style="flex:1;min-width:200px">
+                    <div style="color:#55aaff;font-weight:bold;border-bottom:2px solid #55aaff;margin-bottom:6px;padding-bottom:2px">🛡️ СПЕЦНАЗ</div>
+                    ${this.playerStates.filter(p => p.team === 'CT').sort((a, b) => (b.kills || 0) - (a.kills || 0)).map(p =>
+                        `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #333;font-size:12px;color:${p.id === this.clientId ? '#55ff55' : '#fff'}">
+                            <span>${p.id === this.clientId ? '▸ ' : ''}${p.name}${p.bot ? ' [BOT]' : ''}</span>
+                            <span>${p.kills || 0}/${p.deaths || 0} · ${p.alive ? Math.ceil(p.health) + ' HP' : '💀 †'}</span>
+                        </div>`
+                    ).join('')}
+                </div>
+            </div>
+            <div style="margin-top:14px;text-align:center">
+                <button class="eblan-btn-pixel" onclick="if(window.game?.arenaClient){window.game.arenaClient.scoreboardOpen=false;window.game.arenaClient.renderScoreboard();}">❌ Закрити [Tab]</button>
+            </div>
+        `;
     }
 
     renderKillFeed() {

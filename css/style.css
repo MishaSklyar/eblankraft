@@ -6291,3 +6291,195 @@ body.is-preloading #mining-progress-container {
     border-bottom: 2px solid #7e7e7e;
     border-right: 2px solid #7e7e7e;
 }
+
+/* ==========================================================================
+   🔫 DUST2 / COUNTER-EBLAN PVP ARENA HUD (AUTHENTIC EBLANKRAFT STYLE)
+   ========================================================================== */
+
+#dust2-hud {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    pointer-events: none;
+    font-family: 'Minecraft', 'Segoe UI', Tahoma, monospace;
+    color: #fff;
+    user-select: none;
+}
+
+#dust2-score {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 18px;
+    background: linear-gradient(180deg, rgba(46, 46, 56, 0.95) 0%, rgba(22, 22, 28, 0.96) 100%);
+    border: 3px solid #000;
+    border-top: 3px solid #7e7e8e;
+    border-left: 3px solid #7e7e8e;
+    border-bottom: 3px solid #14141a;
+    border-right: 3px solid #14141a;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    text-align: center;
+    font-size: 13px;
+    font-weight: bold;
+    text-shadow: 2px 2px 0 #000;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+#dust2-status {
+    position: absolute;
+    top: 68px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 14px;
+    background: rgba(20, 20, 26, 0.92);
+    border: 2px solid #000;
+    border-top: 2px solid #ffaa00;
+    border-bottom: 2px solid #000;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 1px 1px 0 #000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    white-space: nowrap;
+}
+
+#dust2-player {
+    position: absolute;
+    bottom: 22px;
+    left: 20px;
+    padding: 8px 16px;
+    background: linear-gradient(180deg, rgba(42, 42, 50, 0.95) 0%, rgba(20, 20, 26, 0.96) 100%);
+    border: 3px solid #000;
+    border-top: 3px solid #7e7e8e;
+    border-left: 3px solid #7e7e8e;
+    border-bottom: 3px solid #14141a;
+    border-right: 3px solid #14141a;
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    font-size: 13px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 1px 1px 0 #000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#dust2-ammo {
+    position: absolute;
+    bottom: 95px;
+    right: 20px;
+    padding: 8px 16px;
+    background: linear-gradient(180deg, rgba(42, 42, 50, 0.95) 0%, rgba(20, 20, 26, 0.96) 100%);
+    border: 3px solid #000;
+    border-top: 3px solid #7e7e8e;
+    border-left: 3px solid #7e7e8e;
+    border-bottom: 3px solid #14141a;
+    border-right: 3px solid #14141a;
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    font-size: 16px;
+    font-weight: bold;
+    color: #ffffff;
+    text-shadow: 2px 2px 0 #000;
+}
+
+#dust2-hit {
+    position: absolute;
+    top: 53%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 24px;
+    font-weight: 900;
+    color: #ff3344;
+    text-shadow: 2px 2px 0 #000, 0 0 10px rgba(255, 51, 68, 0.8);
+    pointer-events: none;
+}
+
+#dust2-feed {
+    position: absolute;
+    right: 18px;
+    top: 100px;
+    text-align: right;
+    font-size: 12px;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 1px 1px 0 #000;
+    line-height: 1.5;
+    pointer-events: none;
+}
+
+#dust2-progress {
+    position: absolute;
+    top: 62%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 18px;
+    background: rgba(18, 18, 24, 0.95);
+    border: 3px solid #000;
+    border-top: 3px solid #ff4500;
+    border-bottom: 3px solid #ff4500;
+    border-radius: 6px;
+    color: #ffaa00;
+    font-size: 14px;
+    font-weight: bold;
+    text-shadow: 1px 1px 0 #000;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.8);
+}
+
+#dust2-board {
+    position: absolute;
+    left: 50%;
+    top: 45%;
+    transform: translate(-50%, -50%);
+    width: min(520px, 92vw);
+    background: linear-gradient(180deg, #2c2c38 0%, #16161e 100%);
+    border: 4px solid #000;
+    border-top: 4px solid #8e8e9e;
+    border-left: 4px solid #8e8e9e;
+    border-bottom: 4px solid #101016;
+    border-right: 4px solid #101016;
+    border-radius: 8px;
+    padding: 18px 24px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.9);
+    font-size: 13px;
+    white-space: pre-wrap;
+    pointer-events: auto;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+#dust2-actions {
+    pointer-events: auto;
+    position: absolute;
+    right: 16px;
+    bottom: 165px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    max-width: 260px;
+    justify-content: flex-end;
+}
+
+#dust2-buy {
+    pointer-events: auto;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(380px, 92vw);
+    padding: 18px 20px;
+    background: linear-gradient(180deg, #2c2c38 0%, #16161e 100%);
+    border: 4px solid #000;
+    border-top: 4px solid #ffd700;
+    border-left: 4px solid #ffd700;
+    border-bottom: 4px solid #101016;
+    border-right: 4px solid #101016;
+    border-radius: 8px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(255, 215, 0, 0.2);
+    text-align: center;
+}
