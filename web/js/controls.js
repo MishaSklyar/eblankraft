@@ -39,30 +39,61 @@ class Controls {
         this.attackHoldTimer = 0;
 
         // Auto-detect PC vs Touch device
-        const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(navigator.userAgent);
-        const hasCoarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-        const hasFine = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+        const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+        const maxTouchPoints = (typeof navigator !== 'undefined' && typeof navigator.maxTouchPoints === 'number') ? navigator.maxTouchPoints : 0;
+        const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(ua) ||
+            (maxTouchPoints > 1 && /Macintosh/.test(ua));
+        const hasTouchCapability = (typeof window !== 'undefined' && 'ontouchstart' in window) || (maxTouchPoints > 0);
+        const hasCoarse = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+        const hasFine = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: fine)').matches;
 
-        // If UA indicates mobile AND coarse touch only without fine pointer, treat as touch device.
-        // Otherwise, it is a PC/laptop desktop browser!
-        this.isTouchDevice = isMobileUA && hasCoarse && !hasFine;
-        if (!this.isTouchDevice) {
-            document.body.classList.add('is-pc');
+        // If UA indicates mobile or coarse touch is primary, treat as touch device.
+        this.isTouchDevice = isMobileUA || (hasTouchCapability && (hasCoarse || !hasFine));
+        if (typeof document !== 'undefined' && document.body?.classList) {
+            if (this.isTouchDevice) {
+                document.body.classList.remove?.('is-pc');
+                document.body.classList.add?.('force-touch');
+            } else {
+                document.body.classList.add?.('is-pc');
+                document.body.classList.remove?.('force-touch');
+            }
         }
 
-        // Auto-switch to PC mode whenever keyboard or mouse interaction occurs
-        const activatePCMode = () => {
-            if (!document.body.classList.contains('is-pc')) {
-                document.body.classList.add('is-pc');
+        // Auto-switch to touch mode on any touch interaction
+        const activateTouchMode = () => {
+            const hasIsPC = document.body?.classList?.contains ? document.body.classList.contains('is-pc') : false;
+            if (hasIsPC || !this.isTouchDevice) {
+                document.body?.classList?.remove?.('is-pc');
+                document.body?.classList?.add?.('force-touch');
+                this.isTouchDevice = true;
+            }
+        };
+        if (typeof window !== 'undefined' && window.addEventListener) {
+            window.addEventListener('touchstart', activateTouchMode, { passive: true });
+        }
+
+        // Auto-switch to PC mode only on actual PC desktop interaction (not on mobile devices or touch events)
+        const activatePCMode = (e) => {
+            if (isMobileUA) return;
+            if (e && e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+            if (e && e.pointerType && e.pointerType === 'touch') return;
+            const hasIsPC = document.body?.classList?.contains ? document.body.classList.contains('is-pc') : false;
+            if (!hasIsPC) {
+                document.body?.classList?.add?.('is-pc');
+                document.body?.classList?.remove?.('force-touch');
                 this.isTouchDevice = false;
             }
         };
-        window.addEventListener('keydown', activatePCMode, { passive: true });
-        window.addEventListener('mousedown', activatePCMode, { passive: true });
-        window.addEventListener('mousemove', (e) => {
-            if (e.movementX !== 0 || e.movementY !== 0) activatePCMode();
-        }, { passive: true });
-        window.addEventListener('wheel', activatePCMode, { passive: true });
+        if (typeof window !== 'undefined' && window.addEventListener) {
+            window.addEventListener('keydown', (e) => {
+                if (!isMobileUA) activatePCMode(e);
+            }, { passive: true });
+            window.addEventListener('mousedown', activatePCMode, { passive: true });
+            window.addEventListener('mousemove', (e) => {
+                if (e.movementX !== 0 || e.movementY !== 0) activatePCMode(e);
+            }, { passive: true });
+            window.addEventListener('wheel', activatePCMode, { passive: true });
+        }
 
         this.setupTouchControls();
         this.setupDesktopControls();
@@ -132,12 +163,14 @@ class Controls {
         };
 
         const handleLookMove = (touch) => {
+            if (this.middleClickMenu || this.blockEditor) return;
             const dx = touch.clientX - this.lookPrevPos.x;
             const dy = touch.clientY - this.lookPrevPos.y;
             this.lookPrevPos.set(touch.clientX, touch.clientY);
 
-            this.player.yaw -= dx * this.touchLookSensitivity;
-            this.player.pitch -= dy * this.touchLookSensitivity;
+            const aimScale = this.player.isAiming ? (this.player.camera?.fov || 72) / (this.player.aimBaseFov || 72) : 1;
+            this.player.yaw -= dx * this.touchLookSensitivity * aimScale;
+            this.player.pitch -= dy * this.touchLookSensitivity * aimScale;
             this.player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, this.player.pitch));
         };
 
@@ -150,6 +183,7 @@ class Controls {
         };
 
         const onTouchStart = (zoneName, e) => {
+            if (this.middleClickMenu || this.blockEditor) return;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const touch = e.changedTouches[i];
                 if (isJoystickZone(zoneName)) {
@@ -257,11 +291,15 @@ class Controls {
         }
 
         this.bindTouchButton('btn-place', (isDown) => {
+            this.touchAimPressed = isDown;
+            if (this.player.setAiming?.(isDown)) return;
             if (isDown) this.player.placeBlock();
         });
 
         this.bindTouchButton('btn-tnt', (isDown) => {
-            if (isDown) this.player.detonateTNT();
+            if (!isDown) return;
+            if (this.player.isCreative) this.openMiddleClickMenu(true);
+            else this.player.detonateTNT();
         });
 
         this.bindTouchButton('btn-sprint', (isDown) => {
@@ -300,28 +338,134 @@ class Controls {
     }
 
 
+    requestPointerLock() {
+        if (this.isTouchDevice === true) return;
+        const target = this.domElement || document.body;
+        const brands = navigator.userAgentData?.brands;
+        const isChrome = brands
+            ? brands.some(({ brand }) => brand === 'Google Chrome')
+            : /Chrome\//.test(navigator.userAgent) &&
+                !/Edg|OPR|Opera|SamsungBrowser|Vivaldi|YaBrowser/.test(navigator.userAgent);
+        const request = (raw) => {
+            try {
+                const result = raw
+                    ? target.requestPointerLock({ unadjustedMovement: true })
+                    : target.requestPointerLock();
+                if (result && result.catch) {
+                    result.catch((error) => {
+                        if (raw && error?.name === 'NotSupportedError') request(false);
+                    });
+                }
+            } catch (error) {
+                if (raw && error?.name === 'NotSupportedError') request(false);
+            }
+        };
+        request(isChrome);
+    }
+
+    openMiddleClickMenu(touch = false) {
+        if (this.middleClickMenu || this.blockEditor) return;
+        if (!this.player.isCreative || this.player.game?.arenaClient?.isActive || !this.player.targetBlock) return;
+        const target = { ...this.player.targetBlock };
+        if (!window.BLOCK_INFO?.[target.type]) return;
+        const options = [
+            { name: 'Перекрасить', tab: 0, symbol: '🎨' },
+            { name: 'Поменять размер', tab: 1, symbol: '▰' },
+            { name: 'Заменить', tab: 2, symbol: '⇄' },
+            { name: 'Properties', tab: 3, symbol: '⚙' },
+            { name: 'Клонировать', clone: true, symbol: '▣' }
+        ];
+        const root = document.createElement('div');
+        root.className = 'middle-click-menu' + (touch ? ' middle-click-touch' : '');
+        const label = document.createElement('div');
+        label.className = 'middle-click-label';
+        label.textContent = 'Middle Click Menu';
+        root.appendChild(label);
+        const hint = document.createElement('div');
+        hint.className = 'middle-click-hint';
+        hint.textContent = touch ? 'Нажми на действие • касание фона — отмена' : 'Двигай мышью • отпусти для выбора • Esc — отмена';
+        root.appendChild(hint);
+        options.forEach((option, index) => {
+            const element = document.createElement(touch ? 'button' : 'div');
+            element.className = 'middle-click-option';
+            const angle = index * Math.PI * 2 / options.length - Math.PI / 2;
+            const radius = touch ? Math.min(150, window.innerWidth * .34, window.innerHeight * .30) : 165;
+            element.style.transform = `translate(calc(-50% + ${Math.cos(angle) * radius}px), calc(-50% + ${Math.sin(angle) * radius}px))`;
+            element.textContent = option.symbol || '■';
+            element.title = option.name;
+            if (touch) {
+                element.type = 'button';
+                element.setAttribute('aria-label', option.name);
+                const caption = document.createElement('span'); caption.className = 'middle-click-caption'; caption.textContent = option.name;
+                element.appendChild(caption);
+                element.addEventListener('click', event => {
+                    event.preventDefault(); event.stopPropagation();
+                    if (!this.middleClickMenu) return;
+                    this.middleClickMenu.selected = index;
+                    this.closeMiddleClickMenu(true);
+                });
+            }
+            if (option.color) element.style.backgroundImage = `url(${option.color.toDataURL()})`;
+
+            root.appendChild(element);
+            option.element = element;
+        });
+        document.body.appendChild(root);
+        this.middleClickMenu = { target, options, root, label, x: 0, y: 0, selected: -1, touch };
+        if (touch) {
+            root.addEventListener('click', event => { event.stopPropagation(); if (event.target === root || event.target === label) this.closeMiddleClickMenu(); });
+            root.addEventListener('touchstart', event => event.stopPropagation(), { passive: true });
+            root.addEventListener('mousedown', event => event.stopPropagation());
+            root.addEventListener('mousemove', event => event.stopPropagation());
+            this.inputVector.set(0, 0); this.keys = {}; this.joystickTouchId = this.lookTouchId = null;
+        }
+        this.player.isMining = false;
+        this.player.setBlocking(false);
+    }
+
+    moveMiddleClickMenu(dx, dy) {
+        const menu = this.middleClickMenu;
+        if (!menu) return;
+        menu.x += dx; menu.y += dy;
+        // Keep a small neutral zone so a plain click does not alter a block.
+        const index = Math.hypot(menu.x, menu.y) < 24 ? -1 :
+            Math.round((Math.atan2(menu.y, menu.x) + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)
+                / (Math.PI * 2) * menu.options.length) % menu.options.length;
+        menu.selected = index;
+        menu.options.forEach((option, i) => option.element.classList.toggle('selected', i === index));
+        menu.label.textContent = index < 0 ? 'Middle Click Menu' : menu.options[index].name;
+    }
+
+    closeMiddleClickMenu(apply = false) {
+        const menu = this.middleClickMenu;
+        if (!menu) return;
+        this.middleClickMenu = null;
+        menu.root.remove();
+        const option = menu.options[menu.selected];
+        const player = this.player;
+        if (!apply || !option || !player.isCreative || player.isDead ||
+            player.world.getBlock(menu.target.x, menu.target.y, menu.target.z) !== menu.target.type) return;
+        if (option.clone) window.BlockEditor.clone(this, menu.target);
+        else window.BlockEditor.open(this, menu.target, option.tab);
+    }
+
     setupDesktopControls() {
         // Request Pointer Lock on click anywhere
         const requestLock = () => {
-            if (this.player.isDead) return;
+            if (this.isTouchDevice === true) return;
+            if (this.player.isDead || this.blockEditor) return;
             if (window.game && window.game.ui && (window.game.ui.mainMenuOpen || window.game.ui.inventoryOpen || window.game.ui.menuOpen || window.game.ui.layoutModalOpen || window.game.ui.dragModeOpen)) return;
             if (!this.isPointerLocked) {
-                try {
-                    const target = this.domElement || document.body;
-                    const p = target.requestPointerLock();
-                    if (p && p.catch) {
-                        p.catch(() => {});
-                    }
-                } catch (e) {}
+                this.requestPointerLock();
             }
         };
 
         this.domElement.addEventListener('click', requestLock);
         window.addEventListener('click', (e) => {
             if (this.isPointerLocked) return;
-            if (this.player.isDead) return;
+            if (this.player.isDead || this.blockEditor) return;
             if (window.game && window.game.ui && (window.game.ui.mainMenuOpen || window.game.ui.inventoryOpen || window.game.ui.menuOpen || window.game.ui.layoutModalOpen || window.game.ui.dragModeOpen)) return;
-            if (e.target.closest('#main-menu, .modal-overlay, #pause-menu, #inventory-modal, #crafting-modal, #blockly-modal, #game-dev-console, #mods-modal, #dust2-hud, #gun-hud, .touch-btn, #btn-chat-toggle, #btn-menu-toggle')) {
+            if (e.target.closest('#main-menu, .modal-overlay, #pause-menu, #inventory-modal, #crafting-modal, #blockly-modal, #game-dev-console, #mods-modal, #dust2-hud, #gun-hud, .touch-btn, #btn-chat-toggle, #btn-menu-toggle, .middle-click-menu')) {
                 return;
             }
             requestLock();
@@ -332,6 +476,7 @@ class Controls {
             this.isPointerLocked = (document.pointerLockElement === this.domElement);
             document.body.classList.toggle('is-pointer-locked', !!this.isPointerLocked);
             if (!this.isPointerLocked) {
+                this.closeMiddleClickMenu();
                 this.mouseLeftDown = false;
                 this.mouseRightDown = false;
                 this.mouseMiddleDown = false;
@@ -347,15 +492,22 @@ class Controls {
         // Mouse look
         document.addEventListener('mousemove', (e) => {
             if (this.isPointerLocked) {
-                this.player.yaw -= e.movementX * this.mouseSensitivity;
-                this.player.pitch -= e.movementY * this.mouseSensitivity;
+                if (this.middleClickMenu) {
+                    this.moveMiddleClickMenu(e.movementX, e.movementY);
+                    return;
+                }
+                const aimScale = this.player.isAiming ? (this.player.camera?.fov || 72) / (this.player.aimBaseFov || 72) : 1;
+                this.player.yaw -= e.movementX * this.mouseSensitivity * aimScale;
+                this.player.pitch -= e.movementY * this.mouseSensitivity * aimScale;
                 this.player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, this.player.pitch));
             }
         });
 
-        // Mouse Buttons (Left Click = Attack / Mine, Right Click = Place / Eat, Middle Click = TNT)
+        // Mouse Buttons (Left Click = Attack / Mine, Right Click = Place / Eat, Middle Click = Creative Menu / TNT)
         window.addEventListener('mousedown', (e) => {
-            if (!this.isPointerLocked) return;
+            if (!this.isPointerLocked || this.blockEditor) return;
+            if (e.button === 1) e.preventDefault();
+            if (this.middleClickMenu) return;
 
             if (e.button === 0) this.mouseLeftDown = true;
             else if (e.button === 2) this.mouseRightDown = true;
@@ -379,18 +531,17 @@ class Controls {
                     this.player.isMining = true;
                 }
             } else if (e.button === 2) { // Right Click = Place, Eat, or Block (Shield/Sword)
-                if (this.game?.arenaClient?.isActive) {
-                    if (this.game.arenaClient.localState?.heldItem === 'awp' && !this.player.isDead) this.player.toggleScope?.();
-                    return;
-                }
+                if (this.player.setAiming?.(true)) return;
+                if (this.game?.arenaClient?.isActive) return;
                 const held = this.player.getSelectedItem();
                 const reg = (held && window.ITEM_REGISTRY) ? ITEM_REGISTRY[held.itemId] : null;
                 if (reg && (reg.isShield || reg.isSword)) {
                     this.player.setBlocking(true);
                 }
                 this.player.placeBlock();
-            } else if (e.button === 1) { // Middle Click = TNT
-                this.player.detonateTNT();
+            } else if (e.button === 1) { // Creative block editor; survival keeps TNT.
+                if (this.player.isCreative) this.openMiddleClickMenu();
+                else this.player.detonateTNT();
             }
         });
 
@@ -403,8 +554,10 @@ class Controls {
                 this.player.miningProgress = 0;
             } else if (e.button === 2) {
                 this.mouseRightDown = false;
+                this.player.setAiming?.(false);
                 this.player.setBlocking(false);
             } else if (e.button === 1) {
+                this.closeMiddleClickMenu(true);
                 this.mouseMiddleDown = false;
             }
 
@@ -431,6 +584,7 @@ class Controls {
             }
 
             e.preventDefault();
+            if (this.middleClickMenu) return;
             if (this.game?.arenaClient?.isActive) {
                 this.game.arenaClient.equip(this.game.arenaClient.localState?.slot === 1 ? 2 : 1);
                 return;
@@ -448,6 +602,12 @@ class Controls {
 
         // Keyboard Controls
         window.addEventListener('keydown', (e) => {
+            if (this.blockEditor) return;
+            if (this.middleClickMenu) {
+                if (e.code === 'Escape') this.closeMiddleClickMenu();
+                e.preventDefault();
+                return;
+            }
             const activeTag = document.activeElement ? document.activeElement.tagName : '';
             const isTyping = (activeTag === 'INPUT' || activeTag === 'TEXTAREA');
 
@@ -458,11 +618,11 @@ class Controls {
                 return;
             }
 
-            // Quick ASUS UL20FT / 2010 Netbook Boost with F6
+            // Quick Low graphics preset with F6
             if (e.code === 'F6') {
                 e.preventDefault();
-                if (window.game && window.game.ui && window.game.ui.applyUL20FTPreset) {
-                    window.game.ui.applyUL20FTPreset();
+                if (window.game && window.game.ui && window.game.ui.applyGraphicsPreset) {
+                    window.game.ui.applyGraphicsPreset('low');
                 }
                 return;
             }
@@ -641,11 +801,15 @@ class Controls {
         });
 
         window.addEventListener('blur', () => {
+            this.closeMiddleClickMenu();
             this.keys = {};
             this._lastSpaceTime = null;
             this.touchJumpPressed = false;
             this.jumpPressed = false;
             this.mouseLeftDown = false;
+            this.mouseRightDown = false;
+            this.touchAimPressed = false;
+            this.player.setAiming?.(false);
             this.attackBtnPressed = false;
             this.breakBtnPressed = false;
             this.attackHoldTimer = 0;
@@ -654,6 +818,7 @@ class Controls {
     }
 
     releaseFireTrigger() {
+        if (!this.mouseRightDown && !this.touchAimPressed) this.player.setAiming?.(false);
         this.player.releaseGunTrigger?.();
         this.game?.arenaClient?.releaseTrigger();
     }
@@ -719,6 +884,15 @@ class Controls {
 
 
     update(dt) {
+        if (this._editorButtonCreative !== this.player.isCreative) {
+            this._editorButtonCreative = this.player.isCreative;
+            const button = document.getElementById('btn-tnt');
+            if (button) {
+                button.innerHTML = this.player.isCreative ? '🎨<br><span>Редактор</span>' : '💣<br><span>ТНТ</span>';
+                button.setAttribute('aria-label', this.player.isCreative ? 'Редактор блока' : 'ТНТ');
+            }
+        }
+        if (this.blockEditor || this.middleClickMenu?.touch) { this.inputVector.set(0, 0); this.jumpPressed = false; return; }
         this.updateGunHud();
         if (this.game && this.game.ui && this.game.ui.mainMenuOpen) {
             this.inputVector.set(0, 0);

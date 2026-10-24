@@ -33,6 +33,7 @@ class ArenaClient {
                 if (event.repeat || this.game.ui?.menuOpen || this.game.ui?.mainMenuOpen) return;
                 if (event.code === 'KeyE') { this.useHeld = true; event.preventDefault(); }
                 if (event.code === 'KeyB') { this.toggleBuy(); event.preventDefault(); }
+                if (event.code === 'KeyI') { this.inviteTeammate(); event.preventDefault(); }
                 if (event.code === 'KeyR') { this.reload(); event.preventDefault(); }
                 if (event.code === 'Digit1' || event.code === 'Digit2') { this.equip(Number(event.code.slice(-1))); event.preventDefault(); }
                 if (event.code === 'BracketLeft') this.spectatorIndex--;
@@ -55,7 +56,7 @@ class ArenaClient {
         return `${protocol}//${host}/ws`;
     }
 
-    connect(room) {
+    connect(room, team = null) {
         if (this.game.serverClient) this.game.serverClient.leaveRoom();
         this.disconnect();
         if (!/^[A-Za-z0-9_-]{1,32}$/.test(room)) {
@@ -87,8 +88,9 @@ class ArenaClient {
         }, 8000);
         socket.onopen = () => {
             if (this.socket !== socket) return;
+            window.authenticateAddonWallet?.(socket);
             this.mode = 'dust2';
-            this.send({ type: 'arena_join', room, name: this.multiplayer.playerName, mode: 'dust2' });
+            this.send({ type: 'arena_join', room, name: this.multiplayer.playerName, mode: 'dust2', ...(team ? { team } : {}) });
         };
         socket.onmessage = event => {
             if (this.socket !== socket) return;
@@ -201,6 +203,7 @@ class ArenaClient {
                 }
                 clearTimeout(this.connectTimeout);
                 this.clientId = message.id;
+                this.roomCode = message.room;
                 this.mode = message.mode || 'legacy';
                 this.weaponSpecs = message.weaponSpecs || {};
                 this.enterArena(message.map);
@@ -279,11 +282,12 @@ class ArenaClient {
         for (const state of players) {
             if (state.id === this.clientId) {
                 const player = this.game.player;
+                const previousHeld = player.getSelectedItem?.()?.itemId;
                 this.reconcile(state);
                 if (this.localState?.spawn !== state.spawn || this.localState?.heldItem !== state.heldItem) {
                     this.releaseTrigger();
                     this.lastAttack = -Infinity;
-                    if (player.isScoped) player.toggleScope?.();
+                    player.setAiming?.(false);
                 }
                 this.localState = state;
                 if (this.mode === 'dust2') {
@@ -302,7 +306,7 @@ class ArenaClient {
                     if (state.hasBomb && window.ITEM_TYPES?.TNT) {
                         player.inventory[primary ? 2 : 1] = { itemId: window.ITEM_TYPES.TNT, count: 1 };
                     }
-                    if (player.selectedHotbarIndex !== desiredSlot || !player.getHeldItem()) {
+                    if (player.selectedHotbarIndex !== desiredSlot || !player.getSelectedItem() || previousHeld !== player.inventory[desiredSlot]?.itemId) {
                         player.selectedHotbarIndex = desiredSlot;
                         player.updateHeldBlock();
                         this.game.ui?.initHotbar();
@@ -344,7 +348,7 @@ class ArenaClient {
         const yaw = Math.atan2(Math.sin(player.yaw), Math.cos(player.yaw));
         const pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
         if (this.send({ type: 'arena_input', seq: ++this.seq, strafe, forward, yaw, pitch,
-            jump: !!jump, sprint: !!sprint, use: this.mode === 'dust2' && this.useHeld })) this.lastInput = now;
+            jump: !!jump, sprint: !!sprint, aim: !!player.isAiming, use: this.mode === 'dust2' && this.useHeld })) this.lastInput = now;
     }
 
     mountDustHud() {
@@ -364,6 +368,7 @@ class ArenaClient {
                 <button class="eblan-btn-pixel" data-action="equip" aria-label="Змінити зброю">1 / 2</button>
                 <button class="eblan-btn-pixel danger" data-action="use" aria-label="Утримуйте для C4">💣 E C4</button>
                 <button class="eblan-btn-pixel primary" data-action="buy" aria-label="Магазин">🛒 B $</button>
+                <button class="eblan-btn-pixel" data-action="invite" aria-label="Запросити товариша у свою команду">＋ Товариш · I</button>
                 <button class="eblan-btn-pixel" data-action="board" aria-label="Рахунок гравців">📊 Tab</button>
             </div>
             <div id="dust2-buy" style="display:none">
@@ -389,6 +394,7 @@ class ArenaClient {
                 button.onlostpointercapture = () => { this.useHeld = false; };
             } else button.onclick = () => {
                 const action = button.dataset.action;
+                if (action === 'invite') this.inviteTeammate();
                 if (action === 'reload') this.reload();
                 if (action === 'equip') this.equip(this.localState?.slot === 1 ? 2 : 1);
                 if (action === 'buy') this.toggleBuy();
@@ -396,6 +402,19 @@ class ArenaClient {
             };
         }
         this.renderDustHud();
+    }
+
+    async inviteTeammate() {
+        if (!this.isConnected || !this.roomCode || !this.localState?.team) return;
+        const code = `${this.roomCode}:${this.localState.team}`;
+        try {
+            if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+            await navigator.clipboard.writeText(code);
+            this.multiplayer.showToast(`Код скопійовано: ${code}. Друг: Мультиплеєр → Приєднатися на тому ж сервері.`);
+        } catch {
+            window.prompt?.('Код для товариша. Мультиплеєр → Приєднатися на тому ж сервері:', code);
+            this.multiplayer.showToast(`Код команди: ${code}`);
+        }
     }
 
     renderDustHud() {
@@ -457,6 +476,10 @@ class ArenaClient {
         const board = document.getElementById('dust2-board');
         if (!board) return;
         board.style.display = this.scoreboardOpen ? 'block' : 'none';
+        if (!this.scoreboardOpen) return;
+        const signature = JSON.stringify([this.clientId, this.playerStates.map(p => [p.id, p.name, p.bot, p.team, p.alive, Math.ceil(p.health), p.kills, p.deaths])]);
+        if (board._arenaSignature === signature) return;
+        board._arenaSignature = signature;
         board.innerHTML = `
             <div style="font-size:16px;font-weight:900;color:#ffd700;margin-bottom:12px;text-align:center;text-shadow:2px 2px 0 #000">📊 ТАБЛИЦЯ ЛІДЕРІВ · DUST2 ЄБЛАН</div>
             <div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -572,7 +595,7 @@ class ArenaClient {
         this.buyOpen = !this.buyOpen;
         if (panel) panel.style.display = this.buyOpen ? 'block' : 'none';
         if (this.buyOpen) document.exitPointerLock?.();
-        else this.game.renderer?.domElement?.requestPointerLock?.();
+        else this.game.controls?.requestPointerLock();
     }
 
     buy(item) {
@@ -646,77 +669,70 @@ class ArenaClient {
         this.lastSnapshot = performance.now();
     }
 
+    nearbyObstacles(x, z) {
+        const map = this.game.world.arenaMap;
+        if (map.id !== 'de_eblan2') return map.obstacles;
+        if (this.obstacleSource !== map.obstacles) {
+            this.obstacleSource = map.obstacles;
+            this.obstacleColumns = new Map();
+            for (const box of map.obstacles) {
+                for (let ix = Math.floor(box[0]); ix < Math.ceil(box[3]); ix++) for (let iz = Math.floor(box[2]); iz < Math.ceil(box[5]); iz++) {
+                    const key = `${ix},${iz}`;
+                    if (!this.obstacleColumns.has(key)) this.obstacleColumns.set(key, []);
+                    this.obstacleColumns.get(key).push(box);
+                }
+            }
+        }
+        const result = [];
+        for (let ix = Math.floor(x - .3); ix <= Math.floor(x + .3); ix++) for (let iz = Math.floor(z - .3); iz <= Math.floor(z + .3); iz++) {
+            const boxes = this.obstacleColumns.get(`${ix},${iz}`);
+            if (boxes) result.push(...boxes);
+        }
+        return result;
+    }
+
     predictionCollides(x, y, z) {
         const map = this.game.world.arenaMap;
-        const edge = map.movement === 'bhop' ? 1 : 0;
-        if (x - 0.3 < map.min + 1 || x + 0.3 > map.max - edge ||
-            z - 0.3 < map.min + 1 || z + 0.3 > map.max - edge) return true;
-        return map.obstacles.some(([a, b, c, d, e, f]) =>
-            x + 0.3 > a && x - 0.3 < d && y + 1.8 > b && y < e && z + 0.3 > c && z - 0.3 < f);
+        const edge = map.id === 'de_eblan2' ? 1 : 0;
+        if (x - .3 < map.min + 1 || x + .3 > map.max - edge ||
+            z - .3 < map.min + 1 || z + .3 > map.max - edge) return true;
+        return this.nearbyObstacles(x, z).some(([a, b, c, d, e, f]) =>
+            x + .3 > a && x - .3 < d && y + 1.8 > b && y < e && z + .3 > c && z - .3 < f);
     }
 
     predict(state, control, dt) {
-        // Match server speeds, gravity, jump edges and arena collision bounds.
-        // Substeps prevent a long rendering frame from tunnelling through cover.
-        const count = Math.max(1, Math.ceil(dt / 0.05));
+        const map = this.game.world.arenaMap, dust = map.id === 'de_eblan2';
+        const length = Math.max(1, Math.hypot(control.strafe, control.forward));
+        const speed = control.sprint ? (dust ? 7.2 : 7.5) : 4.5;
+        state.vx = (control.strafe * Math.cos(control.yaw) - control.forward * Math.sin(control.yaw)) / length * speed;
+        state.vz = (-control.strafe * Math.sin(control.yaw) - control.forward * Math.cos(control.yaw)) / length * speed;
+        if (control.jump && !state.jumpHeld && state.onGround) { state.vy = 8.5; state.onGround = false; }
+        state.jumpHeld = control.jump;
+        const count = dust ? Math.max(1, Math.ceil(Math.max(Math.abs(state.vx), Math.abs(state.vz), Math.abs(state.vy) + 22 * dt) * dt / .1)) : Math.max(1, Math.ceil(dt / .05));
         const step = dt / count;
-        const bhop = this.game.world.arenaMap.movement === 'bhop';
         for (let i = 0; i < count; i++) {
-            const length = Math.hypot(control.strafe, control.forward);
-            const sx = length ? control.strafe / length : 0;
-            const fw = length ? control.forward / length : 0;
-            const wishX = sx * Math.cos(control.yaw) - fw * Math.sin(control.yaw);
-            const wishZ = -sx * Math.sin(control.yaw) - fw * Math.cos(control.yaw);
-            if (bhop) {
-                if (control.jump && !state.jumpHeld && state.onGround) {
-                    state.vy = 8.5;
-                    state.onGround = false;
-                }
-                if (state.onGround) {
-                    const speed = Math.hypot(state.vx, state.vz);
-                    if (speed) {
-                        const slowed = Math.max(0, speed - Math.max(speed, 5) * 7.5 * step);
-                        state.vx *= slowed / speed;
-                        state.vz *= slowed / speed;
+            state.vy = Math.max(-30, state.vy - 22 * step);
+            const moveAxis = axis => {
+                const next = state[axis] + state['v' + axis] * step;
+                const x = axis === 'x' ? next : state.x, z = axis === 'z' ? next : state.z;
+                if (!this.predictionCollides(x, state.y, z)) { state[axis] = next; return; }
+                if (dust && state.onGround) {
+                    for (let rise = .125; rise <= .5; rise += .125) {
+                        if (!this.predictionCollides(state.x, state.y + rise, state.z) && !this.predictionCollides(x, state.y + rise, z)) {
+                            state[axis] = next; state.y += rise; return;
+                        }
                     }
                 }
-                const current = state.vx * wishX + state.vz * wishZ;
-                const gain = Math.min(7.2 - current, (state.onGround ? 55 : 13) * step * 7.2);
-                if (gain > 0) { state.vx += wishX * gain; state.vz += wishZ * gain; }
-                const speed = Math.hypot(state.vx, state.vz);
-                if (!state.onGround && speed > 13) { state.vx *= 13 / speed; state.vz *= 13 / speed; }
-            } else {
-                const normalized = Math.max(1, length);
-                const speed = control.sprint ? 7.5 : 4.5;
-                state.vx = (control.strafe * Math.cos(control.yaw) - control.forward * Math.sin(control.yaw)) / normalized * speed;
-                state.vz = (-control.strafe * Math.sin(control.yaw) - control.forward * Math.cos(control.yaw)) / normalized * speed;
-            }
-            if (control.jump && !state.jumpHeld && state.onGround) {
-                state.vy = 8.5;
-                state.onGround = false;
-            }
-            state.jumpHeld = control.jump;
-            state.vy = Math.max(-30, state.vy - 22 * step);
-            const nx = state.x + state.vx * step, nz = state.z + state.vz * step;
-            if (!this.predictionCollides(nx, state.y, state.z)) state.x = nx;
-            else if (this.game.world.arenaMap.id === 'de_eblan2' && state.onGround && !this.predictionCollides(nx, state.y + 1, state.z)) { state.x = nx; state.y += 1; }
-            else state.vx = 0;
-            if (!this.predictionCollides(state.x, state.y, nz)) state.z = nz;
-            else if (this.game.world.arenaMap.id === 'de_eblan2' && state.onGround && !this.predictionCollides(state.x, state.y + 1, nz)) { state.z = nz; state.y += 1; }
-            else state.vz = 0;
+                state['v' + axis] = 0;
+            };
+            moveAxis('x'); moveAxis('z');
             const ny = state.y + state.vy * step;
-            if (ny <= this.game.world.arenaMap.floorY) {
-                state.y = this.game.world.arenaMap.floorY;
-                state.vy = 0;
-                state.onGround = true;
-            } else if (!this.predictionCollides(state.x, ny, state.z)) {
-                state.y = ny;
-                state.onGround = false;
-            } else {
+            if (ny <= map.floorY) { state.y = map.floorY; state.vy = 0; state.onGround = true; }
+            else if (!this.predictionCollides(state.x, ny, state.z)) { state.y = ny; state.onGround = false; }
+            else {
                 if (state.vy < 0) {
-                    const tops = this.game.world.arenaMap.obstacles.filter(box =>
-                        box[0] - 0.3 < state.x && state.x < box[3] + 0.3 &&
-                        box[2] - 0.3 < state.z && state.z < box[5] + 0.3 && box[4] <= state.y);
+                    const tops = this.nearbyObstacles(state.x, state.z).filter(box =>
+                        box[0] - .3 < state.x && state.x < box[3] + .3 && box[2] - .3 < state.z && state.z < box[5] + .3 && box[4] <= state.y && box[4] >= ny);
                     if (tops.length) state.y = Math.max(...tops.map(box => box[4]));
                     state.onGround = true;
                 }
@@ -798,7 +814,7 @@ class ArenaClient {
         if (!this.isConnected || player.isDead || this.buyOpen || this.game.ui?.menuOpen || this.game.ui?.mainMenuOpen ||
             (dust && (this.match?.phase !== 'live' || !this.localState?.alive))) return dust;
         if (dust) {
-            const held = player.getHeldItem?.();
+            const held = player.getSelectedItem();
             if (!held || !held.itemId) return dust;
         }
         if (dust && !spec.automatic && this.triggerHeld) return true;
@@ -823,6 +839,7 @@ class ArenaClient {
             const singleSpec = window.FIREARM_SPECS?.[weapon];
             const recoilPitch = (weapon === 'ak47' && singleSpec ? singleSpec.recoil : spec.recoil) || 0.038;
             const recoilYaw = recoilPitch * 0.45;
+            player.weaponKick = Math.min(2, (player.weaponKick || 0) + Math.max(.4, recoilPitch * 14));
             
             const beforePitch = player.pitch;
             player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, player.pitch + recoilPitch));
@@ -861,6 +878,7 @@ class ArenaClient {
     disconnect() {
         const socket = this.socket;
         this.socket = null;
+        this.roomCode = null;
         this.useHeld = false;
         this.releaseTrigger();
         clearTimeout(this.connectTimeout);
@@ -871,7 +889,7 @@ class ArenaClient {
         this.multiplayer.remotePlayers.clear();
         if (this.savedSession) {
             const saved = this.savedSession, player = this.game.player;
-            if (player.isScoped) player.toggleScope?.();
+            player.setAiming?.(false);
             if (this.game.world !== saved.world) this.game.world.clearWorld();
             this.game.world = saved.world;
             player.world = saved.world;

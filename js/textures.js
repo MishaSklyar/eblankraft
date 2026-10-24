@@ -68,7 +68,31 @@ const BLOCK_TYPES = {
     STONE_BUTTON: 61,
     PRESSURE_PLATE: 62,
     COMPUTER: 63,
-    REDSTONE_LAMP_ON: 64
+    REDSTONE_LAMP_ON: 64,
+    STONE_BRICKS: 65,
+    SMOOTH_STONE: 66,
+    GRANITE: 67,
+    DIORITE: 68,
+    ANDESITE: 69,
+    QUARTZ_BLOCK: 70,
+    IRON_BLOCK: 71,
+    COPPER_BLOCK: 72,
+    WHITE_CONCRETE: 73,
+    ORANGE_CONCRETE: 74,
+    MAGENTA_CONCRETE: 75,
+    LIGHT_BLUE_CONCRETE: 76,
+    YELLOW_CONCRETE: 77,
+    LIME_CONCRETE: 78,
+    PINK_CONCRETE: 79,
+    GRAY_CONCRETE: 80,
+    LIGHT_GRAY_CONCRETE: 81,
+    CYAN_CONCRETE: 82,
+    PURPLE_CONCRETE: 83,
+    BLUE_CONCRETE: 84,
+    BROWN_CONCRETE: 85,
+    GREEN_CONCRETE: 86,
+    RED_CONCRETE: 87,
+    BLACK_CONCRETE: 88
 };
 
 const BLOCK_INFO = {
@@ -139,7 +163,132 @@ const BLOCK_INFO = {
     [BLOCK_TYPES.STONE_BUTTON]: { name: "Кнопка", sound: "stone", hardness: 0.5, transparent: true, solid: false, tool: "hand" },
     [BLOCK_TYPES.PRESSURE_PLATE]: { name: "Нажимная плита", sound: "stone", hardness: 0.5, transparent: true, solid: false, tool: "hand" },
     [BLOCK_TYPES.COMPUTER]: { name: "Компьютер (EmuOS PC)", sound: "stone", hardness: 1.5, transparent: false, tool: "pickaxe" },
-    [BLOCK_TYPES.REDSTONE_LAMP_ON]: { name: "Включенная лампа", sound: "glass", hardness: 0.4, transparent: false, tool: "pickaxe" }
+    [BLOCK_TYPES.REDSTONE_LAMP_ON]: { name: "Включенная лампа", sound: "glass", hardness: 0.4, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.STONE_BRICKS]: { name: "Каменные кирпичи", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.SMOOTH_STONE]: { name: "Гладкий камень", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.GRANITE]: { name: "Гранит", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.DIORITE]: { name: "Диорит", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.ANDESITE]: { name: "Андезит", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.QUARTZ_BLOCK]: { name: "Кварцевый блок", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.IRON_BLOCK]: { name: "Железный блок", sound: "stone", hardness: 3.0, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.COPPER_BLOCK]: { name: "Медный блок", sound: "stone", hardness: 3.0, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.WHITE_CONCRETE]: { name: "Белый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.ORANGE_CONCRETE]: { name: "Оранжевый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.MAGENTA_CONCRETE]: { name: "Пурпурный бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.LIGHT_BLUE_CONCRETE]: { name: "Голубой бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.YELLOW_CONCRETE]: { name: "Жёлтый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.LIME_CONCRETE]: { name: "Лаймовый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.PINK_CONCRETE]: { name: "Розовый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.GRAY_CONCRETE]: { name: "Серый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.LIGHT_GRAY_CONCRETE]: { name: "Светло-серый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.CYAN_CONCRETE]: { name: "Бирюзовый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.PURPLE_CONCRETE]: { name: "Фиолетовый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.BLUE_CONCRETE]: { name: "Синий бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.BROWN_CONCRETE]: { name: "Коричневый бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.GREEN_CONCRETE]: { name: "Зелёный бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.RED_CONCRETE]: { name: "Красный бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" },
+    [BLOCK_TYPES.BLACK_CONCRETE]: { name: "Чёрный бетон", sound: "stone", hardness: 1.8, transparent: false, tool: "pickaxe" }
+};
+
+const BUILDING_BLOCK_TEXTURES = [
+    { type: BLOCK_TYPES.STONE_BRICKS, icon: 'stone_bricks', color: '#898b8e', pattern: 'bricks' },
+    { type: BLOCK_TYPES.SMOOTH_STONE, icon: 'smooth_stone', color: '#a5a6a8', pattern: 'tile' },
+    { type: BLOCK_TYPES.GRANITE, icon: 'granite', color: '#ad7968', pattern: 'rough' },
+    { type: BLOCK_TYPES.DIORITE, icon: 'diorite', color: '#dedbd4', pattern: 'rough' },
+    { type: BLOCK_TYPES.ANDESITE, icon: 'andesite', color: '#808789', pattern: 'rough' },
+    { type: BLOCK_TYPES.QUARTZ_BLOCK, icon: 'quartz_block', color: '#eee8dc', pattern: 'tile' },
+    { type: BLOCK_TYPES.IRON_BLOCK, icon: 'iron_block', color: '#d5d8da', pattern: 'metal' },
+    { type: BLOCK_TYPES.COPPER_BLOCK, icon: 'copper_block', color: '#bc714c', pattern: 'metal' },
+    { type: BLOCK_TYPES.WHITE_CONCRETE, icon: 'white_concrete', color: '#e7e7df', pattern: 'concrete' },
+    { type: BLOCK_TYPES.ORANGE_CONCRETE, icon: 'orange_concrete', color: '#e47a22', pattern: 'concrete' },
+    { type: BLOCK_TYPES.MAGENTA_CONCRETE, icon: 'magenta_concrete', color: '#b548b6', pattern: 'concrete' },
+    { type: BLOCK_TYPES.LIGHT_BLUE_CONCRETE, icon: 'light_blue_concrete', color: '#55a9d1', pattern: 'concrete' },
+    { type: BLOCK_TYPES.YELLOW_CONCRETE, icon: 'yellow_concrete', color: '#eccb36', pattern: 'concrete' },
+    { type: BLOCK_TYPES.LIME_CONCRETE, icon: 'lime_concrete', color: '#83b837', pattern: 'concrete' },
+    { type: BLOCK_TYPES.PINK_CONCRETE, icon: 'pink_concrete', color: '#df88aa', pattern: 'concrete' },
+    { type: BLOCK_TYPES.GRAY_CONCRETE, icon: 'gray_concrete', color: '#484d51', pattern: 'concrete' },
+    { type: BLOCK_TYPES.LIGHT_GRAY_CONCRETE, icon: 'light_gray_concrete', color: '#9b9b94', pattern: 'concrete' },
+    { type: BLOCK_TYPES.CYAN_CONCRETE, icon: 'cyan_concrete', color: '#258a91', pattern: 'concrete' },
+    { type: BLOCK_TYPES.PURPLE_CONCRETE, icon: 'purple_concrete', color: '#713fa3', pattern: 'concrete' },
+    { type: BLOCK_TYPES.BLUE_CONCRETE, icon: 'blue_concrete', color: '#344eaa', pattern: 'concrete' },
+    { type: BLOCK_TYPES.BROWN_CONCRETE, icon: 'brown_concrete', color: '#74503a', pattern: 'concrete' },
+    { type: BLOCK_TYPES.GREEN_CONCRETE, icon: 'green_concrete', color: '#50672d', pattern: 'concrete' },
+    { type: BLOCK_TYPES.RED_CONCRETE, icon: 'red_concrete', color: '#ac3632', pattern: 'concrete' },
+    { type: BLOCK_TYPES.BLACK_CONCRETE, icon: 'black_concrete', color: '#25282c', pattern: 'concrete' }
+];
+
+// Stable voxel IDs keep half blocks compatible with saves and multiplayer.
+const SLAB_BASE_TYPES = [BLOCK_TYPES.STONE, BLOCK_TYPES.COBBLESTONE, BLOCK_TYPES.PLANKS,
+    BLOCK_TYPES.BRICKS, BLOCK_TYPES.SANDSTONE, BLOCK_TYPES.BIRCH_PLANKS,
+    BLOCK_TYPES.SPRUCE_PLANKS, BLOCK_TYPES.TERRACOTTA,
+    ...BUILDING_BLOCK_TEXTURES.map(block => block.type)];
+const SLAB_TYPES = {};
+SLAB_BASE_TYPES.forEach((base, index) => {
+    const type = 89 + index;
+    const key = Object.keys(BLOCK_TYPES).find(key => BLOCK_TYPES[key] === base);
+    BLOCK_TYPES[key + '_SLAB'] = type;
+    SLAB_TYPES[base] = type;
+    BLOCK_INFO[type] = { ...BLOCK_INFO[base], name: BLOCK_INFO[base].name + ' (полублок)', height: 0.5, baseType: base, shape: 'SLAB', bounds: [0, 0, 0, 1, 0.5, 1] };
+});
+window.SLAB_TYPES = SLAB_TYPES;
+const BLOCK_SHAPES = {
+    SLAB: { name: 'Полублок', types: SLAB_TYPES, bounds: [0, 0, 0, 1, 0.5, 1] },
+    PANEL_X: { name: 'Панель ↔', types: {}, bounds: [0, 0, 0.4375, 1, 1, 0.5625] },
+    PANEL_Z: { name: 'Панель ↕', types: {}, bounds: [0.4375, 0, 0, 0.5625, 1, 1] },
+    PILLAR: { name: 'Столбик', types: {}, bounds: [0.25, 0, 0.25, 0.75, 1, 0.75] },
+    BEAM: { name: 'Балка', types: {}, bounds: [0, 0.375, 0.375, 1, 0.625, 0.625] }
+};
+let nextShapeId = 121;
+for (const [shape, definition] of Object.entries(BLOCK_SHAPES)) {
+    if (shape === 'SLAB') continue;
+    for (const base of SLAB_BASE_TYPES) {
+        const type = nextShapeId++;
+        const key = Object.keys(BLOCK_TYPES).find(key => BLOCK_TYPES[key] === base);
+        BLOCK_TYPES[key + '_' + shape] = type;
+        definition.types[base] = type;
+        BLOCK_INFO[type] = { ...BLOCK_INFO[base], name: BLOCK_INFO[base].name + ' (' + definition.name + ')',
+            baseType: base, shape, bounds: definition.bounds };
+    }
+}
+window.BLOCK_SHAPES = BLOCK_SHAPES;
+window.getBlockBounds = type => BLOCK_INFO[type]?.bounds || [0, 0, 0, 1, 1, 1];
+
+
+// Per-block designs keep arbitrary edits separate from the 8-bit material IDs.
+const DESIGN_SHAPES = {
+    cube: [0, 0, 0, 1, 1, 1], slab: [0, 0, 0, 1, .5, 1],
+    panel_x: [0, 0, .4375, 1, 1, .5625], panel_z: [.4375, 0, 0, .5625, 1, 1],
+    pillar: [.25, 0, .25, .75, 1, .75], beam: [0, .375, .375, 1, .625, .625]
+};
+function normalizeBlockDesign(value) {
+    if (value == null) return null;
+    if (typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(DESIGN_SHAPES, value.shape) && value.shape !== 'custom') throw new TypeError('Invalid shape');
+    const color = value.color ?? '#ffffff';
+    if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) throw new TypeError('Invalid RGB');
+    const opacity = value.opacity ?? 1, emissive = value.emissive ?? 0, solid = value.solid ?? true;
+    if (!Number.isFinite(opacity) || opacity < .05 || opacity > 1 || !Number.isFinite(emissive) || emissive < 0 || emissive > 1 || typeof solid !== 'boolean') throw new TypeError('Invalid properties');
+    const result = { shape: value.shape, color: color.toLowerCase(), opacity, emissive, solid };
+    if (value.shape === 'custom') {
+        if (!Array.isArray(value.cells) || !value.cells.length || value.cells.length > 512 || value.cells.some(cell => !Number.isInteger(cell) || cell < 0 || cell >= 512)) throw new TypeError('Invalid pixels');
+        result.cells = [...new Set(value.cells)].sort((a, b) => a - b);
+    }
+    return result;
+}
+function blockDesignBoxes(type, design) {
+    if (!design) return [window.getBlockBounds(type)];
+    if (design.shape !== 'custom') return [DESIGN_SHAPES[design.shape]];
+    return design.cells.map(cell => {
+        const x = cell % 8, y = Math.floor(cell / 8) % 8, z = Math.floor(cell / 64);
+        return [x / 8, y / 8, z / 8, (x + 1) / 8, (y + 1) / 8, (z + 1) / 8];
+    });
+}
+window.normalizeBlockDesign = normalizeBlockDesign;
+window.blockDesignBoxes = blockDesignBoxes;
+window.DESIGN_SHAPES = DESIGN_SHAPES;
+window.blockBoxesAt = (world, x, y, z, type) => blockDesignBoxes(type, world.getBlockDesign?.(x, y, z));
+window.blockSolidAt = (world, x, y, z, type) => {
+    const design = world.getBlockDesign?.(x, y, z);
+    return design ? design.solid : !window.isPassThroughBlock(type);
 };
 
 class TextureManager {
@@ -683,6 +832,30 @@ class TextureManager {
                 crackCtx.fillRect(Math.floor(Math.random() * 14) + 1, Math.floor(Math.random() * 14) + 1, 2, 1);
             }
             this.canvasCache[`crack_${c}`] = crackCanvas;
+        }
+
+        // Additional building materials share the existing pixel texture pipeline.
+        for (const block of BUILDING_BLOCK_TEXTURES) {
+            const canvas = this.createCanvas();
+            const ctx = canvas.getContext('2d');
+            this.addNoise(ctx, block.color, block.pattern === 'rough' ? 24 : 5);
+            if (block.pattern === 'bricks') {
+                ctx.fillStyle = '#55585c';
+                for (let y = 0; y < 16; y += 4) {
+                    ctx.fillRect(0, y, 16, 1);
+                    for (let x = (y % 8 === 0 ? 0 : 4); x < 16; x += 8) ctx.fillRect(x, y, 1, 4);
+                }
+            } else if (block.pattern === 'tile' || block.pattern === 'metal') {
+                ctx.fillStyle = 'rgba(0,0,0,0.18)';
+                ctx.fillRect(0, 15, 16, 1); ctx.fillRect(15, 0, 1, 16);
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.fillRect(0, 0, 16, 1); ctx.fillRect(0, 0, 1, 16);
+                if (block.pattern === 'metal') {
+                    ctx.fillRect(2, 2, 1, 1); ctx.fillRect(13, 2, 1, 1);
+                    ctx.fillRect(2, 13, 1, 1); ctx.fillRect(13, 13, 1, 1);
+                }
+            }
+            this.canvasCache[block.icon] = canvas;
         }
 
         // --- ITEM & TOOL ICONS ---
@@ -1744,7 +1917,7 @@ class TextureManager {
 
         this.materials[BLOCK_TYPES.PLANKS] = planksMat;
         
-        const leavesMat = createMat(t.leaves, { transparent: true, alphaTest: 0.1 });
+        const leavesMat = createMat(t.leaves, { transparent: false, alphaTest: 0.1 });
         leavesMat.userData.uTime = { value: 0 };
         leavesMat.userData.uWindStrength = { value: 1.0 };
         leavesMat.onBeforeCompile = (shader) => {
@@ -1898,7 +2071,7 @@ class TextureManager {
         const jWoodSideMat = createMat(t.jungle_wood_side);
 
         const makeLeafMat = (tex) => {
-            const mat = createMat(tex, { transparent: true, alphaTest: 0.1 });
+            const mat = createMat(tex, { transparent: false, alphaTest: 0.1 });
             mat.userData.uTime = { value: 0 };
             mat.userData.uWindStrength = { value: 1.0 };
             mat.onBeforeCompile = (shader) => {
@@ -1976,9 +2149,36 @@ class TextureManager {
         this.materials[BLOCK_TYPES.PRESSURE_PLATE] = ppMat;
         this.materials[BLOCK_TYPES.COMPUTER] = compMaterials;
         this.materials[BLOCK_TYPES.REDSTONE_LAMP_ON] = rLampOnMat;
+        for (const block of BUILDING_BLOCK_TEXTURES) {
+            this.materials[block.type] = createMat(t[block.icon]);
+        }
+    }
+
+    getDesignMaterial(type, design) {
+        if (!design) return this.getBlockMaterial(type);
+        this.designMaterials ||= new Map();
+        const key = `${type}:${design.color}:${design.opacity}:${design.emissive}:${!!window.game?.lowGraphicsMode}:${!!window.game?.turboFPS}`;
+        if (this.designMaterials.has(key)) return this.designMaterials.get(key);
+        const source = this.getBlockMaterial(type);
+        const tint = material => {
+            const clone = material.clone();
+            clone.color.set(design.color);
+            clone.opacity = design.opacity;
+            clone.transparent = design.opacity < 1;
+            clone.depthWrite = design.opacity === 1;
+            clone.alphaTest = material.alphaTest || 0;
+            if (clone.emissive) { clone.emissive.set(design.color); clone.emissiveIntensity = design.emissive; }
+            return clone;
+        };
+        const result = Array.isArray(source) ? source.map(tint) : tint(source);
+        // A palette can create many variants; evicted materials remain owned by their live meshes.
+        if (this.designMaterials.size >= 256) this.designMaterials.delete(this.designMaterials.keys().next().value);
+        this.designMaterials.set(key, result);
+        return result;
     }
 
     getBlockMaterial(type) {
+        type = BLOCK_INFO[type]?.baseType ?? type;
         const mat = this.materials[type] || this.materials[BLOCK_TYPES.STONE];
         if (type === BLOCK_TYPES.WATER) {
             const isFancy = (window.game && window.game.isFancyWaterActive) ? window.game.isFancyWaterActive() : (!window.game || (!window.game.turboFPS && !window.game.isA02Mode));

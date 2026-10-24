@@ -206,9 +206,9 @@ global.THREE = {
     Color: function() {}, Vector3: function() {}, Vector2: function() {}
 };
 
-eval(fs.readFileSync('competitive/js/items.js', 'utf8'));
-eval(fs.readFileSync('competitive/js/textures.js', 'utf8'));
-eval(fs.readFileSync('competitive/js/upgrader_skins.js', 'utf8'));
+eval(fs.readFileSync('js/items.js', 'utf8'));
+eval(fs.readFileSync('js/textures.js', 'utf8'));
+eval(fs.readFileSync('js/upgrader_skins.js', 'utf8'));
 
 const tm = new TextureManager();
 const sm = new MinecraftSkinManager();
@@ -308,9 +308,9 @@ fs.writeFileSync('/tmp/eblan_extracted_textures.json', JSON.stringify(out));
 
     # Copy external asset images if found
     extra_sources = [
-        ("competitive/textures/waternormals.jpg", os.path.join(TEX_DIR, "mobs", "waternormals.jpg")),
-        ("competitive/assets/icon-512.png", os.path.join(TEX_DIR, "ui", "icon-512.png")),
-        ("competitive/assets/icon-192.png", os.path.join(TEX_DIR, "ui", "icon-192.png")),
+        ("textures/waternormals.jpg", os.path.join(TEX_DIR, "mobs", "waternormals.jpg")),
+        ("assets/icon-512.png", os.path.join(TEX_DIR, "ui", "icon-512.png")),
+        ("assets/icon-192.png", os.path.join(TEX_DIR, "ui", "icon-192.png")),
         ("packs/ak47/textures/ak47.png", os.path.join(TEX_DIR, "items", "ak47_texture.png")),
         ("packs/ak47/textures/ak47_ammo.png", os.path.join(TEX_DIR, "items", "ak47_ammo_texture.png")),
         ("blockly/vendor/media/sprites.png", os.path.join(TEX_DIR, "ui", "sprites.png")),
@@ -773,9 +773,9 @@ def export_sounds():
 
     # Copy external mp3s
     mp3_sources = [
-        ("competitive/blockly/vendor/media/click.mp3", os.path.join(SND_DIR, "ui", "blockly_click.mp3")),
-        ("competitive/blockly/vendor/media/delete.mp3", os.path.join(SND_DIR, "ui", "blockly_delete.mp3")),
-        ("competitive/blockly/vendor/media/disconnect.mp3", os.path.join(SND_DIR, "ui", "blockly_disconnect.mp3")),
+        ("blockly/vendor/media/click.mp3", os.path.join(SND_DIR, "ui", "blockly_click.mp3")),
+        ("blockly/vendor/media/delete.mp3", os.path.join(SND_DIR, "ui", "blockly_delete.mp3")),
+        ("blockly/vendor/media/disconnect.mp3", os.path.join(SND_DIR, "ui", "blockly_disconnect.mp3")),
     ]
     for src_rel, dst_path in mp3_sources:
         src = os.path.join(BASE_DIR, src_rel)

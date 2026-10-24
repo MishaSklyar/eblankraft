@@ -8,11 +8,12 @@ let exports = null;
 let wasmMemory = null;
 let isReady = false;
 
+let dataBaseUrl = self.location?.href;
 async function initWasm(seed) {
     try {
         let wasmBytes = null;
         try {
-            const resp = await fetch('eblan_core.wasm');
+            const resp = await fetch(new URL('js/eblan_core.wasm', dataBaseUrl).href);
             if (resp.ok) wasmBytes = await resp.arrayBuffer();
         } catch (e) {}
 
@@ -35,11 +36,12 @@ async function initWasm(seed) {
     }
 }
 
-self.onmessage = async function(e) {
+async function handleMessage(e) {
     const data = e.data;
     if (!data) return;
 
     if (data.type === 'INIT') {
+        dataBaseUrl = data.baseUrl || dataBaseUrl;
         await initWasm(data.seed);
         if (data.blockMaterials && exports) {
             for (let item of data.blockMaterials) {
@@ -71,7 +73,7 @@ self.onmessage = async function(e) {
             return;
         }
 
-        const mem = wasmMemory.buffer;
+        let mem = wasmMemory.buffer;
         const cx = data.cx;
         const cz = data.cz;
 
@@ -80,12 +82,19 @@ self.onmessage = async function(e) {
         if (data.voxels) {
             new Uint8Array(mem, voxelsPtr, 8192).set(data.voxels);
         } else {
-            exports.eblan_generate_chunk(cx, cz, data.dimension || 0, data.worldType || 0, data.waterLevel || 6);
+            exports.eblan_set_seed(data.seed);
+            exports.eblan_generate_chunk(cx, cz, data.dimension ?? 0, data.worldType ?? 0, data.waterLevel ?? 6);
+            mem = wasmMemory.buffer;
         }
 
         // Copy generated voxels out for world storage
         const chunkVoxels = new Uint8Array(8192);
         chunkVoxels.set(new Uint8Array(mem, voxelsPtr, 8192));
+
+        if (data.generateOnly) {
+            self.postMessage({ type: 'CHUNK_READY', id: data.id, voxels: chunkVoxels }, [chunkVoxels.buffer]);
+            return;
+        }
 
         // 2. Set neighbors if available
         const dirs = [
@@ -106,6 +115,7 @@ self.onmessage = async function(e) {
 
         // 3. Mesh Chunk
         const vertexCount = exports.eblan_mesh_chunk(cx, cz);
+        mem = wasmMemory.buffer;
         if (vertexCount === 0) {
             self.postMessage({
                 type: 'CHUNK_READY',
@@ -153,4 +163,9 @@ self.onmessage = async function(e) {
             voxels: chunkVoxels
         }, [positions.buffer, normals.buffer, uvs.buffer, groups.buffer, chunkVoxels.buffer]);
     }
+};
+
+self.onmessage = async e => {
+    try { await handleMessage(e); }
+    catch (error) { self.postMessage({ type: 'CHUNK_FAILED', id: e.data?.id, error: error.message }); }
 };

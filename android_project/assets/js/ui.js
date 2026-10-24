@@ -2025,7 +2025,7 @@ class UIManager {
         // 7. World Manager System (Multi-World in localStorage)
         this.initMMWorldManager();
 
-        // 8. Duels / PvP Hub (Competitive)
+        // 8. Duels / PvP Hub
         this.initMMDuelsHub();
 
         // 9. Skins & Cases Hub
@@ -2865,7 +2865,7 @@ class UIManager {
         }
     }
 
-    // --- Duels / PvP Hub (Competitive) ---
+    // --- Duels / PvP Hub ---
     initMMDuelsHub() {
         const cards = document.querySelectorAll('.mm-arena-card');
         cards.forEach(card => {

@@ -69,8 +69,69 @@ const CHUNK_FACE_UVS = [
     0, 0,  1, 1,  0, 1
 ];
 
+// Reuse surface masks and greedy rectangles across identical carved shapes.
+const CARVED_SURFACES = new Map();
+const CARVED_SURFACE_REFS = new WeakMap();
+function mergePixelMask(source, axis, plane) {
+    const mask = source.slice(), faces = [];
+    const u = axis === 0 ? 1 : 0, v = axis === 2 ? 1 : 2;
+    for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) {
+        if (!mask[i + j * 8]) continue;
+        let width = 1, height = 1;
+        while (i + width < 8 && mask[i + width + j * 8]) width++;
+        outer: while (j + height < 8) {
+            for (let k = 0; k < width; k++) if (!mask[i + k + (j + height) * 8]) break outer;
+            height++;
+        }
+        for (let y = 0; y < height; y++) mask.fill(0, i + (j + y) * 8, i + width + (j + y) * 8);
+        const bounds = [0, 0, 0, 0, 0, 0];
+        bounds[axis] = bounds[axis + 3] = plane / 8;
+        bounds[u] = i / 8; bounds[u + 3] = (i + width) / 8;
+        bounds[v] = j / 8; bounds[v + 3] = (j + height) / 8;
+        faces.push(bounds);
+    }
+    return faces;
+}
+function carvedSurface(design) {
+    let surface = CARVED_SURFACE_REFS.get(design.cells);
+    if (surface) return surface;
+    const key = design.cells.join(',');
+    surface = CARVED_SURFACES.get(key);
+    if (!surface) {
+        const occupied = new Uint8Array(512);
+        for (const cell of design.cells) occupied[cell] = 1;
+        surface = { occupied, sides: [] };
+        for (let f = 0; f < 6; f++) {
+            const axis = f >> 1, step = f % 2 === 0 ? 1 : -1;
+            const u = axis === 0 ? 1 : 0, v = axis === 2 ? 1 : 2;
+            const masks = new Map();
+            for (const cell of design.cells) {
+                const coord = [cell % 8, (cell >> 3) % 8, cell >> 6];
+                const neighbor = coord[axis] + step;
+                if (neighbor >= 0 && neighbor < 8 && occupied[cell + step * [1, 8, 64][axis]]) continue;
+                const plane = coord[axis] + (step > 0 ? 1 : 0);
+                if (!masks.has(plane)) masks.set(plane, new Uint8Array(64));
+                masks.get(plane)[coord[u] + 8 * coord[v]] = 1;
+            }
+            surface.sides.push([...masks].map(([plane, mask]) => ({ plane, mask, faces: mergePixelMask(mask, axis, plane) })));
+        }
+        if (CARVED_SURFACES.size >= 4096) CARVED_SURFACES.delete(CARVED_SURFACES.keys().next().value);
+        CARVED_SURFACES.set(key, surface);
+    }
+    CARVED_SURFACE_REFS.set(design.cells, surface);
+    return surface;
+}
+function blockFaceUV(f, x, y, z) {
+    if (f === 0) return [1 - z, y];
+    if (f === 1) return [z, y];
+    if (f === 2) return [x, 1 - z];
+    if (f === 3) return [x, z];
+    return [f === 4 ? x : 1 - x, y];
+}
+
 // Preallocated slice mask for greedy meshing to avoid GC pauses
 const REUSABLE_SLICE_MASK = new Array(512);
+const REUSABLE_WATER_MASK = new Uint8Array(CHUNK_SIZE_X * CHUNK_SIZE_Z);
 
 class Chunk {
     constructor(cx, cz, world) {
@@ -120,7 +181,18 @@ class Chunk {
         }
     }
 
-    rebuildMesh(textureManager) {
+    setGeometryBounds(geometry) {
+        // Voxel vertices already lie within this chunk. Avoid scanning every
+        // vertex again when installing a worker result on the render thread.
+        geometry.boundingBox = new THREE.Box3(
+            new THREE.Vector3(this.cx * CHUNK_SIZE_X, 0, this.cz * CHUNK_SIZE_Z),
+            new THREE.Vector3((this.cx + 1) * CHUNK_SIZE_X, CHUNK_SIZE_Y, (this.cz + 1) * CHUNK_SIZE_Z)
+        );
+        geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere());
+        geometry.boundingSphere.radius += 0.001; // Include corners despite float rounding.
+    }
+
+    rebuildMesh(textureManager, preparedMesh = undefined) {
         if (!this.isGenerated || !this.isDirty) return;
         this.isDirty = false;
 
@@ -167,7 +239,14 @@ class Chunk {
             }
         };
 
+        const isSlab = (b) => !!window.BLOCK_INFO?.[b]?.bounds;
+        const hasDesigns = this.world.hasBlockDesigns?.(this.cx, this.cz);
+        const nearbyDesigns = [this, chunkLeft, chunkRight, chunkBack, chunkFront].some(chunk =>
+            chunk && this.world.hasBlockDesigns?.(chunk.cx, chunk.cz));
+        const hasSlabs = nearbyDesigns || [this, chunkLeft, chunkRight, chunkBack, chunkFront].some(chunk =>
+            chunk && chunk.voxels.some(isSlab));
         const isOpaque = (b) => {
+            if (isSlab(b)) return false;
             if (window.BLOCK_INFO && window.BLOCK_INFO[b] && window.BLOCK_INFO[b].transparent) {
                 return false;
             }
@@ -185,6 +264,14 @@ class Chunk {
                    b !== BLOCK_TYPES.YELLOW_FLOWER &&
                    b !== BLOCK_TYPES.RED_MUSHROOM &&
                    b !== BLOCK_TYPES.BROWN_MUSHROOM;
+        };
+
+        const isOpaqueNeighbor = (b, x, y, z, f) => {
+            if (nearbyDesigns) {
+                const dir = CHUNK_FACES[f].dir;
+                if (this.world.getBlockDesign(this.cx * 16 + x + dir[0], y + dir[1], this.cz * 16 + z + dir[2])) return false;
+            }
+            return isOpaque(b);
         };
 
         const isCrossPlant = (b) => (
@@ -230,10 +317,17 @@ class Chunk {
 
         const worldX0 = this.cx * CHUNK_SIZE_X;
         const worldZ0 = this.cz * CHUNK_SIZE_Z;
+        const isTurboOrA02 = !!(window.game && (window.game.turboFPS || window.game.isA02Mode));
+        const origWaterMat = textureManager.getBlockMaterial(BLOCK_TYPES.WATER);
+        const waterMat = isTurboOrA02 ? (origWaterMat.basicCounterpart || origWaterMat) : origWaterMat;
+        const mergeWaterSurface = waterMat.isMeshBasicMaterial === true;
+        const waterTopMask = REUSABLE_WATER_MASK;
 
         // 1. Fast Pass for Water and Cross-Plants (Flowers & Mushrooms)
         for (let y = 0; y < CHUNK_SIZE_Y; y++) {
             const wy = y;
+            let waterTopCount = 0;
+            if (mergeWaterSurface) waterTopMask.fill(0);
             for (let z = 0; z < CHUNK_SIZE_Z; z++) {
                 const wz = worldZ0 + z;
                 for (let x = 0; x < CHUNK_SIZE_X; x++) {
@@ -241,6 +335,65 @@ class Chunk {
                     if (block === BLOCK_TYPES.AIR) continue;
 
                     const wx = worldX0 + x;
+
+                    const design = hasDesigns ? this.world.getBlockDesign(wx, wy, wz) : null;
+                    if (isSlab(block) || design) {
+                        const blockMat = design ? textureManager.getDesignMaterial(block, design) : textureManager.getBlockMaterial(block);
+                        const emit = (f, bounds) => {
+                            const face = CHUNK_FACES[f];
+                            const group = getGroup(Array.isArray(blockMat) ? blockMat[f] : blockMat);
+                            for (const corner of face.corners) {
+                                const px = bounds[0] + corner[0] * (bounds[3] - bounds[0]);
+                                const py = bounds[1] + corner[1] * (bounds[4] - bounds[1]);
+                                const pz = bounds[2] + corner[2] * (bounds[5] - bounds[2]);
+                                group.positions.push(wx + px, wy + py, wz + pz);
+                                group.normals.push(...face.normal);
+                                group.uvs.push(...blockFaceUV(f, px, py, pz));
+                            }
+                        };
+                        if (design?.shape === 'custom') {
+                            const surface = carvedSurface(design);
+                            for (let f = 0; f < 6; f++) {
+                                const axis = f >> 1, boundary = f % 2 === 0 ? 8 : 0;
+                                const dir = CHUNK_FACES[f].dir;
+                                const neighbor = getVoxelNeighbor(x, y, z, f);
+                                const other = nearbyDesigns ? this.world.getBlockDesign(wx + dir[0], wy + dir[1], wz + dir[2]) : null;
+                                // Transparent neighbors must retain the surface behind them.
+                                const opaque = isOpaque(neighbor) && (!other || other.opacity === 1);
+                                for (const slice of surface.sides[f]) {
+                                    let faces = slice.faces;
+                                    if (slice.plane === boundary && opaque) {
+                                        if (!other) continue;
+                                        const mask = slice.mask.slice();
+                                        const u = axis === 0 ? 1 : 0, v = axis === 2 ? 1 : 2;
+                                        const occupancy = other.shape === 'custom' ? carvedSurface(other).occupied : null;
+                                        const bounds = occupancy ? null : window.blockDesignBoxes(neighbor, other);
+                                        for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) {
+                                            if (!mask[i + j * 8]) continue;
+                                            const coord = [0, 0, 0];
+                                            coord[axis] = boundary === 8 ? 0 : 7; coord[u] = i; coord[v] = j;
+                                            const hidden = occupancy ? occupancy[coord[0] + coord[1] * 8 + coord[2] * 64] : bounds.some(b => {
+                                                // Cull only when the neighbor covers the entire pixel face.
+                                                const edge = boundary === 8 ? 0 : 1;
+                                                return b[axis] <= edge && b[axis + 3] >= edge &&
+                                                    b[u] <= i / 8 && b[u + 3] >= (i + 1) / 8 && b[v] <= j / 8 && b[v + 3] >= (j + 1) / 8;
+                                            });
+                                            if (hidden) mask[i + j * 8] = 0;
+                                        }
+                                        faces = mergePixelMask(mask, axis, slice.plane);
+                                    }
+                                    for (const bounds of faces) emit(f, bounds);
+                                }
+                            }
+                        } else {
+                            for (const bounds of window.blockDesignBoxes(block, design)) for (let f = 0; f < 6; f++) {
+                                const axis = f >> 1, edge = bounds[axis + (f % 2 === 0 ? 3 : 0)];
+                                if ((edge === 0 || edge === 1) && isOpaqueNeighbor(getVoxelNeighbor(x, y, z, f), x, y, z, f)) continue;
+                                emit(f, bounds);
+                            }
+                        }
+                        continue;
+                    }
 
                     if (block === BLOCK_TYPES.WATER) {
                         for (let f = 0; f < 6; f++) {
@@ -252,6 +405,11 @@ class Chunk {
 
                             const neighbor = getVoxelNeighbor(x, y, z, f);
                             if (neighbor === BLOCK_TYPES.AIR) {
+                                if (f === 2 && mergeWaterSurface) {
+                                    waterTopMask[x + CHUNK_SIZE_X * z] = 1;
+                                    waterTopCount++;
+                                    continue;
+                                }
                                 const face = CHUNK_FACES[f];
                                 const nx = face.normal[0], ny = face.normal[1], nz = face.normal[2];
                                 const yMult = (f === 2 ? 0.85 : 1.0);
@@ -313,11 +471,41 @@ class Chunk {
                     }
                 }
             }
+
+            // Basic water has no vertex waves, so merge its coplanar surface tiles.
+            // Fancy water keeps its original vertices for animated wave detail.
+            if (waterTopCount > 0) {
+                for (let z = 0; z < CHUNK_SIZE_Z; z++) {
+                    for (let x = 0; x < CHUNK_SIZE_X;) {
+                        if (!waterTopMask[x + CHUNK_SIZE_X * z]) { x++; continue; }
+                        let width = 1, height = 1;
+                        while (x + width < CHUNK_SIZE_X && waterTopMask[x + width + CHUNK_SIZE_X * z]) width++;
+                        rows: while (z + height < CHUNK_SIZE_Z) {
+                            for (let dx = 0; dx < width; dx++) {
+                                if (!waterTopMask[x + dx + CHUNK_SIZE_X * (z + height)]) break rows;
+                            }
+                            height++;
+                        }
+                        for (let dz = 0; dz < height; dz++) {
+                            const start = x + CHUNK_SIZE_X * (z + dz);
+                            waterTopMask.fill(0, start, start + width);
+                        }
+                        const wx = worldX0 + x, wz = worldZ0 + z, top = wy + 0.85;
+                        waterPositions.push(
+                            wx, top, wz + height, wx + width, top, wz + height, wx + width, top, wz,
+                            wx, top, wz + height, wx + width, top, wz, wx, top, wz
+                        );
+                        waterNormals.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+                        waterUVs.push(0, 0, width, 0, width, height, 0, 0, width, height, 0, height);
+                        x += width;
+                    }
+                }
+            }
         }
 
         // 2. Greedy Meshing for Solid & Transparent blocks (Zero-bypass Rust WASM Greedy Mesher)
-        let wasmMesh = null;
-        if (window.EblanEng && window.EblanEng.ready) {
+        let wasmMesh = hasSlabs ? null : (preparedMesh ?? null);
+        if (!hasSlabs && preparedMesh === undefined && window.EblanEng && window.EblanEng.ready) {
             wasmMesh = window.EblanEng.meshChunk(this, {
                 left: chunkLeft,
                 right: chunkRight,
@@ -339,7 +527,7 @@ class Chunk {
                         for (let z = 0; z < 16; z++) {
                             const idx = z + rowOffset;
                             const block = voxels[x + 16 * (y + 32 * z)];
-                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block)) {
+                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
                                 sliceMask[idx] = null;
                                 continue;
                             }
@@ -351,7 +539,7 @@ class Chunk {
                                 const neighbor = getVoxelNeighbor(x, y, z, f);
                                 if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER) {
                                     shouldRender = true;
-                                } else if (!isOpaque(neighbor) && neighbor !== block) {
+                                } else if (!isOpaqueNeighbor(neighbor, x, y, z, f) && (neighbor !== block || nearbyDesigns)) {
                                     shouldRender = true;
                                 }
                             }
@@ -448,7 +636,7 @@ class Chunk {
                         for (let x = 0; x < 16; x++) {
                             const idx = x + zOffset;
                             const block = voxels[x + 16 * (y + 32 * z)];
-                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block)) {
+                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
                                 sliceMask[idx] = null;
                                 continue;
                             }
@@ -456,7 +644,7 @@ class Chunk {
                             let shouldRender = false;
                             if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER) {
                                 shouldRender = true;
-                            } else if (!isOpaque(neighbor) && neighbor !== block) {
+                            } else if (!isOpaqueNeighbor(neighbor, x, y, z, f) && (neighbor !== block || nearbyDesigns)) {
                                 shouldRender = true;
                             }
                             if (shouldRender) {
@@ -552,7 +740,7 @@ class Chunk {
                         for (let x = 0; x < 16; x++) {
                             const idx = x + rowOffset;
                             const block = voxels[x + 16 * (y + 32 * z)];
-                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block)) {
+                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
                                 sliceMask[idx] = null;
                                 continue;
                             }
@@ -564,7 +752,7 @@ class Chunk {
                                 const neighbor = getVoxelNeighbor(x, y, z, f);
                                 if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER) {
                                     shouldRender = true;
-                                } else if (!isOpaque(neighbor) && neighbor !== block) {
+                                } else if (!isOpaqueNeighbor(neighbor, x, y, z, f) && (neighbor !== block || nearbyDesigns)) {
                                     shouldRender = true;
                                 }
                             }
@@ -767,7 +955,6 @@ class Chunk {
             }
         }
 
-        const isTurboOrA02 = (window.game && (window.game.turboFPS || window.game.isA02Mode));
         const finalMaterials = isTurboOrA02 ? materials.map(m => (m && m.basicCounterpart) ? m.basicCounterpart : m) : materials;
 
         if (combinedPositions && combinedPositions.length > 0) {
@@ -781,8 +968,7 @@ class Chunk {
             }
 
             // Precompute bounds for instantaneous frustum culling
-            geom.computeBoundingBox();
-            geom.computeBoundingSphere();
+            this.setGeometryBounds(geom);
 
             if (this.mesh) {
                 if (this.mesh.geometry) this.mesh.geometry.dispose();
@@ -799,7 +985,9 @@ class Chunk {
                 this.world.scene.add(this.mesh);
             }
         } else if (this.mesh) {
-            this.mesh.visible = false;
+            this.world.scene.remove(this.mesh);
+            this.mesh.geometry.dispose();
+            this.mesh = null;
         }
 
         // Build Water Mesh
@@ -808,11 +996,7 @@ class Chunk {
             waterGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(waterPositions), 3));
             waterGeom.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(waterNormals), 3));
             waterGeom.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(waterUVs), 2));
-            waterGeom.computeBoundingBox();
-            waterGeom.computeBoundingSphere();
-
-            const origWaterMat = textureManager.getBlockMaterial(BLOCK_TYPES.WATER);
-            const waterMat = isTurboOrA02 ? (origWaterMat.basicCounterpart || origWaterMat) : origWaterMat;
+            this.setGeometryBounds(waterGeom);
 
             if (this.waterMesh) {
                 if (this.waterMesh.geometry) this.waterMesh.geometry.dispose();
@@ -828,8 +1012,50 @@ class Chunk {
                 this.world.scene.add(this.waterMesh);
             }
         } else if (this.waterMesh) {
-            this.waterMesh.visible = false;
+            this.world.scene.remove(this.waterMesh);
+            this.waterMesh.geometry.dispose();
+            this.waterMesh = null;
         }
+        this._waterSurfaceMerged = mergeWaterSurface;
+    }
+}
+
+// Keep the save format and Map ordering while indexing edits by their chunk.
+// Streaming a chunk should only replay that chunk's edits, not the whole world.
+class ChunkEdits extends Map {
+    constructor(entries) {
+        super();
+        this.byChunk = new Map();
+        if (entries) for (const [key, type] of entries) this.set(key, type);
+    }
+
+    set(key, type) {
+        const [x, y, z] = key.split(',').map(Number);
+        const ix = Math.floor(x), iz = Math.floor(z);
+        const chunkKey = `${ix >> 4},${iz >> 4}`;
+        let edits = this.byChunk.get(chunkKey);
+        if (!edits) {
+            edits = new Map();
+            this.byChunk.set(chunkKey, edits);
+        }
+        edits.set(key, [ix & 15, Math.floor(y), iz & 15, type]);
+        super.set(key, type);
+        return this;
+    }
+
+    delete(key) {
+        if (!super.delete(key)) return false;
+        const [x, , z] = key.split(',').map(Number);
+        const chunkKey = `${Math.floor(x) >> 4},${Math.floor(z) >> 4}`;
+        const edits = this.byChunk.get(chunkKey);
+        edits.delete(key);
+        if (edits.size === 0) this.byChunk.delete(chunkKey);
+        return true;
+    }
+
+    clear() {
+        super.clear();
+        this.byChunk.clear();
     }
 }
 
@@ -851,7 +1077,8 @@ class VoxelWorld {
         this.noise = new PerlinNoise(this.seed);
         this.chunks = {};
         this.waterLevel = 6;
-        this.modifiedBlocks = new Map();
+        this.modifiedBlocks = new ChunkEdits();
+        this.blockDesigns = new Map();
         this.blockHistory = new Map(); // key: "x,y,z" -> [prevType1, prevType2, ...]
         this.snapshots = new Map(); // name -> [{x,y,z,type}]
         this.activeWaterBlocks = new Map();
@@ -881,10 +1108,12 @@ class VoxelWorld {
     updateChunkMaterials() {
         if (!this.textureManager) return;
         const waterMat = this.textureManager.getBlockMaterial(BLOCK_TYPES.WATER);
+        const mergeWaterSurface = waterMat.isMeshBasicMaterial === true;
         for (const key in this.chunks) {
             const chunk = this.chunks[key];
             if (chunk && chunk.waterMesh) {
                 chunk.waterMesh.material = waterMat;
+                if (chunk._waterSurfaceMerged !== mergeWaterSurface) chunk.isDirty = true;
             }
         }
     }
@@ -954,7 +1183,23 @@ class VoxelWorld {
         return chunk.voxels[(ix & 15) + 16 * (iy + 32 * (iz & 15))];
     }
 
-    setBlock(wx, wy, wz, type) {
+    getBlockDesign(x, y, z) {
+        return this.blockDesigns?.get(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`) || null;
+    }
+
+    getBlockBoxes(x, y, z, type = this.getBlock(x, y, z)) {
+        return window.blockBoxesAt(this, x, y, z, type);
+    }
+
+    hasBlockDesigns(cx, cz) {
+        for (const key of this.blockDesigns?.keys() || []) {
+            const [x, , z] = key.split(',').map(Number);
+            if ((x >> 4) === cx && (z >> 4) === cz) return true;
+        }
+        return false;
+    }
+
+    setBlock(wx, wy, wz, type, design = null) {
         if (this.arenaMap) return;
         const iy = Math.floor(wy);
         if (iy < 0 || iy >= 32) return;
@@ -968,7 +1213,13 @@ class VoxelWorld {
 
         const chunk = this.getOrCreateChunk(cx, cz);
         const prevType = chunk.getBlock(lx, ly, lz);
-        if (prevType === type) return;
+        const key = `${ix},${iy},${iz}`;
+        const normalized = type ? window.normalizeBlockDesign(design) : null;
+        const oldDesign = this.blockDesigns?.get(key) || null;
+        if (prevType === type && JSON.stringify(oldDesign) === JSON.stringify(normalized)) return;
+        this.blockDesigns ||= new Map();
+        if (normalized) this.blockDesigns.set(key, normalized);
+        else this.blockDesigns.delete(key);
 
         chunk.setBlock(lx, ly, lz, type);
 
@@ -1004,7 +1255,7 @@ class VoxelWorld {
         }
 
         // --- WATER & FLUID DYNAMICS HOOKS ---
-        if (!this.isGeneratingTerrain && !this.isUpdatingWaterPhysics) {
+        if (!normalized && !this.isGeneratingTerrain && !this.isUpdatingWaterPhysics) {
             if (type === BLOCK_TYPES.WATER) {
                 this.scheduleWaterUpdate(wx, wy, wz, 0);
             } else if (type === BLOCK_TYPES.SPONGE) {
@@ -1086,7 +1337,7 @@ class VoxelWorld {
         for (let x = minX; x <= maxX; x++) {
             for (let y = minY; y <= maxY; y++) {
                 for (let z = minZ; z <= maxZ; z++) {
-                    data.push({ x, y, z, type: this.getBlock(x, y, z) });
+                    data.push({ x, y, z, type: this.getBlock(x, y, z), design: this.getBlockDesign(x, y, z) });
                 }
             }
         }
@@ -1099,7 +1350,7 @@ class VoxelWorld {
         if (!data) return false;
         for (let i = 0; i < data.length; i++) {
             const b = data[i];
-            this.setBlock(b.x, b.y, b.z, b.type);
+            this.setBlock(b.x, b.y, b.z, b.type, b.design);
         }
         this.updateMeshes();
         return true;
@@ -1202,7 +1453,7 @@ class VoxelWorld {
             steps++;
 
             const { x, y, z, depth } = data;
-            if (this.getBlock(x, y, z) !== BLOCK_TYPES.WATER) continue;
+            if (this.getBlock(x, y, z) !== BLOCK_TYPES.WATER || this.getBlockDesign(x, y, z)) continue;
 
             if (this.isNearSponge(x, y, z, 3)) {
                 this.setBlock(x, y, z, BLOCK_TYPES.AIR);
@@ -1253,11 +1504,18 @@ class VoxelWorld {
         if (!this.dimensionStates) this.dimensionStates = new Map();
         this.dimensionStates.set(this.dimension || 'overworld', {
             worldType: this.worldType,
-            modifiedBlocks: this.modifiedBlocks
+            modifiedBlocks: this.modifiedBlocks,
+            blockDesigns: this.blockDesigns
         });
     }
 
     restoreChunkEdits(chunk) {
+        if (this.modifiedBlocks instanceof ChunkEdits) {
+            const edits = this.modifiedBlocks.byChunk.get(this.getChunkKey(chunk.cx, chunk.cz));
+            if (edits) for (const [x, y, z, type] of edits.values()) chunk.setBlock(x, y, z, type);
+            return;
+        }
+        // Retain compatibility with mods that replace modifiedBlocks with a Map.
         for (const [key, type] of this.modifiedBlocks) {
             const [x, y, z] = key.split(',').map(Number);
             const coords = this.worldToChunkCoords(x, y, z);
@@ -1277,7 +1535,7 @@ class VoxelWorld {
         const arr = [];
         for (let [key, type] of this.modifiedBlocks.entries()) {
             const [x, y, z] = key.split(',').map(Number);
-            arr.push({ x, y, z, type });
+            arr.push({ x, y, z, type, ...(this.getBlockDesign(x, y, z) ? { design: this.getBlockDesign(x, y, z) } : {}) });
         }
         return arr;
     }
@@ -1287,7 +1545,7 @@ class VoxelWorld {
         const prevTrack = this.trackModifications;
         this.trackModifications = false;
         for (let b of arr) {
-            this.setBlock(b.x, b.y, b.z, b.type);
+            this.setBlock(b.x, b.y, b.z, b.type, b.design);
             this.modifiedBlocks.set(`${b.x},${b.y},${b.z}`, b.type);
         }
         this.updateMeshes();
@@ -1313,7 +1571,8 @@ class VoxelWorld {
             window.EblanEng.setSeed(this.seed);
         }
         this.noise = new PerlinNoise(this.seed);
-        this.modifiedBlocks = new Map();
+        this.modifiedBlocks = new ChunkEdits();
+        this.blockDesigns = new Map();
         this.trackModifications = false;
         this.initWorld();
         this.trackModifications = true;
@@ -2129,20 +2388,31 @@ class VoxelWorld {
         return this.dimension === 'overworld' ? window.EBLAN_MAPS?.[this.worldType] || null : null;
     }
 
-    generateSingleChunk(cx, cz) {
+    generateSingleChunk(cx, cz, generatedVoxels = null) {
         const key = this.getChunkKey(cx, cz);
         let chunk = this.chunks[key];
         if (!chunk) {
             chunk = new Chunk(cx, cz, this);
             this.chunks[key] = chunk;
+            this.invalidateChunkCache();
         }
         if (chunk.isGenerated) return chunk;
         chunk.isGenerated = true;
+        this.markChunkNeighborsDirty(cx, cz);
 
         const builtinMap = this.getBuiltinMap();
         if (builtinMap) {
             const pairs = builtinMap.chunks[key] || [];
             for (let i = 0; i < pairs.length; i += 2) chunk.voxels[pairs[i]] = pairs[i + 1];
+            const designs = builtinMap.chunkDesigns?.[key] || [];
+            for (let i = 0; i < designs.length; i += 2) {
+                const index = designs[i];
+                const x = cx * 16 + index % 16;
+                const y = Math.floor(index / 16) % 32;
+                const z = cz * 16 + Math.floor(index / 512);
+                const cellKey = `${x},${y},${z}`;
+                if (!this.modifiedBlocks.has(cellKey)) this.blockDesigns.set(cellKey, window.normalizeBlockDesign(builtinMap.designs[designs[i + 1]]));
+            }
             this.restoreChunkEdits(chunk);
             return chunk;
         }
@@ -2176,7 +2446,7 @@ class VoxelWorld {
             }
             const dimId = (this.dimension === 'nether') ? 1 : ((this.dimension === 'the_end') ? 2 : 0);
             const wTypeId = (this.worldType === 'flat') ? 1 : ((this.worldType === 'mountains') ? 2 : ((this.worldType === 'tnt_paradise') ? 3 : 0));
-            const wasmVoxels = window.EblanEng.generateChunk(cx, cz, dimId, wTypeId, this.waterLevel);
+            const wasmVoxels = generatedVoxels || window.EblanEng.generateChunk(cx, cz, dimId, wTypeId, this.waterLevel);
             if (wasmVoxels) {
                 chunk.voxels.set(wasmVoxels);
                 if (dimId === 0 && (this.worldType === 'normal' || this.worldType === 'mountains')) {
@@ -2200,6 +2470,76 @@ class VoxelWorld {
         }
         this.restoreChunkEdits(chunk);
         return chunk;
+    }
+
+    markChunkNeighborsDirty(cx, cz) {
+        for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+            const neighbor = this.getChunk(cx + dx, cz + dz);
+            if (neighbor) neighbor.isDirty = true;
+        }
+    }
+
+    async generateChunkAsync(cx, cz) {
+        const core = window.EblanEng;
+        if (!core?.workerReady || this.arenaMap || this.getBuiltinMap() ||
+            this.worldType === 'race_track' || this.worldType === 'highway_city') {
+            return this.generateSingleChunk(cx, cz);
+        }
+        const chunks = this.chunks;
+        const seed = this.seed;
+        try {
+            const result = await core.requestChunkAsync({ cx, cz, seed, generateOnly: true,
+                dimension: this.dimension === 'nether' ? 1 : this.dimension === 'the_end' ? 2 : 0,
+                worldType: this.worldType === 'flat' ? 1 : this.worldType === 'mountains' ? 2 : this.worldType === 'tnt_paradise' ? 3 : 0,
+                waterLevel: this.waterLevel });
+            if (this.chunks !== chunks || this.seed !== seed) return null;
+            return this.generateSingleChunk(cx, cz, result.voxels);
+        } catch (error) {
+            if (this.chunks !== chunks || this.seed !== seed) return null;
+            return this.generateSingleChunk(cx, cz);
+        }
+    }
+
+    async prepareChunkMesh(chunk) {
+        const core = window.EblanEng;
+        if (!core?.workerReady) return undefined;
+        if (!core.materialList.length) core.syncMaterials(this.textureManager);
+        const materialList = core.materialList;
+        const neighbors = [[-1, 0], [1, 0], [0, -1], [0, 1]].map(([dx, dz]) =>
+            this.getChunk(chunk.cx + dx, chunk.cz + dz));
+        const copies = [chunk, ...neighbors].map(c => c?.isGenerated ? c.voxels.slice() : null);
+        const result = await core.requestChunkAsync({ cx: chunk.cx, cz: chunk.cz, voxels: copies[0],
+            leftVoxels: copies[1], rightVoxels: copies[2], backVoxels: copies[3], frontVoxels: copies[4] });
+        const isCurrent = () => {
+            if (core.materialList !== materialList) return false;
+            const current = [this.getChunk(chunk.cx, chunk.cz),
+                ...[[-1, 0], [1, 0], [0, -1], [0, 1]].map(([dx, dz]) => this.getChunk(chunk.cx + dx, chunk.cz + dz))];
+            if (current[0] !== chunk) return false;
+            for (let index = 0; index < current.length; index++) {
+                const c = current[index];
+                const copy = copies[index];
+                if (!!copy !== !!c?.isGenerated) return false;
+                if (!copy) continue;
+                const voxels = c.voxels;
+                for (let i = 0; i < copy.length; i++) {
+                    if (copy[i] !== voxels[i]) return false;
+                }
+            }
+            return true;
+        };
+        if (!isCurrent()) return null;
+        return { isCurrent, positions: result.positions, normals: result.normals, uvs: result.uvs,
+            groups: Array.from({ length: result.groups.length / 3 }, (_, i) => ({
+                start: result.groups[i * 3], count: result.groups[i * 3 + 1], materialIndex: i })),
+            materials: Array.from({ length: result.groups.length / 3 }, (_, i) =>
+                core.materialList[result.groups[i * 3 + 2]] || core.materialList[0]) };
+    }
+
+    async rebuildChunkAsync(chunk) {
+        let mesh;
+        try { mesh = await this.prepareChunkMesh(chunk); }
+        catch (error) { mesh = undefined; }
+        if (mesh !== null && this.getChunk(chunk.cx, chunk.cz) === chunk) chunk.rebuildMesh(this.textureManager, mesh);
     }
 
     generateTerrain() {
@@ -2273,6 +2613,7 @@ class VoxelWorld {
 
     async preloadChunksAsync(onProgress = null) {
         this.isGeneratingTerrain = true;
+        await window.EblanEng?.workerStartup;
         this.trackModifications = false;
         this.chunkGenQueue = [];
 
@@ -2293,15 +2634,12 @@ class VoxelWorld {
         const totalChunks = chunksToPreload.length;
         let processed = 0;
 
-        // Stage 1: Generate and mesh all radius chunks
+        // Stage 1: Generate all radius chunks. Mesh after neighbors, structures
+        // and saved edits are final, so boundary geometry is only built once.
         for (const item of chunksToPreload) {
             let chunk = this.getChunk(item.cx, item.cz);
             if (!chunk || !chunk.isGenerated) {
-                chunk = this.generateSingleChunk(item.cx, item.cz);
-            }
-            if (chunk) {
-                chunk.rebuildMesh(this.textureManager);
-                chunk.isDirty = false;
+                chunk = await this.generateChunkAsync(item.cx, item.cz);
             }
             processed++;
             const pct = Math.round((processed / totalChunks) * 75);
@@ -2380,8 +2718,8 @@ class VoxelWorld {
         for (let key in this.chunks) {
             const chunk = this.chunks[key];
             if (chunk && chunk.isDirty && chunk.isGenerated) {
-                chunk.rebuildMesh(this.textureManager);
-                chunk.isDirty = false;
+                await this.rebuildChunkAsync(chunk);
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
 
@@ -2402,10 +2740,13 @@ class VoxelWorld {
     }
 
     update(playerX, playerZ, dt = 0.016) {
-        // Run cellular automaton water physics
+        if (this.isGeneratingTerrain) return;
+        // Do not stack streaming work on top of an expensive water/unload pass.
+        // A chunk-count limit alone is not a time budget.
+        const streamingDeadline = performance.now() + 4;
         this.updateWaterPhysics(dt);
 
-        if (this.dimension === 'the_end') return; // Focused boss arena
+        // End terrain is finite, but dirty meshes still need servicing.
 
         const curCX = Math.floor(playerX / CHUNK_SIZE_X);
         const curCZ = Math.floor(playerZ / CHUNK_SIZE_Z);
@@ -2413,7 +2754,7 @@ class VoxelWorld {
         const r = this.chunkRadius;
 
         // 1. Center chunk shift detection
-        if (this.lastCenterCX !== curCX || this.lastCenterCZ !== curCZ) {
+        if (this.dimension !== 'the_end' && (this.lastCenterCX !== curCX || this.lastCenterCZ !== curCZ)) {
             this.lastCenterCX = curCX;
             this.lastCenterCZ = curCZ;
 
@@ -2431,18 +2772,33 @@ class VoxelWorld {
             }
             this.chunkGenQueue.sort((a, b) => a.distSq - b.distSq);
 
-            // 2. Unload far chunks with HYSTERESIS (r + 2) to eliminate boundary thrashing and stutter
-            const maxDist = r + 2;
-            let unloadsLeft = 3; // Smooth disposal budget to prevent GC pauses
-            for (let key in this.chunks) {
-                const chunk = this.chunks[key];
-                if (Math.abs(chunk.cx - curCX) > maxDist || Math.abs(chunk.cz - curCZ) > maxDist) {
-                    chunk.dispose();
-                    delete this.chunks[key];
-                    if (--unloadsLeft <= 0) break;
-                }
+        }
+
+        // Continue bounded unloading even when the player stops moving.
+        const maxDist = r + 2;
+        let unloadsLeft = 3;
+        for (const key in this.chunks) {
+            const chunk = this.chunks[key];
+            if (Math.abs(chunk.cx - curCX) > maxDist || Math.abs(chunk.cz - curCZ) > maxDist) {
+                chunk.dispose();
+                delete this.chunks[key];
+                this.invalidateChunkCache();
+                this.markChunkNeighborsDirty(chunk.cx, chunk.cz);
+                if (--unloadsLeft <= 0 || performance.now() >= streamingDeadline) break;
             }
         }
+
+        if (performance.now() >= streamingDeadline) return;
+        if (this.meshTask) return;
+        if (this.readyChunkMesh) {
+            const { chunk, mesh } = this.readyChunkMesh;
+            this.readyChunkMesh = null;
+            if (this.getChunk(chunk.cx, chunk.cz) === chunk && mesh !== null && (!mesh || mesh.isCurrent())) {
+                chunk.rebuildMesh(this.textureManager, mesh);
+            }
+            return;
+        }
+        if (this.generationTask) return;
 
         // 3. Strict Frame-Budgeted Chunk Generation & Meshing:
         // Priority 1: Mesh 1 dirty chunk closest to player (if generated)
@@ -2460,7 +2816,14 @@ class VoxelWorld {
         }
 
         if (closestDirty) {
-            closestDirty.rebuildMesh(this.textureManager);
+            if (window.EblanEng?.workerReady) {
+                const chunks = this.chunks;
+                this.meshTask = this.prepareChunkMesh(closestDirty).then(mesh => {
+                    if (this.chunks === chunks) this.readyChunkMesh = { chunk: closestDirty, mesh };
+                }).catch(() => {
+                    if (this.chunks === chunks) this.readyChunkMesh = { chunk: closestDirty, mesh: undefined };
+                }).finally(() => { this.meshTask = null; });
+            } else closestDirty.rebuildMesh(this.textureManager);
             return; // Frame budget satisfied, meshing completed
         }
 
@@ -2470,8 +2833,14 @@ class VoxelWorld {
             const key = this.getChunkKey(nextItem.cx, nextItem.cz);
             let chunk = this.chunks[key];
             if (!chunk || !chunk.isGenerated) {
-                chunk = this.generateSingleChunk(nextItem.cx, nextItem.cz);
-                chunk.isDirty = true;
+                if (window.EblanEng?.workerReady) {
+                    this.generationTask = this.generateChunkAsync(nextItem.cx, nextItem.cz)
+                        .catch(error => console.warn('Chunk generation failed:', error))
+                        .finally(() => { this.generationTask = null; });
+                } else {
+                    chunk = this.generateSingleChunk(nextItem.cx, nextItem.cz);
+                    chunk.isDirty = true;
+                }
                 break;
             }
         }
@@ -2604,7 +2973,8 @@ class VoxelWorld {
         this.rememberDimension();
         this.dimension = newDimension;
         const savedState = this.dimensionStates.get(newDimension);
-        this.modifiedBlocks = savedState ? savedState.modifiedBlocks : new Map();
+        this.modifiedBlocks = savedState ? savedState.modifiedBlocks : new ChunkEdits();
+        this.blockDesigns = savedState?.blockDesigns || new Map();
         this.activeWaterBlocks.clear();
         this.blockHistory.clear();
         this.chunkGenQueue = [];
@@ -2887,13 +3257,10 @@ class VoxelWorld {
     }
 
     updateMeshes(forceAll = false) {
-        for (let key in this.chunks) {
-            const chunk = this.chunks[key];
-            if (forceAll) chunk.isDirty = true;
-            if (chunk.isDirty && chunk.isGenerated) {
-                chunk.rebuildMesh(this.textureManager);
-            }
+        if (forceAll) {
+            for (const chunk of Object.values(this.chunks)) chunk.isDirty = true;
         }
+        // Dirty chunks are processed by update(), one result per frame.
     }
 
     // Save world state to JSON string
@@ -2906,6 +3273,7 @@ class VoxelWorld {
         for (const [dimension, state] of this.dimensionStates) {
             dimensionStates[dimension] = {
                 worldType: state.worldType,
+                blockDesigns: Array.from(state.blockDesigns || []),
                 modifiedBlocks: Array.from(state.modifiedBlocks, ([key, type]) => {
                     const [x, y, z] = key.split(',').map(Number);
                     return { x, y, z, type };
@@ -2919,6 +3287,7 @@ class VoxelWorld {
             worldType: this.worldType,
             chunkRadius: this.chunkRadius,
             modifiedBlocks: this.getModifiedBlocksArray(),
+            blockDesigns: Array.from(this.blockDesigns || []),
             customBlocks: []
         };
         // Save modified blocks
@@ -2952,13 +3321,15 @@ class VoxelWorld {
                 if (!Array.isArray(state.modifiedBlocks)) continue;
                 this.dimensionStates.set(dimension, {
                     worldType: state.worldType || 'normal',
-                    modifiedBlocks: new Map(state.modifiedBlocks.map(b => [`${b.x},${b.y},${b.z}`, b.type]))
+                    blockDesigns: new Map((state.blockDesigns || []).map(([key, design]) => [key, window.normalizeBlockDesign(design)])),
+                    modifiedBlocks: new ChunkEdits(state.modifiedBlocks.map(b => [`${b.x},${b.y},${b.z}`, b.type]))
                 });
             }
             this.noise = new PerlinNoise(this.seed);
             if (window.EblanEng) window.EblanEng.setSeed(this.seed);
             this.clearWorld();
-            this.modifiedBlocks = new Map();
+            this.modifiedBlocks = new ChunkEdits();
+            this.blockDesigns = new Map();
             this.blockHistory.clear();
             this.activeWaterBlocks.clear();
             this.chunkGenQueue = [];
@@ -2981,6 +3352,10 @@ class VoxelWorld {
                     }
                 }
                 this.applyModifiedBlocks(data.modifiedBlocks);
+                for (const [key, design] of data.blockDesigns || []) {
+                    const [x, y, z] = key.split(',').map(Number);
+                    if ([x, y, z].every(Number.isInteger)) this.setBlock(x, y, z, this.getBlock(x, y, z), design);
+                }
                 this.rememberDimension();
                 this.updateMeshes();
             } finally {

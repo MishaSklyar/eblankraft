@@ -5,6 +5,7 @@
 *.idsig
 __pycache__/
 *.pyc
+node_modules/
 csharp/bin/
 csharp/obj/
 dist_csharp_linux/
@@ -16,3 +17,16 @@ android_project/dex/
 android_pro/obj/
 android_pro/dex/
 tools/
+.tokensave
+
+# Generated Cloudflare beta deployment
+cloudflare/beta/generated/
+cloudflare/beta/.wrangler/
+cloudflare/beta/public/
+
+# Private local marketplace ledger
+server/.economy.json
+server/.economy.json.tmp
+
+# Local agent tooling
+.serena/

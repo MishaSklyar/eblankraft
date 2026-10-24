@@ -161,13 +161,21 @@ class RemotePlayer {
         while (this.itemContainer.children.length > 0) {
             const child = this.itemContainer.children[0];
             this.itemContainer.remove(child);
-            if (child.geometry) child.geometry.dispose();
+            if (child.name?.startsWith('gun_')) disposeHeldModel(child);
+            else if (child.geometry) child.geometry.dispose();
         }
 
         if (!itemId) return;
 
         const info = (window.ITEM_REGISTRY && window.ITEM_REGISTRY[itemId]) ? window.ITEM_REGISTRY[itemId] : null;
         if (!info) return;
+
+        if (info.isGun && window.createVoxelGunModel) {
+            const gun = window.createVoxelGunModel(info.gunType);
+            gun.scale.setScalar(.65); gun.rotation.x = Math.PI / 2;
+            this.itemContainer.add(gun);
+            return;
+        }
 
         if (info.category === 'blocks') {
             // Block 3D mini cube
@@ -335,6 +343,12 @@ class RemotePlayer {
             this.rightArmPivot.rotation.x = -Math.sin(this.armSwingTimer * Math.PI) * 1.4;
         }
 
+        const heldInfo = window.ITEM_REGISTRY?.[this.heldItem];
+        if (heldInfo?.isGun) {
+            this.rightArmPivot.rotation.x = -Math.PI / 2 + this.targetPitch;
+            this.leftArmPivot.rotation.x = -1.15;
+        }
+
         // Damage flash
         if (this.damageFlashTimer > 0) {
             this.damageFlashTimer -= dt;
@@ -483,6 +497,9 @@ class MultiplayerManager {
             btnCreateHost.onclick = () => this.startHost();
         }
 
+        const btnWorldHost = document.getElementById('btn-mp-host-world');
+        if (btnWorldHost) btnWorldHost.onclick = () => this.startWorldHost();
+
         // Join Button
         const btnJoinRoom = document.getElementById('btn-mp-join');
         if (btnJoinRoom) {
@@ -501,11 +518,12 @@ class MultiplayerManager {
         const btnCopyCode = document.getElementById('btn-mp-copy-code');
         if (btnCopyCode) {
             btnCopyCode.onclick = () => {
-                if (this.peerId) {
-                    navigator.clipboard.writeText(this.peerId).then(() => {
+                const roomCode = this.hostConnection?.peer || this.peerId;
+                if (roomCode) {
+                    navigator.clipboard.writeText(roomCode).then(() => {
                         this.showToast('📋 Код кімнати скопійовано!');
                     }).catch(() => {
-                        this.showToast(`Код: ${this.peerId}`);
+                        this.showToast(`Код: ${roomCode}`);
                     });
                 }
             };
@@ -515,8 +533,9 @@ class MultiplayerManager {
         const btnCopyLink = document.getElementById('btn-mp-copy-link');
         if (btnCopyLink) {
             btnCopyLink.onclick = () => {
-                if (this.peerId) {
-                    const url = `${window.location.origin}${window.location.pathname}?room=${this.peerId}`;
+                const roomCode = this.hostConnection?.peer || this.peerId;
+                if (roomCode) {
+                    const url = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
                     navigator.clipboard.writeText(url).then(() => {
                         this.showToast('🔗 Посилання скопійовано! Надішліть другу');
                     }).catch(() => {
@@ -659,6 +678,7 @@ class MultiplayerManager {
 
     // --- HOST INITIALIZATION ---
     startHost(preferredId = null) {
+        if (this.peer) this.disconnect();
         if (this.game.serverClient) this.game.serverClient.leaveRoom();
         const bytes = new Uint8Array(8);
         crypto.getRandomValues(bytes);
@@ -666,8 +686,71 @@ class MultiplayerManager {
         this.game.arenaClient.connect(code);
     }
 
+    startWorldHost() {
+        if (!this.game.world || this.game.ui?.mainMenuOpen || this.game.serverClient?.currentRoom || this.game.arenaClient?.isActive) {
+            this.showToast('Спочатку відкрийте одиночний світ, який хочете хостити.');
+            return;
+        }
+        this.disconnect();
+        const bytes = new Uint8Array(8);
+        crypto.getRandomValues(bytes);
+        const code = 'world-' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+        this.openWorldPeer(code);
+    }
+
+    openWorldPeer(code, hostCode = null) {
+        if (typeof Peer !== 'function') {
+            this.showToast('Не вдалося завантажити PeerJS. Перезавантажте сторінку.');
+            return;
+        }
+        this.isConnecting = true;
+        const peer = code ? new Peer(code) : new Peer();
+        this.peer = peer;
+        peer.on('open', id => {
+            if (this.peer !== peer) return;
+            this.peerId = id;
+            this.isHost = !hostCode;
+            if (!hostCode) {
+                this.isConnecting = false;
+                this.isConnected = true;
+                this.updateConnectedUI(true, id, true);
+                this.updatePlayerCount();
+                return;
+            }
+            const conn = peer.connect(hostCode, { reliable: true });
+            this.hostConnection = conn;
+            conn.on('open', () => {
+                if (this.peer !== peer) return;
+                this.isConnecting = false;
+                this.isConnected = true;
+                this.updateConnectedUI(true, hostCode, false);
+            });
+            conn.on('data', data => {
+                if (this.peer === peer) this.handlePacket(data, conn.peer);
+            });
+            conn.on('close', () => { if (this.peer === peer) this.disconnect(); });
+            conn.on('error', () => {
+                if (this.peer !== peer) return;
+                this.disconnect();
+                this.showToast('Не вдалося приєднатися до світу хоста.');
+            });
+        });
+        peer.on('connection', conn => {
+            if (this.peer !== peer || hostCode) { conn.close(); return; }
+            this.setupHostClientConnection(conn);
+        });
+        peer.on('error', () => {
+            if (this.peer !== peer) return;
+            this.disconnect();
+            this.showToast('Помилка з’єднання зі світом. Перевірте код і мережу.');
+        });
+        peer.on('disconnected', () => { if (this.peer === peer) this.disconnect(); });
+    }
+
     setupHostClientConnection(conn) {
+        const peer = this.peer;
         conn.on('open', () => {
+            if (this.peer !== peer) { conn.close(); return; }
             this.connections.set(conn.peer, conn);
 
             // Handshake: Send initial world state, seed, dimension, time and existing block modifications!
@@ -686,10 +769,11 @@ class MultiplayerManager {
         });
 
         conn.on('data', (data) => {
-            this.handlePacket(data, conn.peer);
+            if (this.peer === peer) this.handlePacket(data, conn.peer);
         });
 
         conn.on('close', () => {
+            if (this.peer !== peer) return;
             this.removeRemotePlayer(conn.peer);
             this.connections.delete(conn.peer);
             this.updatePlayerCount();
@@ -703,8 +787,18 @@ class MultiplayerManager {
 
     // --- CLIENT JOIN INITIALIZATION ---
     joinRoom(roomCode) {
+        roomCode = String(roomCode).trim();
+        if (/^world-[a-f0-9]{16}$/.test(roomCode)) {
+            this.disconnect();
+            if (this.game.serverClient) this.game.serverClient.leaveRoom();
+            this.openWorldPeer(null, roomCode);
+            return;
+        }
         if (this.game.serverClient) this.game.serverClient.leaveRoom();
-        this.game.arenaClient.connect(roomCode);
+        if (this.peer) this.disconnect();
+        const invite = /^([A-Za-z0-9_-]{1,32}):(T|CT)$/.exec(roomCode);
+        if (invite) this.game.arenaClient.connect(invite[1], invite[2]);
+        else this.game.arenaClient.connect(roomCode);
     }
 
     // --- PACKET DISPATCH & HANDLING ---
@@ -781,7 +875,7 @@ class MultiplayerManager {
 
             case 'block_place': {
                 if (this.game.world) {
-                    this.game.world.setBlock(data.x, data.y, data.z, data.blockType);
+                    this.game.world.setBlock(data.x, data.y, data.z, data.blockType, data.design);
                     this.game.world.updateMeshes();
                     if (this.game.soundManager && window.BLOCK_INFO) {
                         this.game.soundManager.playPlace(window.BLOCK_INFO[data.blockType]?.sound || 'stone');
@@ -959,14 +1053,14 @@ class MultiplayerManager {
     }
 
     // --- ACTION BROADCAST METHODS ---
-    broadcastBlockPlace(x, y, z, blockType) {
+    broadcastBlockPlace(x, y, z, blockType, expectedType, design = null) {
         const sc = this.game.serverClient;
         if (sc && sc.isConnected && sc.currentRoom) {
-            sc.sendBlockAction('place', x, y, z, blockType);
+            sc.sendBlockAction('place', x, y, z, blockType, expectedType, design);
             return;
         }
         if (!this.isConnected) return;
-        this.broadcast({ type: 'block_place', x, y, z, blockType });
+        this.broadcast({ type: 'block_place', x, y, z, blockType, design });
     }
 
     broadcastBlockBreak(x, y, z, blockType = 1) {
@@ -1264,7 +1358,7 @@ class MultiplayerManager {
             case '/ultra':
             case '/graphics':
                 if (this.game && this.game.ui) {
-                    this.game.ui.applyUltraPreset();
+                    this.game.ui.applyGraphicsPreset('high');
                     this.addChatMessage('СИСТЕМА', '💎 УЛЬТРА ГРАФІКА АКТИВОВАНА! 100% Scaling + Antialiasing + RTX Shadows!', true);
                 }
                 break;
@@ -1456,7 +1550,10 @@ class MultiplayerManager {
         if (this.game.ui?.duelSavedSession || this.game.ui?.isDuelQueueSearching) this.game.ui.cleanupDuel();
         if (this.game.arenaClient) this.game.arenaClient.disconnect();
         this.isConnected = false;
+        this.isConnecting = false;
         this.isHost = false;
+        const peer = this.peer;
+        this.peer = null;
 
         for (let remote of this.remotePlayers.values()) {
             remote.destroy();
@@ -1473,9 +1570,8 @@ class MultiplayerManager {
             this.hostConnection = null;
         }
 
-        if (this.peer) {
-            try { this.peer.destroy(); } catch(e) {}
-            this.peer = null;
+        if (peer) {
+            try { peer.destroy(); } catch(e) {}
         }
 
         this.peerId = null;

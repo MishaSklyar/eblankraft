@@ -1352,7 +1352,6 @@ class UIManager {
         const selectWorldType = document.getElementById('select-world-type');
         const sliderSens = document.getElementById('slider-sensitivity');
         const chkVoice = document.getElementById('chk-voice');
-        const chkGodMode = document.getElementById('chk-godmode');
 
         const hideMenu = () => this.togglePauseMenu(false);
         if (closeBtn) closeBtn.onclick = hideMenu;
@@ -1422,84 +1421,32 @@ class UIManager {
             };
         }
 
-        if (chkVoice) chkVoice.onchange = (e) => { this.soundManager.voiceEnabled = e.target.checked; };
-        if (chkGodMode) chkGodMode.onchange = (e) => { this.player.godMode = e.target.checked; };
+        const breakInterval = document.getElementById('slider-creative-break-interval');
+        const breakLabel = document.getElementById('lbl-creative-break-interval');
+        if (breakInterval) {
+            breakInterval.value = this.player.creativeBreakIntervalMs || 0;
+            if (breakLabel) breakLabel.textContent = `${breakInterval.value} мс`;
+            breakInterval.oninput = event => {
+                this.player.setCreativeBreakInterval(event.target.value);
+                if (breakLabel) breakLabel.textContent = `${this.player.creativeBreakIntervalMs} мс`;
+            };
+        }
+        const creativeMobs = document.getElementById('chk-creative-mobs');
+        if (creativeMobs) {
+            creativeMobs.checked = this.game.creativeMobsEnabled === true;
+            creativeMobs.onchange = event => {
+                this.game.creativeMobsEnabled = event.target.checked;
+                try { localStorage.setItem('eblankraft_creative_mobs', String(event.target.checked)); } catch {}
+                this.game.mobManager?.applyCreativeMobSetting(this.player);
+            };
+        }
 
-        // Physics API sliders (shared with Lua Physics.set — same player fields)
-        const physNum = (k, def) => {
-            try {
-                const v = parseFloat(localStorage.getItem('eblan_phys_' + k));
-                return isNaN(v) ? def : v;
-            } catch (e) { return def; }
-        };
-        const physSave = (k, v) => { try { localStorage.setItem('eblan_phys_' + k, String(v)); } catch (e) {} };
-        const sliderGrav = document.getElementById('slider-gravity');
-        const lblGrav = document.getElementById('lbl-gravity');
-        const sliderJump = document.getElementById('slider-jump');
-        const lblJump = document.getElementById('lbl-jump');
-        const sliderPSpd = document.getElementById('slider-pspeed');
-        const lblPSpd = document.getElementById('lbl-pspeed');
-        const chkNoFall = document.getElementById('chk-nofall');
-        const btnPhysReset = document.getElementById('btn-phys-reset');
-        const applyPhysUI = () => {
-            if (sliderGrav && lblGrav) {
-                const g = physNum('gravity', 22);
-                sliderGrav.value = g; lblGrav.textContent = `${g}`;
-                this.player.physGravity = (g === 22) ? undefined : g;
-                physSave('gravity', g);
-            }
-            if (sliderJump && lblJump) {
-                const j = physNum('jump', 8.5);
-                sliderJump.value = j; lblJump.textContent = `${j}`;
-                this.player.physJumpPower = (j === 8.5) ? undefined : j;
-                physSave('jump', j);
-            }
-            if (sliderPSpd && lblPSpd) {
-                const s = physNum('speed', 1.0);
-                sliderPSpd.value = s; lblPSpd.textContent = `${s.toFixed(1)}x`;
-                this.player.speedMultiplier = s;
-                physSave('speed', s);
-            }
-            if (chkNoFall) {
-                let nf = false;
-                try { nf = localStorage.getItem('eblan_phys_nofall') === '1'; } catch (e) {}
-                chkNoFall.checked = nf;
-                this.player.physNoFallDamage = nf || undefined;
-            }
-        };
-        applyPhysUI();
-        if (sliderGrav) sliderGrav.oninput = (e) => {
-            const g = parseFloat(e.target.value);
-            if (lblGrav) lblGrav.textContent = `${g}`;
-            this.player.physGravity = (g === 22) ? undefined : g;
-            physSave('gravity', g);
-        };
-        if (sliderJump) sliderJump.oninput = (e) => {
-            const j = parseFloat(e.target.value);
-            if (lblJump) lblJump.textContent = `${j}`;
-            this.player.physJumpPower = (j === 8.5) ? undefined : j;
-            physSave('jump', j);
-        };
-        if (sliderPSpd) sliderPSpd.oninput = (e) => {
-            const s = parseFloat(e.target.value);
-            if (lblPSpd) lblPSpd.textContent = `${s.toFixed(1)}x`;
-            this.player.speedMultiplier = s;
-            physSave('speed', s);
-        };
-        if (chkNoFall) chkNoFall.onchange = (e) => {
-            this.player.physNoFallDamage = e.target.checked || undefined;
-            try { localStorage.setItem('eblan_phys_nofall', e.target.checked ? '1' : '0'); } catch (err) {}
-        };
-        if (btnPhysReset) btnPhysReset.onclick = () => {
-            try {
-                localStorage.removeItem('eblan_phys_gravity');
-                localStorage.removeItem('eblan_phys_jump');
-                localStorage.removeItem('eblan_phys_speed');
-                localStorage.removeItem('eblan_phys_nofall');
-            } catch (e) {}
-            applyPhysUI();
-            this.showToast("🏃 Звичайна фізика відновлена!");
-        };
+        if (chkVoice) chkVoice.onchange = (e) => { this.soundManager.voiceEnabled = e.target.checked; };
+        const graphicsPreset = document.getElementById('select-graphics-preset');
+        if (graphicsPreset) {
+            graphicsPreset.value = this.game.graphicsPreset;
+            graphicsPreset.onchange = event => this.applyGraphicsPreset(event.target.value);
+        }
 
         // Graphics toggles: Real-time shadows & Voxel clouds
         const chkShadows = document.getElementById('chk-shadows');
@@ -1514,88 +1461,16 @@ class UIManager {
             chkClouds.onchange = (e) => this.game.setCloudsEnabled(e.target.checked);
         }
 
-        // Shaders selection
-        const selectShaders = document.getElementById('select-shaders');
-        if (selectShaders) {
-            const savedShader = localStorage.getItem('eblankraft_shader') || 'bsl';
-            selectShaders.value = savedShader;
-            this.setShader(savedShader, false);
-            selectShaders.onchange = (e) => this.setShader(e.target.value);
-        }
-
-        // Render scale selector (FPS Boost for potato PCs & Samsung A02)
+        // Render scale selector reflects the active renderer configuration.
         const selectRenderScale = document.getElementById('select-render-scale');
         if (selectRenderScale) {
-            const savedScale = localStorage.getItem('eblankraft_render_scale') || (this.game.isA02Mode ? "0.75" : "1.0");
-            selectRenderScale.value = savedScale;
+            const activeScale = Number(this.game.renderScale) || 1;
+            const activeOption = Array.from(selectRenderScale.options).find(option => Number(option.value) === activeScale);
+            if (activeOption) selectRenderScale.value = activeOption.value;
             selectRenderScale.onchange = (e) => {
                 const val = parseFloat(e.target.value);
                 if (this.game && this.game.setRenderScale) this.game.setRenderScale(val);
                 this.showToast(`🔍 Масштаб рендера: ${Math.round(val * 100)}%`);
-            };
-        }
-
-        // GPU Backend indicator
-        const lblGpuBackend = document.getElementById('lbl-gpu-backend');
-        if (lblGpuBackend) {
-            lblGpuBackend.textContent = 'WebGL 2.0 ⚡';
-        }
-
-        // 💎 ULTRA Graphics Preset (100% Native Scale + Antialiasing + PCF Soft Shadows)
-        const btnUltra = document.getElementById('btn-ultra-graphics-preset');
-        if (btnUltra) {
-            btnUltra.onclick = () => this.applyUltraPreset();
-        }
-
-        // 💻 ASUS UL20FT / Netbook 2010 Preset (Boost to 60+ FPS on Intel Ironlake)
-        const btnUL20FT = document.getElementById('btn-ul20ft-preset');
-        if (btnUL20FT) {
-            btnUL20FT.onclick = () => this.applyUL20FTPreset();
-        }
-
-        // 🥔 Ultra Potato Preset (1-Click Mega FPS Boost for 2010 Netbooks & Samsung A02)
-        const btnPotato = document.getElementById('btn-ultra-potato-preset');
-        if (btnPotato) {
-            btnPotato.onclick = () => {
-                // 1. Set render scale to 38%
-                const selectScale = document.getElementById('select-render-scale');
-                if (selectScale) selectScale.value = "0.38";
-                if (this.game && this.game.setRenderScale) this.game.setRenderScale(0.38);
-
-                // 2. Enable Turbo FPS
-                this.setTurboFPS(true, false);
-
-                // 3. Enable A02 mode
-                if (this.game && this.game.setA02Mode) this.game.setA02Mode(true);
-                const chkA02 = document.getElementById('chk-a02-mode');
-                if (chkA02) chkA02.checked = true;
-
-                // 4. Set chunk distance to 1
-                if (this.game && this.game.world) this.game.world.chunkRadius = 1;
-                const slDist = document.getElementById('slider-view-distance');
-                const lblDist = document.getElementById('lbl-view-distance');
-                if (slDist) slDist.value = '1';
-                if (lblDist) lblDist.textContent = '1';
-
-                // 5. Disable all heavy FX
-                this.game.setShadowsEnabled(false);
-                this.game.setCloudsEnabled(false);
-                this.game.windLeavesEnabled = false;
-                this.game.underwaterEffectsEnabled = false;
-                if (this.game.setFancyWaterEnabled) this.game.setFancyWaterEnabled(false);
-                try {
-                    localStorage.setItem('eblankraft_wind_leaves', '0');
-                    localStorage.setItem('eblankraft_underwater_fx', '0');
-                } catch(e) {}
-
-                const chkLeaves = document.getElementById('chk-wind-leaves');
-                if (chkLeaves) chkLeaves.checked = false;
-                const chkUnder = document.getElementById('chk-underwater');
-                if (chkUnder) chkUnder.checked = false;
-                const chkWater = document.getElementById('chk-fancy-water');
-                if (chkWater) chkWater.checked = false;
-
-                this.showToast("🥔 РЕЖИМ ТОСТЕРА 2010 АКТИВОВАНО! ФПС ВЗЛЕТІВ У КОСМОС! 🚀");
             };
         }
 
@@ -1613,32 +1488,6 @@ class UIManager {
                     this.game.world.chunkRadius = val;
                 }
             };
-        }
-
-        // Samsung A02 / Low-end Mobile Optimization toggle
-        const chkA02 = document.getElementById('chk-a02-mode');
-        if (chkA02) {
-            chkA02.checked = !!this.game.isA02Mode;
-            chkA02.onchange = (e) => {
-                this.game.setA02Mode(e.target.checked);
-                if (e.target.checked) {
-                    if (this.game.setFancyWaterEnabled) this.game.setFancyWaterEnabled(false);
-                    const chkWater = document.getElementById('chk-fancy-water');
-                    if (chkWater) chkWater.checked = false;
-                }
-                this.showToast(e.target.checked ? "📱 Оптимізацію Samsung A02 увімкнено (60 FPS)!" : "💻 Режим ПК / Максимальна графіка");
-            };
-        }
-
-        // 10000000 FPS Boost
-        const chkTurbo = document.getElementById('chk-turbofps');
-        if (chkTurbo) {
-            const savedTurbo = (localStorage.getItem('eblankraft_turbofps') === 'true') || !!this.game.turboFPS;
-            chkTurbo.checked = savedTurbo;
-            if (savedTurbo) {
-                this.setTurboFPS(true, false);
-            }
-            chkTurbo.onchange = (e) => this.setTurboFPS(e.target.checked);
         }
 
         // PC Controls Hint Bar Position (WASD Hint location)
@@ -1724,48 +1573,7 @@ class UIManager {
             } catch(e) {}
         }
 
-        // ✨ Antialiasing (MSAA/SSAA) toggle
-        const chkAntialias = document.getElementById('chk-antialias');
-        if (chkAntialias) {
-            chkAntialias.checked = (this.game.antialias !== false);
-            chkAntialias.onchange = (e) => {
-                const val = !!e.target.checked;
-                this.game.antialias = val;
-                try { localStorage.setItem('eblankraft_antialias', val ? 'true' : 'false'); } catch(err) {}
-                if (this.game.renderer) {
-                    this.game.renderer.setPixelRatio(this.game.getEffectivePixelRatio());
-                }
-                this.showToast(val ? "✨ Згладжування (Antialiasing) увімкнено!" : "🚫 Згладжування вимкнено");
-            };
-        }
-
-        // Underwater Effects & Breathing toggle
-        const chkUnderwater = document.getElementById('chk-underwater');
-        if (chkUnderwater) {
-            chkUnderwater.checked = (this.game.underwaterEffectsEnabled !== false);
-            chkUnderwater.onchange = (e) => {
-                const val = !!e.target.checked;
-                this.game.underwaterEffectsEnabled = val;
-                try { localStorage.setItem('eblankraft_underwater_fx', val ? '1' : '0'); } catch(err) {}
-                const underOverlay = document.getElementById('underwater-overlay');
-                if (!val && underOverlay) underOverlay.style.display = 'none';
-                const oxyEl = document.getElementById('hud-oxygen');
-                if (!val && oxyEl) oxyEl.style.display = 'none';
-            };
-        }
-
-        // Tree Leaves Wind Animation toggle
-        const chkWindLeaves = document.getElementById('chk-wind-leaves');
-        if (chkWindLeaves) {
-            chkWindLeaves.checked = (this.game.windLeavesEnabled !== false);
-            chkWindLeaves.onchange = (e) => {
-                const val = !!e.target.checked;
-                this.game.windLeavesEnabled = val;
-                try { localStorage.setItem('eblankraft_wind_leaves', val ? '1' : '0'); } catch(err) {}
-            };
-        }
-
-        // 🌊 4K Water with Waves & Normal Maps toggle
+        // Water animation toggle
         const chkFancyWater = document.getElementById('chk-fancy-water');
         if (chkFancyWater) {
             chkFancyWater.checked = (this.game.fancyWaterEnabled !== false);
@@ -1774,7 +1582,7 @@ class UIManager {
                 if (this.game.setFancyWaterEnabled) {
                     this.game.setFancyWaterEnabled(val);
                 }
-                this.showToast(val ? "🌊 4K Вода з хвилями увімкнена!" : "💧 Пласка оптимізована вода (Буст ФПС)!");
+                this.showToast(val ? "🌊 Хвилі води увімкнені!" : "💧 Хвилі води вимкнені!");
             };
         }
 
@@ -1842,142 +1650,22 @@ class UIManager {
         if (notify) this.showToast(`✨ Шейдери: ${shaderName.toUpperCase()}`);
     }
 
-    setTurboFPS(enabled, notify = true) {
-        this.turboFPS = enabled;
-        try { localStorage.setItem('eblankraft_turbofps', enabled ? 'true' : 'false'); } catch (e) {}
-        if (this.game && this.game.setTurboFPS) {
-            this.game.setTurboFPS(enabled);
+    applyGraphicsPreset(name, notify = true) {
+        if (!this.game?.setGraphicsPreset(name)) return;
+        const selector = document.getElementById('select-graphics-preset');
+        if (selector) selector.value = name;
+        const scale = document.getElementById('select-render-scale');
+        if (scale) scale.value = String(this.game.renderScale === 1 ? '1.0' : this.game.renderScale);
+        for (const [id, value] of [['chk-shadows', this.game.shadowsEnabled],
+            ['chk-clouds', this.game.cloudsEnabled], ['chk-fancy-water', this.game.fancyWaterEnabled]]) {
+            const input = document.getElementById(id);
+            if (input) input.checked = value;
         }
-        const chkTurbo = document.getElementById('chk-turbofps');
-        if (chkTurbo) chkTurbo.checked = enabled;
-
-        let badge = document.getElementById('hud-turbofps-badge');
-        if (enabled) {
-            if (this.game && this.game.setFancyWaterEnabled) this.game.setFancyWaterEnabled(false);
-            const chkWater = document.getElementById('chk-fancy-water');
-            if (chkWater) chkWater.checked = false;
-            if (!badge) {
-                badge = document.createElement('span');
-                badge.id = 'hud-turbofps-badge';
-                badge.textContent = '⚡ 14159265... FPS';
-                badge.title = '14159265358979323846264338327950288419716939937510... FPS BOOST (ASUS UL20FT & Samsung A02 Edition)';
-                const coordsEl = document.getElementById('hud-coords');
-                if (coordsEl && coordsEl.parentElement) coordsEl.parentElement.appendChild(badge);
-            }
-            this.setShader('turbo', false);
-            const selectShaders = document.getElementById('select-shaders');
-            if (selectShaders) selectShaders.value = 'turbo';
-            if (this.game && this.game.world) {
-                this.game.world.chunkRadius = 1;
-                const lbl = document.getElementById('lbl-view-distance');
-                const sl = document.getElementById('slider-view-distance');
-                if (lbl) lbl.textContent = '1';
-                if (sl) sl.value = '1';
-            }
-            if (notify) this.showToast("🚀 1415926535... FPS ТУРБО РЕЖИМ! (ASUS UL20FT & A02)");
-        } else {
-            if (badge) badge.remove();
-            this.setShader('bsl', false);
-            const selectShaders = document.getElementById('select-shaders');
-            if (selectShaders) selectShaders.value = 'bsl';
-            if (this.game && this.game.world) {
-                this.game.world.chunkRadius = 2;
-                const lbl = document.getElementById('lbl-view-distance');
-                const sl = document.getElementById('slider-view-distance');
-                if (lbl) lbl.textContent = '2';
-                if (sl) sl.value = '2';
-            }
-        }
-    }
-
-    // 💎 Apply Ultra Graphics Preset (100% Native Scale + Antialiasing + PCF Soft Shadows + 4K Water + Full View)
-    applyUltraPreset() {
-        if (!this.game) return;
-        this.game.setUltraGraphics(true);
-
-        const selectScale = document.getElementById('select-render-scale');
-        if (selectScale) selectScale.value = "1.0";
-
-        const chkAA = document.getElementById('chk-antialias');
-        if (chkAA) chkAA.checked = true;
-
-        const chkTurbo = document.getElementById('chk-turbofps');
-        if (chkTurbo) chkTurbo.checked = false;
-
-        const chkA02 = document.getElementById('chk-a02-mode');
-        if (chkA02) chkA02.checked = false;
-
-        const chkShadows = document.getElementById('chk-shadows');
-        if (chkShadows) chkShadows.checked = true;
-
-        const chkClouds = document.getElementById('chk-clouds');
-        if (chkClouds) chkClouds.checked = true;
-
-        const chkLeaves = document.getElementById('chk-wind-leaves');
-        if (chkLeaves) chkLeaves.checked = true;
-
-        const chkUnder = document.getElementById('chk-underwater');
-        if (chkUnder) chkUnder.checked = true;
-
-        const chkWater = document.getElementById('chk-fancy-water');
-        if (chkWater) chkWater.checked = true;
-
-        const slDist = document.getElementById('slider-view-distance');
-        const lblDist = document.getElementById('lbl-view-distance');
-        if (slDist) slDist.value = '4';
-        if (lblDist) lblDist.textContent = '4';
-        if (this.game.world) this.game.world.chunkRadius = 4;
-
-        this.showToast("💎 УЛЬТРА ГРАФІКА АКТИВОВАНА! 100% Scaling, Antialiasing, 4K Вода та RTX Тіні! ✨");
-    }
-
-    applyUL20FTPreset() {
-        // 1. Set render scale to 50% (Sharp pixelated 60+ FPS on Intel Ironlake)
-        const selectScale = document.getElementById('select-render-scale');
-        if (selectScale) selectScale.value = "0.5";
-        if (this.game && this.game.setRenderScale) this.game.setRenderScale(0.5);
-
-        // 2. Enable Turbo FPS (unlit basic chunk materials, 0 light calculations, 0 fog)
-        this.setTurboFPS(true, false);
-        const chkTurbo = document.getElementById('chk-turbofps');
-        if (chkTurbo) chkTurbo.checked = true;
-
-        // 3. Set chunk view distance to 1 (9 chunks instead of 25 chunks)
-        if (this.game && this.game.world) this.game.world.chunkRadius = 1;
-        const slDist = document.getElementById('slider-view-distance');
-        const lblDist = document.getElementById('lbl-view-distance');
-        if (slDist) slDist.value = '1';
-        if (lblDist) lblDist.textContent = '1';
-
-        // 4. Disable all expensive shader features
-        if (this.game) {
-            this.game.setShadowsEnabled(false);
-            this.game.setCloudsEnabled(false);
-            this.game.windLeavesEnabled = false;
-            this.game.underwaterEffectsEnabled = false;
-            if (this.game.setFancyWaterEnabled) this.game.setFancyWaterEnabled(false);
-        }
-
-        const chkShadows = document.getElementById('chk-shadows');
-        if (chkShadows) chkShadows.checked = false;
-        const chkClouds = document.getElementById('chk-clouds');
-        if (chkClouds) chkClouds.checked = false;
-        const chkLeaves = document.getElementById('chk-wind-leaves');
-        if (chkLeaves) chkLeaves.checked = false;
-        const chkUnder = document.getElementById('chk-underwater');
-        if (chkUnder) chkUnder.checked = false;
-        const chkWater = document.getElementById('chk-fancy-water');
-        if (chkWater) chkWater.checked = false;
-
-        try {
-            localStorage.setItem('eblankraft_ul20ft_preset', 'true');
-            localStorage.setItem('eblankraft_wind_leaves', '0');
-            localStorage.setItem('eblankraft_underwater_fx', '0');
-            localStorage.setItem('eblankraft_render_scale', '0.5');
-            localStorage.setItem('eblankraft_turbofps', 'true');
-        } catch (e) {}
-
-        this.showToast("💻 РЕЖИМ ASUS UL20FT (НЕТБУК 2010) АКТИВОВАНО! 60+ FPS! 🚀");
+        const distance = document.getElementById('slider-view-distance');
+        const label = document.getElementById('lbl-view-distance');
+        if (distance) distance.value = String(this.game.world.chunkRadius);
+        if (label) label.textContent = String(this.game.world.chunkRadius);
+        if (notify) this.showToast(`Графіка: ${ { low: 'Низька', medium: 'Середня', high: 'Висока' }[name] }`);
     }
 
     togglePauseMenu(forceState = null) {
@@ -2036,7 +1724,7 @@ class UIManager {
         // 7. World Manager System (Multi-World in localStorage)
         this.initMMWorldManager();
 
-        // 8. Duels / PvP Hub (Competitive)
+        // 8. Duels / PvP Hub
         this.initMMDuelsHub();
 
         // 9. Skins & Cases Hub
@@ -2209,7 +1897,7 @@ class UIManager {
             "⚔️ Змагальні дуелі 1v1 вже тут!",
             "👑 СУПЕРЄБЛАН — 100% знижка!",
             "🐲 Єблан Дракон чекає на тебе!",
-            "⚡ 10000000 FPS Turbo на ASUS UL20FT!",
+            "⚙️ Обирай Graphics preset у налаштуваннях!",
             "🌲 Справжній безмежний воксельний світ!",
             "🧱 Копай, будуй, виживай!",
             "💣 Обережно: не чіпай динаміт!",
@@ -2344,7 +2032,7 @@ class UIManager {
         if (btnDust2) {
             btnDust2.onclick = () => {
                 if (this.soundManager) this.soundManager.playClick();
-                this.game?.multiplayer?.toggleModal(true);
+                this.game?.multiplayer?.joinRoom('dust2');
             };
         }
 
@@ -2884,23 +2572,29 @@ class UIManager {
         }
         window.focus();
 
-        // Robust PC detection: if not a phone/tablet UA, ensure PC mode
-        const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(navigator.userAgent);
-        if (!isMobileUA) {
-            document.body.classList.add('is-pc');
-        }
-
-        // Lock pointer on PC
-        if (document.body.classList.contains('is-pc') && this.game && this.game.controls) {
-            try {
-                const target = this.game.controls.domElement || document.body;
-                const p = target.requestPointerLock();
-                if (p && p.catch) p.catch(() => {});
-            } catch (e) {}
+        // Robust PC vs Touch detection
+        const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+        const maxTouchPoints = (typeof navigator !== 'undefined' && typeof navigator.maxTouchPoints === 'number') ? navigator.maxTouchPoints : 0;
+        const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(ua) ||
+            (maxTouchPoints > 1 && /Macintosh/.test(ua));
+        const isTouch = (this.game && this.game.controls && this.game.controls.isTouchDevice) || isMobileUA;
+        if (!isTouch) {
+            if (document.body?.classList) {
+                document.body.classList.add?.('is-pc');
+                document.body.classList.remove?.('force-touch');
+            }
+            if (this.game && this.game.controls) {
+                this.game.controls.requestPointerLock();
+            }
+        } else {
+            if (document.body?.classList) {
+                document.body.classList.remove?.('is-pc');
+                document.body.classList.add?.('force-touch');
+            }
         }
     }
 
-    // --- Duels / PvP Hub (Competitive) ---
+    // --- Duels / PvP Hub ---
     initMMDuelsHub() {
         const cards = document.querySelectorAll('.mm-arena-card');
         cards.forEach(card => {
@@ -3499,54 +3193,68 @@ class UIManager {
 
     update(dt) {
         this.updateDuel();
+        const compactHud = window.innerWidth < 640;
         // Health Hearts & Hunger Display (Responsive & Compact)
         if (this.hudHealth) {
             const hp = Math.max(0, Math.round(this.player.health));
             const maxHp = this.player.maxHealth || 100;
-            if (window.innerWidth < 640) {
-                this.hudHealth.innerHTML = `❤️ <b>${hp}</b>/${maxHp}`;
-            } else {
-                const heartsCount = Math.ceil(hp / 10);
-                let heartsStr = "";
-                for (let i = 0; i < 10; i++) {
-                    heartsStr += i < heartsCount ? "❤️" : "🖤";
+            if (this._hudHealth !== hp || this._hudMaxHealth !== maxHp || this._hudHealthCompact !== compactHud) {
+                this._hudHealth = hp;
+                this._hudMaxHealth = maxHp;
+                this._hudHealthCompact = compactHud;
+                if (compactHud) {
+                    this.hudHealth.innerHTML = `❤️ <b>${hp}</b>/${maxHp}`;
+                } else {
+                    const heartsCount = Math.ceil(hp / 10);
+                    let heartsStr = "";
+                    for (let i = 0; i < 10; i++) {
+                        heartsStr += i < heartsCount ? "❤️" : "🖤";
+                    }
+                    this.hudHealth.innerHTML = `<span class="hearts-strip">${heartsStr}</span> <span style="font-size:12px;color:#fff;">${hp}/${maxHp}</span>`;
                 }
-                this.hudHealth.innerHTML = `<span class="hearts-strip">${heartsStr}</span> <span style="font-size:12px;color:#fff;">${hp}/${maxHp}</span>`;
             }
         }
 
         // Hunger Drumsticks
         if (this.hudHunger) {
             const hunger = Math.max(0, Math.round(this.player.hunger));
-            if (window.innerWidth < 640) {
-                this.hudHunger.innerHTML = `🍗 <b>${hunger}%</b>`;
-            } else {
-                const drumCount = Math.ceil(hunger / 10);
-                let drumStr = "";
-                for (let i = 0; i < 10; i++) {
-                    drumStr += i < drumCount ? "🍗" : "🦴";
+            if (this._hudHunger !== hunger || this._hudHungerCompact !== compactHud) {
+                this._hudHunger = hunger;
+                this._hudHungerCompact = compactHud;
+                if (compactHud) {
+                    this.hudHunger.innerHTML = `🍗 <b>${hunger}%</b>`;
+                } else {
+                    const drumCount = Math.ceil(hunger / 10);
+                    let drumStr = "";
+                    for (let i = 0; i < 10; i++) {
+                        drumStr += i < drumCount ? "🍗" : "🦴";
+                    }
+                    this.hudHunger.innerHTML = `<span class="drum-strip">${drumStr}</span> <span style="font-size:12px;color:#fff;">${hunger}%</span>`;
                 }
-                this.hudHunger.innerHTML = `<span class="drum-strip">${drumStr}</span> <span style="font-size:12px;color:#fff;">${hunger}%</span>`;
             }
         }
 
         // Dimension Badge
         if (this.hudDimension && this.game.world) {
             const dim = this.game.world.dimension || 'overworld';
-            if (dim === 'nether') {
-                this.hudDimension.innerHTML = '🔥 НЕЗЕР (АД)';
-                this.hudDimension.style.color = '#ff5533';
-            } else if (dim === 'the_end') {
-                this.hudDimension.innerHTML = '🌌 ЕНД (ДРАКОН)';
-                this.hudDimension.style.color = '#da55ff';
-            } else {
-                this.hudDimension.innerHTML = '🌲 ВЕРХНІЙ СВІТ';
-                this.hudDimension.style.color = '#55ff77';
+            if (this._hudDimension !== dim) {
+                this._hudDimension = dim;
+                if (dim === 'nether') {
+                    this.hudDimension.innerHTML = '🔥 НЕЗЕР (АД)';
+                    this.hudDimension.style.color = '#ff5533';
+                } else if (dim === 'the_end') {
+                    this.hudDimension.innerHTML = '🌌 ЕНД (ДРАКОН)';
+                    this.hudDimension.style.color = '#da55ff';
+                } else {
+                    this.hudDimension.innerHTML = '🌲 ВЕРХНІЙ СВІТ';
+                    this.hudDimension.style.color = '#55ff77';
+                }
             }
         }
 
         // IQ Status
-        if (this.hudIQ) {
+        if (this.hudIQ && this._hudIQ !== this.player.iq) {
+            this._hudIQ = this.player.iq;
             let status = "Єблан-Початківець";
             if (this.player.iq > 500) status = "ГІГА-ЄБЛАН ВСЕСВІТУ";
             else if (this.player.iq > 200) status = "Майстер Єбланкрафту";
@@ -3559,16 +3267,22 @@ class UIManager {
             const px = Math.floor(this.player.position.x);
             const py = Math.floor(this.player.position.y);
             const pz = Math.floor(this.player.position.z);
-            this.hudCoords.textContent = `XYZ: ${px} / ${py} / ${pz}`;
+            if (this._hudCoordsX !== px || this._hudCoordsY !== py || this._hudCoordsZ !== pz) {
+                this._hudCoordsX = px;
+                this._hudCoordsY = py;
+                this._hudCoordsZ = pz;
+                this.hudCoords.textContent = `XYZ: ${px} / ${py} / ${pz}`;
+            }
         }
 
         // Mining Progress Bar
         if (this.miningProgressContainer && this.miningProgressBar) {
             if (this.player.isMining && this.player.miningProgress > 0) {
-                this.miningProgressContainer.style.display = 'block';
-                this.miningProgressBar.style.width = `${Math.min(100, this.player.miningProgress * 100)}%`;
+                if (this.miningProgressContainer.style.display !== 'block') this.miningProgressContainer.style.display = 'block';
+                const width = `${Math.min(100, this.player.miningProgress * 100)}%`;
+                if (this.miningProgressBar.style.width !== width) this.miningProgressBar.style.width = width;
             } else {
-                this.miningProgressContainer.style.display = 'none';
+                if (this.miningProgressContainer.style.display !== 'none') this.miningProgressContainer.style.display = 'none';
             }
         }
 
@@ -3576,46 +3290,52 @@ class UIManager {
         if (this.attackIndicatorContainer && this.attackIndicatorFill) {
             const cd = (this.player && this.player.attackCooldown !== undefined) ? this.player.attackCooldown : 1.0;
             if (cd < 1.0) {
-                this.attackIndicatorContainer.style.display = 'flex';
-                this.attackIndicatorFill.style.width = `${Math.min(100, Math.round(cd * 100))}%`;
-                this.attackIndicatorFill.classList.toggle('ready', cd >= 0.96);
+                if (this.attackIndicatorContainer.style.display !== 'flex') this.attackIndicatorContainer.style.display = 'flex';
+                const width = `${Math.min(100, Math.round(cd * 100))}%`;
+                if (this.attackIndicatorFill.style.width !== width) this.attackIndicatorFill.style.width = width;
+                const ready = cd >= 0.96;
+                if (this._attackReady !== ready) {
+                    this._attackReady = ready;
+                    this.attackIndicatorFill.classList.toggle('ready', ready);
+                }
                 if (this.attackIndicatorIcon) {
-                    this.attackIndicatorIcon.textContent = cd >= 0.85 ? '⚔️' : '🗡️';
+                    const icon = cd >= 0.85 ? '⚔️' : '🗡️';
+                    if (this.attackIndicatorIcon.textContent !== icon) this.attackIndicatorIcon.textContent = icon;
                 }
             } else {
-                this.attackIndicatorContainer.style.display = 'none';
+                if (this.attackIndicatorContainer.style.display !== 'none') this.attackIndicatorContainer.style.display = 'none';
             }
         }
 
         // Boss Bar for Eblan Dragon
         if (this.bossBarContainer && this.bossBarFill) {
             const dragon = this.game.mobManager ? this.game.mobManager.dragon : null;
-            if (dragon && !dragon.isDead && dragon.mesh) {
-                this.bossBarContainer.style.display = 'flex';
+            if (dragon && !dragon.isDead && dragon.mesh && !this.game.mobManager.creativeMobsDisabled) {
+                if (this.bossBarContainer.style.display !== 'flex') this.bossBarContainer.style.display = 'flex';
                 const pct = Math.max(0, (dragon.health / dragon.maxHealth) * 100);
-                this.bossBarFill.style.width = `${pct}%`;
+                const width = `${pct}%`;
+                if (this.bossBarFill.style.width !== width) this.bossBarFill.style.width = width;
                 if (this.bossBarTitle) {
-                    this.bossBarTitle.textContent = `🐲 ЄБЛАН ДРАКОН [${Math.round(dragon.health)}/${dragon.maxHealth} HP]`;
+                    const title = `🐲 ЄБЛАН ДРАКОН [${Math.round(dragon.health)}/${dragon.maxHealth} HP]`;
+                    if (this.bossBarTitle.textContent !== title) this.bossBarTitle.textContent = title;
                 }
             } else {
-                this.bossBarContainer.style.display = 'none';
+                if (this.bossBarContainer.style.display !== 'none') this.bossBarContainer.style.display = 'none';
             }
         }
 
         // FPS
         const now = performance.now();
-        this.fpsHistory.push(1.0 / (dt || 0.016));
-        if (this.fpsHistory.length > 20) this.fpsHistory.shift();
+        const frameStats = this.game?.getFrameStats?.();
 
         if (now - this.lastFpsUpdate > 300 && this.hudFps) {
-            const avgFps = Math.round(this.fpsHistory.reduce((a, b) => a + b, 0) / (this.fpsHistory.length || 1));
+            const avgFps = frameStats?.count ? Math.round(frameStats.fps) : '—';
             const backendTag = (window.WebGPUAdapter && window.WebGPUAdapter.activeBackend === 'webgpu') ? ' [WebGPU]' : '';
             const frameMs = (this.game && this.game.lastFrameCpuTime !== undefined) ? this.game.lastFrameCpuTime.toFixed(1) : null;
-            const uncappedFps = (this.game && this.game.lastFrameCpuTime > 0.05) ? Math.round(1000 / this.game.lastFrameCpuTime) : null;
 
             let infoText = `FPS: ${avgFps}${backendTag}`;
             if (frameMs !== null) {
-                infoText += ` (${frameMs}ms | ~${uncappedFps} FPS uncapped)`;
+                infoText += ` (CPU ${frameMs} ms)`;
             }
             if (this.game && this.game.world && this.player) {
                 const px = Math.floor(this.player.position.x);

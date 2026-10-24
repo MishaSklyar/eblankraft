@@ -35,23 +35,8 @@ assert(Player:selectSlot(9))
 assert(Player.getSelectedSlot() == 9)
 assert(not Player.selectSlot(10))
 `, 'inventory-api');
-for (const file of ['js/mods.js', 'competitive/js/mods.js']) {
+for (const file of ['js/mods.js']) {
     assert.equal(fs.readFileSync(path.join(root, file), 'utf8'),
         fs.readFileSync(path.join(root, 'web/js/mods.js'), 'utf8'));
 }
-vm.runInContext(fs.readFileSync(path.join(root, 'competitive/js/server_client.js'), 'utf8'), context);
-const Client = vm.runInContext('CompetitiveServerClient', context);
-const client = Object.create(Client.prototype);
-client.currentRoom = 'world';
-const blocks = [];
-let meshUpdates = 0, syncs = 0;
-client.game = { world: { setBlock: (...args) => blocks.push(args), updateMeshes: () => meshUpdates++ },
-    player: { syncInventoryWithServer: () => syncs++ } };
-client.handleMessage(JSON.stringify({ type: 'welcome', id: 'p1', room: 'world',
-    blocks: [{ x: 1, y: 2, z: 3, block_type: 0 }, { x: 2, y: 2, z: 3, block_type: 4 }] }));
-assert.deepEqual(blocks, [[1, 2, 3, 0], [2, 2, 3, 4]]);
-assert.equal(syncs, 1);
-client.handleMessage(JSON.stringify({ type: 'block_update', action: 'break', x: 2, y: 2, z: 3 }));
-assert.deepEqual(blocks.at(-1), [2, 2, 3, 0]);
-assert.equal(meshUpdates, 2);
-console.log('PASS: real Lua bootstrap, inventory API, dot/colon calls, stack cleanup, named errors, source parity, late-join blocks and live meshes');
+console.log('PASS: real Lua bootstrap, inventory API, dot/colon calls, stack cleanup, named errors and source parity');

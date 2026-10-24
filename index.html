@@ -77,7 +77,8 @@
             });
         }
     </script>
-    <link rel="stylesheet" href="css/style.css?v=3.1">
+    <link rel="stylesheet" href="css/style.css?v=4.6-touch">
+    <link rel="stylesheet" href="css/addons.css?v=1">
 </head>
 <body class="in-main-menu">
     <!-- 3D WebGL Canvas Container -->
@@ -172,14 +173,8 @@
         <div class="main-menu-vignette"></div>
         <canvas id="mm-particle-canvas" class="mm-particle-canvas"></canvas>
 
-        <!-- Top Bar with Quick Actions & Panorama Controls -->
+        <!-- Audio and display controls -->
         <div class="main-menu-topbar">
-            <div class="mm-topbar-left">
-                <span class="mm-topbar-label">🌄 Панорама:</span>
-                <button id="mm-pano-overworld" class="mm-top-pill active" title="Перемкнути панораму на Верхній Світ">🌲 Світ</button>
-                <button id="mm-pano-nether" class="mm-top-pill" title="Перемкнути панораму на Незер (Пекло)">🔥 Незер</button>
-                <button id="mm-pano-theend" class="mm-top-pill" title="Перемкнути панораму на Край (The End)">🌌 Енд</button>
-            </div>
             <div class="mm-topbar-right">
                 <button id="mm-btn-music-toggle" class="mm-top-pill mm-pill-music" title="Увімкнути або вимкнути атмосферну музику меню">🎵 Музика: <span id="mm-music-status">УВІМК</span></button>
                 <button id="mm-btn-fullscreen" class="mm-top-pill" title="Повноекранний режим">⛶ Екран</button>
@@ -231,7 +226,7 @@
                             </span>
                         </button>
 
-                        <!-- Duels / PvP Arena (Competitive) -->
+                        <!-- Duels / PvP Arena -->
                         <button id="mm-btn-duels" class="mc-menu-btn mc-btn-duels" title="Змагальні дуелі 1v1 та арени">
                             <span class="mc-btn-icon">⚔️</span>
                             <span class="mc-btn-labels">
@@ -241,72 +236,25 @@
                             <span class="mm-badge-new">NEW!</span>
                         </button>
 
-                        <!-- Split Row 1: Skins & Cases / Lua Mods -->
-                        <div class="mc-menu-btn-row">
-                            <button id="mm-btn-skins" class="mc-menu-btn mc-btn-half mc-btn-skins-hub" title="Гардероб скінів та відкриття кейсів">
-                                <span class="mc-btn-icon">🎭</span>
-                                <span class="mc-btn-labels">
-                                    <span class="mc-btn-main">Скіни & Кейси</span>
-                                    <span class="mc-btn-sub">(Гардероб)</span>
-                                </span>
-                            </button>
-
-                            <button id="mm-btn-mods" class="mc-menu-btn mc-btn-half" title="Менеджер Lua модів та скриптів">
-                                <span class="mc-btn-icon">📜</span>
-                                <span class="mc-btn-labels">
-                                    <span class="mc-btn-main">Моди</span>
-                                    <span class="mc-btn-sub">(Lua Mods)</span>
-                                </span>
-                            </button>
-                        </div>
-
-                        <!-- Split Row 2: Settings / Achievements -->
-                        <div class="mc-menu-btn-row">
-                            <button id="mm-btn-settings" class="mc-menu-btn mc-btn-half" title="Налаштування графіки, звуку, керування">
-                                <span class="mc-btn-icon">⚙️</span>
-                                <span class="mc-btn-labels">
-                                    <span class="mc-btn-main">Настройки</span>
-                                    <span class="mc-btn-sub">(Settings)</span>
-                                </span>
-                            </button>
-
-                            <button id="mm-btn-achievements" class="mc-menu-btn mc-btn-half" title="Досягнення та рекорди">
-                                <span class="mc-btn-icon">🏆</span>
-                                <span class="mc-btn-labels">
-                                    <span class="mc-btn-main">Досягнення</span>
-                                    <span class="mc-btn-sub">(Статистика)</span>
-                                </span>
-                            </button>
-                        </div>
-
-                        <!-- BUY SUPEREBLAN VIP BUTTON (Glorious Meme Donation Pass) -->
-                        <button id="mm-btn-supereblan" class="mc-menu-btn mc-btn-supereblan" title="Купити статус легендарного СУПЕРЄБЛАНА!">
-                            <span class="mc-btn-icon">👑</span>
+                        <button id="mm-btn-mods" class="mc-menu-btn" title="Менеджер Lua модів та скриптів">
+                            <span class="mc-btn-icon">📜</span>
                             <span class="mc-btn-labels">
-                                <span class="mc-btn-main">КУПИТИ СУПЕРЄБЛАН</span>
-                                <span class="mc-btn-sub">VIP Titan Pass • Акція 100% ЗНИЖКА!</span>
+                                <span class="mc-btn-main">Моди</span>
+                                <span class="mc-btn-sub">(Lua Mods)</span>
                             </span>
-                            <span class="mm-badge-gold">🔥 ХИТ!</span>
                         </button>
 
-                        <!-- Split Row 3: Blockly Studio / What's New -->
-                        <div class="mc-menu-btn-row">
-                            <button id="mm-btn-blockly" class="mc-menu-btn mc-btn-half mc-btn-blockly-special" title="Візуальний Scratch/Blockly конструктор Lua-модів (PRO)">
-                                <span class="mc-btn-icon">🧩</span>
-                                <span class="mc-btn-labels">
-                                    <span class="mc-btn-main">Blockly Студія</span>
-                                    <span class="mc-btn-sub">(Scratch)</span>
-                                </span>
-                            </button>
-
-                            <button id="mm-btn-news" class="mc-menu-btn mc-btn-half" title="Список змін оновлення 3.0 TITAN">
-                                <span class="mc-btn-icon">🌟</span>
-                                <span class="mc-btn-labels">
-                                    <span class="mc-btn-main">Що нового?</span>
-                                    <span class="mc-btn-sub">(Changelog 3.0)</span>
-                                </span>
-                            </button>
-                        </div>
+                        <button id="mm-btn-settings" class="mc-menu-btn" title="Налаштування графіки, звуку, керування">
+                            <span class="mc-btn-icon">⚙️</span>
+                            <span class="mc-btn-labels">
+                                <span class="mc-btn-main">Настройки</span>
+                                <span class="mc-btn-sub">(Settings)</span>
+                            </span>
+                        </button>
+                        <button id="mm-btn-bug-report" class="mc-menu-btn" type="button" title="Повідомити про помилку">
+                            <span class="mc-btn-icon">🐛</span>
+                            <span class="mc-btn-labels"><span class="mc-btn-main">Bug Report</span></span>
+                        </button>
                     </div>
 
                     <!-- Right Side Character Showcase Card (Paper Doll) -->
@@ -473,14 +421,6 @@
                         </span>
                         <span style="font-size:18px;margin-left:auto;">➔</span>
                     </button>
-                    <a href="/competitive/" class="mc-menu-btn mc-btn-primary" style="background: linear-gradient(135deg, #d32f2f, #f57c00); border: 2px solid #ffd54f; font-size: 14px; margin-bottom: 14px; text-decoration: none; display: flex; align-items: center; gap: 12px; padding: 10px 16px; box-shadow: 0 4px 15px rgba(255, 100, 0, 0.4);">
-                        <span style="font-size: 22px;">🏆</span>
-                        <div style="display: flex; flex-direction: column; text-align: left;">
-                            <span style="font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.5px;">Увійти в Eblankraft Competitive (1v1 Дуелі)</span>
-                            <span style="font-size: 11px; color: #ffe0b2;">Авторитетний сервер, античит, арена без мобів, реальний матчмейкінг</span>
-                        </div>
-                        <span style="font-size: 18px; margin-left: auto;">➔</span>
-                    </a>
                     <div class="mm-duels-banner">
                         <div class="mm-duels-badge">🔥 СКОРО У ВЕРСІЇ 3.1 — ТЕСТОВИЙ ДОСТУП</div>
                         <div class="mm-duels-status">Оберіть формат арени для швидкої дуелі:</div>
@@ -858,6 +798,7 @@
         <span><b>1-9 / Колесо</b>: Хотбар</span>
         <span><b>E</b>: Рюкзак</span>
         <span><b>T</b>: ТНТ</span>
+        <span><b>СКМ удерживать</b>: блок / цвет (креатив)</span>
         <span><b>G</b>: Безсмертя</span>
         <span><b>ESC</b>: Меню</span>
     </div>
@@ -960,50 +901,28 @@
             </div>
 
             <div class="menu-row">
-                <label for="select-shaders">✨ Графіка (Шейдери):</label>
-                <select id="select-shaders">
-                    <option value="bsl">🌟 RTX Cinematic / BSL (Тіні, хмари, віньєтка, зорі)</option>
-                    <option value="vanilla">🌿 Ванільні Enhanced (Чисті текстури, хмари)</option>
-                    <option value="turbo">⚡ 10000000 FPS Turbo (Максимальна швидкість)</option>
+                <label for="select-graphics-preset">Graphics presets:</label>
+                <select id="select-graphics-preset">
+                    <option value="low">Низька — більше FPS</option>
+                    <option value="medium">Середня — баланс</option>
+                    <option value="high">Висока — більше деталей</option>
                 </select>
             </div>
-
             <div class="menu-row">
                 <label for="select-render-scale">🔍 Масштаб рендера (Роздільність):</label>
                 <select id="select-render-scale">
-                    <option value="1.5">150% (💎 Ультра Super-Sampling)</option>
-                    <option value="1.25">125% (✨ Висока чіткість)</option>
-                    <option value="1.0" selected>100% (Рідна чіткість 1:1)</option>
-                    <option value="0.75">75% (Баланс чіткість / ФПС)</option>
-                    <option value="0.6">60% (Швидкий рендер для нетбуків / A02)</option>
-                    <option value="0.5">50% (💻 ASUS UL20FT / 60+ FPS Pixelated)</option>
-                    <option value="0.38">38% (🥔 Тостер 2010 / GameBoy 144p - 60+ FPS)</option>
-                    <option value="0.25">25% (🚀 1000000000000 FPS Doom-режим)</option>
+                    <option value="1.5">150% (Підвищена чіткість)</option>
+                    <option value="1.25">125% (Підвищена чіткість)</option>
+                    <option value="1.0" selected>100% (Рідна роздільність)</option>
+                    <option value="0.75">75% (Знижена роздільність)</option>
+                    <option value="0.6">60% (Знижена роздільність)</option>
+                    <option value="0.5">50% (Половина роздільності)</option>
+                    <option value="0.38">38% (Низька роздільність)</option>
+                    <option value="0.25">25% (Низька роздільність)</option>
                 </select>
             </div>
 
-            <div class="menu-row" style="margin: 6px 0 3px 0;">
-                <button id="btn-ultra-graphics-preset" class="menu-btn" style="width: 100%; font-weight: bold; background: linear-gradient(135deg, #6a1b9a, #1565c0, #00b0ff); border: 2px solid #00e5ff; text-shadow: 1px 1px 2px #000; padding: 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,229,255,0.4); margin-bottom: 6px;">
-                    💎 УЛЬТРА ГРАФІКА (100% SCALE + ANTIALIASING + RTX ТІНІ)
-                </button>
-            </div>
-
-            <div class="menu-row" style="margin: 3px 0 3px 0;">
-                <button id="btn-ul20ft-preset" class="menu-btn" style="width: 100%; font-weight: bold; background: linear-gradient(135deg, #0d47a1, #00838f); border: 2px solid #00e5ff; text-shadow: 1px 1px 2px #000; padding: 10px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,229,255,0.3); margin-bottom: 6px;">
-                    💻 ASUS UL20FT / НЕТБУК 2010 [F6] (БУСТ ДО 60+ FPS!)
-                </button>
-            </div>
-
-            <div class="menu-row" style="margin: 3px 0 6px 0;">
-                <button id="btn-ultra-potato-preset" class="menu-btn" style="width: 100%; font-weight: bold; background: linear-gradient(135deg, #e65100, #ff8f00); border: 2px solid #ffd54f; text-shadow: 1px 1px 2px #000; padding: 9px; font-size: 12px; box-shadow: 0 4px 12px rgba(255,143,0,0.4);">
-                    🥔 РЕЖИМ ТОСТЕРА 2010 (МЕГА ФПС БУСТ!)
-                </button>
-            </div>
-
-            <div class="menu-row" style="background: rgba(255,255,255,0.05); border-radius: 6px; padding: 6px 10px;">
-                <label>⚡ Графічний бекенд:</label>
-                <span id="lbl-gpu-backend" style="font-size: 11px; font-weight: bold; color: #4fc3f7;">WebGL 🎮</span>
-            </div>
+            <p class="menu-setting-note">Менша роздільність знижує навантаження на GPU; генерація світу та фізика залежать від CPU.</p>
 
             <div class="menu-row">
                 <label for="slider-view-distance">🌐 Світ (чанки): <b id="lbl-view-distance">2</b></label>
@@ -1011,48 +930,23 @@
             </div>
 
             <div class="menu-row">
+                <label for="slider-creative-break-interval">⛏️ Интервал ломания в креативе: <b id="lbl-creative-break-interval">0 мс</b></label>
+                <input id="slider-creative-break-interval" type="range" min="0" max="1000" step="25" value="0">
+            </div>
+            <label class="toggle-item"><input id="chk-creative-mobs" type="checkbox"> 🐾 Мобы в креативе</label>
+            <p class="menu-setting-note">Эти настройки действуют только в креативе. 0 мс — ломание без задержки.</p>
+
+            <div class="menu-row">
                 <label for="slider-sensitivity">Чутливість:</label>
                 <input id="slider-sensitivity" type="range" min="0.5" max="2.5" step="0.1" value="1.0">
             </div>
 
-            <div class="menu-row">
-                <label>🏃 Фізика (Physics API):</label>
-            </div>
-
-            <div class="menu-row">
-                <label for="slider-gravity">🌍 Гравітація: <b id="lbl-gravity">22</b></label>
-                <input id="slider-gravity" type="range" min="5" max="40" step="0.5" value="22">
-            </div>
-
-            <div class="menu-row">
-                <label for="slider-jump">🦘 Стрибок: <b id="lbl-jump">8.5</b></label>
-                <input id="slider-jump" type="range" min="4" max="14" step="0.5" value="8.5">
-            </div>
-
-            <div class="menu-row">
-                <label for="slider-pspeed">⚡ Швидкість: <b id="lbl-pspeed">1.0x</b></label>
-                <input id="slider-pspeed" type="range" min="0.5" max="2.5" step="0.1" value="1.0">
-            </div>
-
-            <div class="menu-toggles-grid">
-                <label class="toggle-item"><input id="chk-nofall" type="checkbox"> 🪂 Без шкоди падіння</label>
-            </div>
-
-            <div class="menu-buttons-grid">
-                <button id="btn-phys-reset" class="menu-btn btn-secondary" style="grid-column: 1 / -1;">↩ Звичайна фізика</button>
-            </div>
-
             <div class="menu-toggles-grid">
                 <label class="toggle-item"><input id="chk-voice" type="checkbox" checked> 🗣️ Мем-голос</label>
-                <label class="toggle-item"><input id="chk-godmode" type="checkbox"> 🛡️ Безсмертя</label>
-                <label class="toggle-item"><input id="chk-antialias" type="checkbox" checked> ✨ Antialiasing (Згладжування)</label>
-                <label class="toggle-item"><input id="chk-shadows" type="checkbox" checked> 🌑 М'які тіні (RTX)</label>
+                <label class="toggle-item"><input id="chk-debug" type="checkbox"> Дебаг</label>
+                <label class="toggle-item"><input id="chk-shadows" type="checkbox" checked> 🌑 Тіні</label>
                 <label class="toggle-item"><input id="chk-clouds" type="checkbox" checked> ☁️ Воксельні хмари</label>
-                <label class="toggle-item"><input id="chk-underwater" type="checkbox" checked> 🫧 Ефекти води / дихання</label>
-                <label class="toggle-item"><input id="chk-wind-leaves" type="checkbox" checked> 🍃 Колихання листя</label>
-                <label class="toggle-item"><input id="chk-fancy-water" type="checkbox" checked> 🌊 4K Вода (Хвилі & Normal)</label>
-                <label class="toggle-item" style="grid-column: 1 / -1; color: #4fc3f7; font-weight: bold;"><input id="chk-a02-mode" type="checkbox"> 📱 Оптимізація Samsung A02 / Слабкий телефон (60 FPS)</label>
-                <label class="toggle-item" style="grid-column: 1 / -1; color: #ffd700;"><input id="chk-turbofps" type="checkbox"> 🚀 14159265... FPS Режим (Буст)</label>
+                <label class="toggle-item"><input id="chk-fancy-water" type="checkbox" checked> 🌊 Хвилі води</label>
             </div>
 
             <div class="menu-row" style="margin-top: 6px;">
@@ -1232,11 +1126,13 @@
                 <button id="btn-mp-create-host" class="menu-btn btn-warning" style="width:100%; padding: 12px; font-size: 15px; font-weight: bold;">
                     ✨ СТВОРИТИ КІМНАТУ І ОТРИМАТИ КОД
                 </button>
+                <button id="btn-mp-host-world" class="menu-btn btn-success" style="width:100%; margin-top:10px;">🌍 Хостити одиночний світ (Lua-моди)</button>
+                <p style="color:#bbb; font-size:13px;">Спочатку відкрийте свій одиночний світ. Друзі приєднаються за кодом world-…; моди хоста можна завантажити після входу.</p>
             </div>
 
             <!-- Panel: Join -->
             <div id="mp-panel-join" class="mp-tab-content" style="display:none;">
-                <label style="display:block; margin: 6px 0; font-size: 13px; color: #ffd700;">Введіть код PvP-кімнати:</label>
+                <label style="display:block; margin: 6px 0; font-size: 13px; color: #ffd700;">Код кімнати, світу world-… або команди dust2:T:</label>
                 <input id="input-mp-room-id" type="text" class="mp-input-code" placeholder="eblan-1234">
                 <button id="btn-mp-join" class="menu-btn btn-success" style="width:100%; margin-top: 10px; padding: 12px; font-size: 15px; font-weight: bold;">
                     🚀 ПРИЄДНАТИСЯ ДО ДРУГА
@@ -1566,26 +1462,29 @@
     <script src="js/noise.js?v=3.6"></script>
     <script src="js/peerjs.min.js"></script>
     <script src="js/fengari-web.js"></script>
-    <script src="js/textures.js?v=3.6"></script>
-    <script src="js/items.js?v=3.6"></script>
+    <script src="js/textures.js?v=4.5"></script>
+    <script src="js/items.js?v=4.5"></script>
     <script src="js/upgrader_skins.js?v=3.6"></script>
     <script src="js/sound.js?v=3.6"></script>
     <script src="js/redstone.js?v=3.6"></script>
     <script src="js/particles.js?v=3.7"></script>
-    <script src="js/mobs.js?v=4.0"></script>
+    <script src="js/mobs.js?v=4.7"></script>
     <script src="js/de_eblan2.js?v=1"></script>
-    <script src="js/world.js?v=4.0"></script>
-    <script src="js/player.js?v=4.0"></script>
-    <script src="js/controls.js?v=3.6"></script>
+    <script src="js/world.js?v=4.5"></script>
+    <script src="js/player.js?v=4.7"></script>
+    <script src="js/controls.js?v=4.6"></script>
+    <script src="js/block_editor.js?v=2"></script>
     <script src="js/weather.js?v=3.6"></script>
     <script src="js/arena_client.js?v=3"></script>
-    <script src="js/shared_world_client.js?v=1"></script>
-    <script src="js/multiplayer.js?v=5"></script>
+    <script src="js/shared_world_client.js?v=2"></script>
+    <script src="js/multiplayer.js?v=4.5"></script>
     <script src="js/eblan_os.js?v=3.6"></script>
-    <script src="js/ui.js?v=4.0"></script>
-    <script src="js/mods.js?v=4.0"></script>
+    <script src="js/ui.js?v=4.7"></script>
+    <script src="js/addon_package.js?v=1"></script>
+    <script src="js/mods.js?v=4.1"></script>
+    <script src="js/addons.js?v=1"></script>
     <script src="js/eblan.js?v=3.6"></script>
-    <script src="js/game.js?v=4.0"></script>
+    <script src="js/game.js?v=4.7"></script>
 
     <script>
         function startGame() {
@@ -1610,5 +1509,27 @@
             startGame();
         }
     </script>
+    <aside id="debug-panel" hidden aria-label="Дебаг">
+        <strong>інформація для супер ебланов</strong>
+        <pre id="debug-info"></pre>
+    </aside>
+    <dialog id="bug-report-dialog" aria-labelledby="bug-report-title">
+        <form id="bug-report-form">
+            <h2 id="bug-report-title">🐛 Bug Report</h2>
+            <label for="bug-report-name">Нік (необов’язково)</label>
+            <input id="bug-report-name" name="name" maxlength="40" autocomplete="nickname">
+            <label for="bug-report-message">Що зламалось і як це повторити?</label>
+            <textarea id="bug-report-message" name="message" required minlength="10" maxlength="2000" rows="6" placeholder="Що ви зробили, що очікували та що сталося…"></textarea>
+            <label class="bug-report-attach"><input id="bug-report-debug" type="checkbox" name="debug"> Прикріпити інформацію для супер ебланов</label>
+            <p class="bug-report-note">Опис, нік, адреса сторінки, версія браузера та вибрана дебаг-інформація будуть надіслані розробнику в Telegram. Не додавайте паролі чи токени.</p>
+            <p id="bug-report-status" role="status" aria-live="polite"></p>
+            <div class="bug-report-actions">
+                <button id="bug-report-cancel" type="button" class="mc-menu-btn">Закрити</button>
+                <button id="bug-report-submit" type="submit" class="mc-menu-btn mc-btn-primary">Надіслати</button>
+            </div>
+        </form>
+    </dialog>
+    <script src="js/debug.js?v=3" defer></script>
+    <script src="js/bug_report.js?v=2" defer></script>
 </body>
 </html>

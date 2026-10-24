@@ -2,6 +2,12 @@
  * Eblankraft - Main Game Loop & Scene Engine
  */
 
+const GRAPHICS_PRESETS = {
+    low: { scale: 0.5, radius: 1, shadows: false, clouds: false, wind: false, water: false },
+    medium: { scale: 0.75, radius: 2, shadows: false, clouds: true, wind: true, water: false },
+    high: { scale: 1, radius: 4, shadows: true, clouds: true, wind: true, water: true }
+};
+
 class Game {
     constructor() {
         window.game = this;
@@ -10,81 +16,36 @@ class Game {
         this.cameraShakeTrauma = 0;
         this.timeOfDay = 0.2; // 0 to 1 (0.2 = morning/day)
         this.daySpeed = 0.005; // speed of day/night cycle
-        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-        const isAndroidOrApp = /Android|Mobile|SM-A02|Silk/i.test(navigator.userAgent) || !!window.isAndroidApp || (window.location && window.location.protocol === 'file:');
-        const isLowEndMobile = isAndroidOrApp || (isTouch && (
-            (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
-            (navigator.deviceMemory && navigator.deviceMemory <= 3) ||
-            /Android.*(A0|A1|A2|J|Core|Go|SM-A02)/i.test(navigator.userAgent)
-        ));
-        const storedA02 = localStorage.getItem('eblankraft_a02_mode');
-        this.isA02Mode = (storedA02 !== null) ? (storedA02 === 'true') : isLowEndMobile;
-
-        if (isAndroidOrApp && 'wakeLock' in navigator) {
-            navigator.wakeLock.request('screen').catch(() => {});
-        }
-
-        // 💻 Auto-detect ASUS UL20FT / Intel Ironlake (GMA HD) / Netbook 2010
-        const isIntelIronlakeOrAncient = () => {
-            try {
-                const testCanvas = document.createElement('canvas');
-                const testGl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
-                if (!testGl) return false;
-                const dbg = testGl.getExtension('WEBGL_debug_renderer_info');
-                if (dbg) {
-                    const r = (testGl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '').toLowerCase();
-                    if (r.includes('ironlake') || r.includes('ilk') || r.includes('gma') || r.includes('pineview') ||
-                        ((r.includes('intel') && (r.includes('hd graphics') || r.includes('965') || r.includes('g45') || r.includes('g41'))) &&
-                        !r.includes('uhd') && !r.includes('iris') && !r.includes('xe') && !r.includes('gen9') && !r.includes('gen11') && !r.includes('gen12'))) {
-                        return true;
-                    }
-                }
-                if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2 && !isAndroidOrApp) {
-                    return true;
-                }
-            } catch (e) {}
-            return false;
+        const savedPreset = localStorage.getItem('eblankraft_graphics_preset');
+        const legacyLow = localStorage.getItem('eblankraft_turbofps') === 'true' ||
+            localStorage.getItem('eblankraft_a02_mode') === 'true' ||
+            localStorage.getItem('eblankraft_ul20ft_preset') === 'true';
+        const mobile = /Android|Mobile|Silk/i.test(navigator.userAgent);
+        this.graphicsPreset = GRAPHICS_PRESETS[savedPreset] ? savedPreset :
+            (legacyLow || mobile || navigator.hardwareConcurrency <= 2 ? 'low' : 'medium');
+        localStorage.setItem('eblankraft_graphics_preset', this.graphicsPreset);
+        const preset = GRAPHICS_PRESETS[this.graphicsPreset];
+        // Compatibility flags for existing renderer/material consumers, derived
+        // exclusively from the selected preset rather than independent modes.
+        this.turboFPS = this.graphicsPreset === 'low';
+        this.isA02Mode = false;
+        this.isUL20FT = false;
+        const storedScale = parseFloat(localStorage.getItem('eblankraft_render_scale'));
+        this.renderScale = Number.isFinite(storedScale) ? Math.max(0.25, Math.min(1.5, storedScale)) : preset.scale;
+        const setting = (key, fallback) => {
+            const value = localStorage.getItem(key);
+            return value === null ? fallback : !['false', '0'].includes(value);
         };
-
-        const isUL20FT = isIntelIronlakeOrAncient();
-        this.isUL20FT = isUL20FT;
-
-        // Auto-configure optimal settings on first run on UL20FT / 2010 netbook
-        if (isUL20FT && localStorage.getItem('eblankraft_ul20ft_auto_set') === null) {
-            localStorage.setItem('eblankraft_ul20ft_auto_set', '1');
-            localStorage.setItem('eblankraft_turbofps', 'true');
-            localStorage.setItem('eblankraft_render_scale', '0.5');
-            localStorage.setItem('eblankraft_shadows', 'false');
-            localStorage.setItem('eblankraft_clouds', 'false');
-            localStorage.setItem('eblankraft_fancy_water', '0');
-            localStorage.setItem('eblankraft_wind_leaves', '0');
-            localStorage.setItem('eblankraft_underwater_fx', '0');
-            localStorage.setItem('eblankraft_antialias', 'false');
-        }
-
-        const storedTurbo = localStorage.getItem('eblankraft_turbofps');
-        this.turboFPS = (storedTurbo !== null) ? (storedTurbo === 'true') : this.isUL20FT;
-
-        const storedScale = localStorage.getItem('eblankraft_render_scale');
-        this.renderScale = storedScale ? parseFloat(storedScale) : (this.isUL20FT ? 0.5 : (this.isA02Mode ? 0.75 : 1.0));
-
-        const storedShadows = localStorage.getItem('eblankraft_shadows');
-        this.shadowsEnabled = storedShadows !== null ? (storedShadows === 'true') : (!this.turboFPS && !this.isA02Mode && !this.isUL20FT);
-        this.cloudsEnabled = (localStorage.getItem('eblankraft_clouds') !== 'false') && !this.turboFPS && !this.isUL20FT;
-        this.windLeavesEnabled = (!['false', '0'].includes(localStorage.getItem('eblankraft_wind_leaves'))) && !this.turboFPS && !this.isUL20FT;
-        this.underwaterEffectsEnabled = (!['false', '0'].includes(localStorage.getItem('eblankraft_underwater_fx')));
-        this.quickModsEnabled = (!['false', '0'].includes(localStorage.getItem('eblankraft_quick_mods')));
+        this.shadowsEnabled = !this.turboFPS && setting('eblankraft_shadows', preset.shadows);
+        this.cloudsEnabled = !this.turboFPS && setting('eblankraft_clouds', preset.clouds);
+        this.windLeavesEnabled = !this.turboFPS && setting('eblankraft_wind_leaves', preset.wind);
+        this.fancyWaterEnabled = !this.turboFPS && setting('eblankraft_fancy_water', preset.water);
+        this.underwaterEffectsEnabled = setting('eblankraft_underwater_fx', !this.turboFPS);
+        this.quickModsEnabled = setting('eblankraft_quick_mods', true);
+        this.creativeMobsEnabled = setting('eblankraft_creative_mobs', false);
+        this.antialias = setting('eblankraft_antialias', true);
         this.cloudOffset = 0;
         this.renderFrameCount = 0;
-
-        // Detect low-spec potato PC (<=2 cores or ancient netbook/mobile)
-        const isPotato = this.isA02Mode || this.turboFPS || this.isUL20FT || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
-        const storedAA = localStorage.getItem('eblankraft_antialias');
-        this.antialias = (storedAA !== null) ? (storedAA === 'true') : !isPotato;
-
-        // 🌊 4K Water with Waves & Normal Maps (Disabled in Low / A02 / Turbo / 2010 settings)
-        const storedFancyWater = localStorage.getItem('eblankraft_fancy_water');
-        this.fancyWaterEnabled = (storedFancyWater !== null) ? (storedFancyWater === '1') : (!this.turboFPS && !this.isA02Mode && !isPotato);
 
         // Preallocated Frustum Culling & FOV Math Objects (Zero Garbage Collection!)
         this._cullProjScreenMatrix = new THREE.Matrix4();
@@ -103,6 +64,7 @@ class Game {
         this.initUI();
         this.initLights();
         this.initSkyAndAtmosphere();
+        this.updateGraphicsLighting();
 
         this.lastTime = performance.now();
         this.animate = this.animate.bind(this);
@@ -110,11 +72,10 @@ class Game {
     }
 
     getEffectivePixelRatio() {
-        const isPotato = this.isA02Mode || this.turboFPS || this.isUL20FT;
-        const maxRatio = (this.ultraGraphics || this.renderScale >= 1.0) ? Math.min(window.devicePixelRatio || 1, 2.0) : (isPotato ? 0.75 : 1.5);
-        const baseRatio = isPotato ? 0.75 : (window.devicePixelRatio || 1);
-        const scale = this.renderScale || 1.0;
-        return Math.max(0.2, Math.min(maxRatio, baseRatio * scale));
+        // Scale relative to one fixed native ratio. Device presets must not
+        // introduce plateaus or a discontinuity when the slider reaches 100%.
+        const nativeRatio = Math.min(window.devicePixelRatio || 1, 2);
+        return nativeRatio * this.renderScale;
     }
 
     initThree() {
@@ -396,157 +357,48 @@ class Game {
         }
     }
 
-    setTurboFPS(enabled) {
-        this.turboFPS = enabled;
-        try { localStorage.setItem('eblankraft_turbofps', enabled ? 'true' : 'false'); } catch (e) {}
+    updateGraphicsLighting() {
+        const low = this.graphicsPreset === 'low';
         if (this.renderer) {
-            this.renderer.toneMapping = (enabled || this.isA02Mode || this.isUL20FT) ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
-            this.renderer.setPixelRatio(this.getEffectivePixelRatio());
+            this.renderer.toneMapping = low ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+            this.renderer.shadowMap.autoUpdate = true;
         }
-        if (enabled) {
-            this.setShadowsEnabled(false);
-            this.setCloudsEnabled(false);
-            if (this.scene) this.scene.fog = null; // Completely bypass fog calculations in shaders!
-            if (this.world) this.world.chunkRadius = 1;
-            // Simplify lighting to eliminate light vector calculations in vertex shaders
-            if (this.sunLight) this.sunLight.visible = false;
-            if (this.hemiLight) this.hemiLight.visible = false;
-            if (this.ambientLight) this.ambientLight.intensity = 1.0;
-        } else {
-            if (this.scene && !this.scene.fog) {
-                this.scene.fog = new THREE.FogExp2(0x80bfff, 0.018);
-            }
-            if (this.sunLight) this.sunLight.visible = true;
-            if (this.hemiLight) this.hemiLight.visible = true;
-            if (this.ambientLight) this.ambientLight.intensity = 0.6;
-        }
-
-        // Hot-swap all loaded chunks between unlit Basic and Lambert materials
-        if (this.world && this.world.chunks) {
-            for (let key in this.world.chunks) {
-                const ch = this.world.chunks[key];
-                if (ch && ch.mesh && Array.isArray(ch.mesh.material)) {
-                    ch.mesh.material = ch.mesh.material.map(m => enabled ? ((m && m.basicCounterpart) ? m.basicCounterpart : m) : ((m && m.lambertCounterpart) ? m.lambertCounterpart : m));
-                    ch.mesh.material.needsUpdate = true;
-                    ch.mesh.castShadow = !enabled;
-                    ch.mesh.receiveShadow = !enabled;
-                }
-                if (ch && ch.waterMesh && ch.waterMesh.material) {
-                    const wm = ch.waterMesh.material;
-                    ch.waterMesh.material = enabled ? ((wm && wm.basicCounterpart) ? wm.basicCounterpart : wm) : ((wm && wm.fancyCounterpart) ? wm.fancyCounterpart : wm);
-                    ch.waterMesh.material.needsUpdate = true;
-                }
-            }
-        }
+        if (this.scene) this.scene.fog = low ? null : new THREE.FogExp2(0x80bfff, 0.018);
+        if (this.sunLight) this.sunLight.visible = !low;
+        if (this.hemiLight) this.hemiLight.visible = !low;
+        if (this.ambientLight) this.ambientLight.intensity = low ? 1 : 0.6;
     }
 
-    // 💎 ULTRA Graphics Mode (100% Native Resolution Scaling + Antialiasing + PCF Soft Shadows + 4K Water)
-    setUltraGraphics(enabled = true) {
-        this.ultraGraphics = enabled;
-        try {
-            localStorage.setItem('eblankraft_ultra_graphics', enabled ? 'true' : 'false');
-            localStorage.setItem('eblankraft_antialias', 'true');
-            localStorage.setItem('eblankraft_render_scale', '1.0');
-            localStorage.setItem('eblankraft_turbofps', 'false');
-            localStorage.setItem('eblankraft_shadows', 'true');
-            localStorage.setItem('eblankraft_clouds', 'true');
-            localStorage.setItem('eblankraft_wind_leaves', '1');
-            localStorage.setItem('eblankraft_underwater_fx', '1');
-            localStorage.setItem('eblankraft_fancy_water', '1');
-        } catch (e) {}
-
-        this.turboFPS = false;
+    setGraphicsPreset(name) {
+        const preset = GRAPHICS_PRESETS[name];
+        if (!preset) return false;
+        this.graphicsPreset = name;
+        this.turboFPS = name === 'low';
         this.isA02Mode = false;
         this.isUL20FT = false;
-        this.antialias = true;
-        this.renderScale = 1.0;
-
-        this.setRenderScale(1.0);
-        this.setShadowsEnabled(true);
-        this.setCloudsEnabled(true);
-        this.windLeavesEnabled = true;
-        this.underwaterEffectsEnabled = true;
-        if (this.setFancyWaterEnabled) this.setFancyWaterEnabled(true);
-
+        this.lowGraphicsMode = this.turboFPS;
+        this.setRenderScale(preset.scale);
+        this.setShadowsEnabled(preset.shadows);
+        this.setCloudsEnabled(preset.clouds);
+        this.windLeavesEnabled = preset.wind;
+        this.underwaterEffectsEnabled = name !== 'low';
+        this.setFancyWaterEnabled(preset.water);
+        if (window.EblanEng?.ready && this.textureManager) window.EblanEng.syncMaterials(this.textureManager);
         if (this.world) {
-            this.world.chunkRadius = Math.max(this.world.chunkRadius, 4);
+            this.world.readyChunkMesh = null;
+            this.world.chunkRadius = preset.radius;
+            this.world.lastCenterCX = null;
+            this.world.lastCenterCZ = null;
+            this.world.updateMeshes(true);
         }
-
-        if (this.renderer) {
-            this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            this.renderer.toneMappingExposure = 1.1;
-            this.renderer.shadowMap.enabled = true;
-            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            this.renderer.shadowMap.autoUpdate = true;
-            this.renderer.setPixelRatio(this.getEffectivePixelRatio());
-            if (this.renderer.domElement) {
-                this.renderer.domElement.style.imageRendering = 'auto';
-            }
-        }
-
-        if (this.sunLight) {
-            this.sunLight.visible = true;
-            this.sunLight.castShadow = true;
-            if (this.sunLight.shadow) {
-                this.sunLight.shadow.mapSize.width = 2048;
-                this.sunLight.shadow.mapSize.height = 2048;
-                this.sunLight.shadow.bias = -0.0005;
-                if (this.sunLight.shadow.map) {
-                    this.sunLight.shadow.map.dispose();
-                    this.sunLight.shadow.map = null;
-                }
-            }
-        }
-
-        // Restore all chunks to full high quality materials & dynamic shadows
-        if (this.world && this.world.chunks) {
-            for (let key in this.world.chunks) {
-                const ch = this.world.chunks[key];
-                if (ch && ch.mesh && Array.isArray(ch.mesh.material)) {
-                    ch.mesh.material = ch.mesh.material.map(m => (m && m.lambertCounterpart) ? m.lambertCounterpart : m);
-                    ch.mesh.material.needsUpdate = true;
-                    ch.mesh.castShadow = true;
-                    ch.mesh.receiveShadow = true;
-                }
-                if (ch && ch.waterMesh && ch.waterMesh.material) {
-                    const wm = ch.waterMesh.material;
-                    ch.waterMesh.material = (wm && wm.fancyCounterpart) ? wm.fancyCounterpart : wm;
-                    ch.waterMesh.material.needsUpdate = true;
-                }
-            }
-        }
-    }
-
-    setA02Mode(enabled) {
-        this.isA02Mode = enabled;
-        try { localStorage.setItem('eblankraft_a02_mode', enabled ? 'true' : 'false'); } catch (e) {}
-        if (this.renderer) {
-            this.renderer.setPixelRatio(this.getEffectivePixelRatio());
-            if (this.renderer.shadowMap) {
-                this.renderer.shadowMap.type = enabled ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
-                this.renderer.shadowMap.autoUpdate = !enabled && !this.turboFPS;
-            }
-            this.renderer.toneMapping = (enabled || this.turboFPS) ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
-        }
-        if (this.sunLight && this.sunLight.shadow) {
-            const dim = enabled ? 512 : 1024;
-            this.sunLight.shadow.mapSize.set(dim, dim);
-            if (this.sunLight.shadow.map) {
-                this.sunLight.shadow.map.dispose();
-                this.sunLight.shadow.map = null;
-            }
-            const d = enabled ? 26 : 38;
-            this.sunLight.shadow.camera.left = -d;
-            this.sunLight.shadow.camera.right = d;
-            this.sunLight.shadow.camera.top = d;
-            this.sunLight.shadow.camera.bottom = -d;
-            this.sunLight.shadow.camera.updateProjectionMatrix();
-        }
-        if (this.world) {
-            if (enabled && this.world.chunkRadius > 2) {
-                this.world.chunkRadius = 2;
-            }
-        }
+        this.updateGraphicsLighting();
+        try {
+            localStorage.setItem('eblankraft_graphics_preset', name);
+            localStorage.setItem('eblankraft_wind_leaves', preset.wind ? '1' : '0');
+            localStorage.setItem('eblankraft_underwater_fx', this.underwaterEffectsEnabled ? '1' : '0');
+            for (const key of ['eblankraft_turbofps', 'eblankraft_a02_mode', 'eblankraft_ul20ft_preset', 'eblankraft_ultra_graphics']) localStorage.removeItem(key);
+        } catch (e) {}
+        return true;
     }
 
     setCloudsEnabled(enabled) {
@@ -654,7 +506,7 @@ class Game {
         this.world = new VoxelWorld(this.scene, this.textureManager, {
             worldType: worldType,
             seed: chosenSeed,
-            chunkRadius: 2,
+            chunkRadius: GRAPHICS_PRESETS[this.graphicsPreset].radius,
             game: this
         });
         if (this.player) {
@@ -885,6 +737,27 @@ class Game {
         }
     }
 
+    recordRenderedFrame(now) {
+        this.frameIntervals ||= [];
+        if (this.lastRenderedAt !== undefined) {
+            const interval = now - this.lastRenderedAt;
+            if (interval > 0) {
+                this.frameIntervals.push(interval);
+                if (this.frameIntervals.length > 120) this.frameIntervals.shift();
+            }
+        }
+        this.lastRenderedAt = now;
+    }
+
+    getFrameStats() {
+        const samples = this.frameIntervals || [];
+        const total = samples.reduce((sum, ms) => sum + ms, 0);
+        return { fps: total ? 1000 * samples.length / total : 0,
+            average: samples.length ? total / samples.length : 0,
+            max: samples.length ? Math.max(...samples) : 0,
+            spikes: samples.filter(ms => ms >= 50).length, count: samples.length };
+    }
+
     animate() {
         requestAnimationFrame(this.animate);
 
@@ -905,9 +778,12 @@ class Game {
         }
 
         // Infinite World Generation around Player & Water Physics
+        const streamingStarted = performance.now();
         if (this.world && this.player) {
             this.world.update(this.player.position.x, this.player.position.z, dt);
         }
+
+        this.lastStreamingTime = performance.now() - streamingStarted;
 
         // Animated Water Shaders (Flowing waves & specular ripples)
         this.waterTime = (this.waterTime || 0) + dt;
@@ -962,12 +838,14 @@ class Game {
             }
         }
 
-        // Animated Wind Leaves (Trees)
-        if (!this.turboFPS && !this.isA02Mode && this.textureManager && this.textureManager.materials && this.textureManager.materials[BLOCK_TYPES.LEAVES]) {
-            const lMat = this.textureManager.materials[BLOCK_TYPES.LEAVES];
-            if (lMat.userData && lMat.userData.uTime) {
-                lMat.userData.uTime.value = this.waterTime;
-                lMat.userData.uWindStrength.value = (this.windLeavesEnabled !== false) ? 1.0 : 0.0;
+        // Keep every leaf species in sync, including when wind is disabled.
+        if (this.textureManager?.materials) {
+            const windStrength = this.windLeavesEnabled !== false && !this.turboFPS && !this.isA02Mode ? 1.0 : 0.0;
+            for (const type of [BLOCK_TYPES.LEAVES, BLOCK_TYPES.BIRCH_LEAVES,
+                BLOCK_TYPES.SPRUCE_LEAVES, BLOCK_TYPES.JUNGLE_LEAVES]) {
+                const data = this.textureManager.materials[type]?.userData;
+                if (data?.uTime) data.uTime.value = this.waterTime;
+                if (data?.uWindStrength) data.uWindStrength.value = windStrength;
             }
         }
 
@@ -1089,11 +967,17 @@ class Game {
         }
 
         // 🚀 HARDWARE FOV & FRUSTUM CULLING (Stops rendering anything not in FOV or behind player)
+        const cullingStarted = performance.now();
         this.performFrustumAndOcclusionCulling();
+        this.lastCullingTime = performance.now() - cullingStarted;
 
-        // Render Scene
+        // Render submission time is CPU time, not GPU execution time.
+        const renderStarted = performance.now();
         this.renderer.render(this.scene, this.camera);
-        this.lastFrameCpuTime = performance.now() - now;
+        const renderedAt = performance.now();
+        this.lastRenderSubmitTime = renderedAt - renderStarted;
+        this.lastFrameCpuTime = renderedAt - now;
+        this.recordRenderedFrame(renderedAt);
     }
 
     performFrustumAndOcclusionCulling() {
@@ -1124,7 +1008,9 @@ class Game {
                 const inFOV = this._cullFrustum.intersectsBox(chunk.bounds);
 
                 if (chunk.mesh) {
-                    chunk.mesh.visible = inFOV;
+                    // Keep shadow casters available to the light camera. THREE
+                    // culls their geometry separately for each render pass.
+                    chunk.mesh.visible = inFOV || chunk.mesh.castShadow;
                 }
                 if (chunk.waterMesh) {
                     chunk.waterMesh.visible = inFOV;
@@ -1138,10 +1024,11 @@ class Game {
             for (let i = 0; i < mobs.length; i++) {
                 const mob = mobs[i];
                 if (!mob || !mob.mesh) continue;
+                if (this.mobManager.creativeMobsDisabled) { mob.mesh.visible = false; continue; }
                 this._cullSphere.center.copy(mob.position);
                 this._cullSphere.center.y += (mob.height || 1.8) * 0.5;
                 this._cullSphere.radius = Math.max(mob.width || 0.6, mob.height || 1.8);
-                mob.mesh.visible = this._cullFrustum.intersectsSphere(this._cullSphere);
+                mob.mesh.visible = mob.mesh.castShadow || this._cullFrustum.intersectsSphere(this._cullSphere);
             }
         }
 
@@ -1153,7 +1040,7 @@ class Game {
                 if (!item || !item.mesh) continue;
                 this._cullSphere.center.copy(item.position);
                 this._cullSphere.radius = 1.0;
-                item.mesh.visible = this._cullFrustum.intersectsSphere(this._cullSphere);
+                item.mesh.visible = item.mesh.castShadow || this._cullFrustum.intersectsSphere(this._cullSphere);
             }
         }
         if (this.mobManager && this.mobManager.tntEntities) {
@@ -1163,7 +1050,7 @@ class Game {
                 if (!tnt || !tnt.mesh) continue;
                 this._cullSphere.center.copy(tnt.mesh.position);
                 this._cullSphere.radius = 1.2;
-                tnt.mesh.visible = this._cullFrustum.intersectsSphere(this._cullSphere);
+                tnt.mesh.visible = tnt.mesh.castShadow || this._cullFrustum.intersectsSphere(this._cullSphere);
             }
         }
 
@@ -1171,7 +1058,7 @@ class Game {
         if (this.mobManager && this.mobManager.boss && this.mobManager.boss.mesh) {
             this._cullSphere.center.copy(this.mobManager.boss.position);
             this._cullSphere.radius = 12.0;
-            this.mobManager.boss.mesh.visible = this._cullFrustum.intersectsSphere(this._cullSphere);
+            this.mobManager.boss.mesh.visible = this.mobManager.boss.mesh.castShadow || this._cullFrustum.intersectsSphere(this._cullSphere);
         }
 
         // 6. Vehicles FOV Culling
@@ -1183,7 +1070,7 @@ class Game {
                 if (!v || !v.mesh) continue;
                 this._cullSphere.center.copy(v.position);
                 this._cullSphere.radius = 3.5;
-                v.mesh.visible = this._cullFrustum.intersectsSphere(this._cullSphere);
+                v.mesh.visible = v.mesh.castShadow || this._cullFrustum.intersectsSphere(this._cullSphere);
             }
         }
 

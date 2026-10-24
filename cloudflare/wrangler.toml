@@ -9,4 +9,4 @@ VERSION = "3.0.0"
 
 # Optional Cloudflare Pages / Workers static assets binding
 # [assets]
-# directory = "../competitive"
+# directory = "../web"

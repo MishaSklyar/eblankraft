@@ -1473,10 +1473,28 @@ class MobManager {
         this.dragon = new EblanDragonBoss(this.scene, this.textureManager, this.soundManager, this.game);
     }
 
+    applyCreativeMobSetting(player = this.game.player) {
+        const disabled = !!player?.isCreative && this.game.creativeMobsEnabled !== true;
+        this.creativeMobsDisabled = disabled;
+        for (const entity of [...this.mobs, ...this.crystals, ...this.fireballs, ...(this.dragon ? [this.dragon] : [])]) {
+            const object = entity.group || entity.mesh;
+            if (!object) continue;
+            if (disabled) {
+                if (entity._creativeWasVisible === undefined) entity._creativeWasVisible = object.visible;
+                object.visible = false;
+            } else if (entity._creativeWasVisible !== undefined) {
+                object.visible = entity._creativeWasVisible;
+                delete entity._creativeWasVisible;
+            }
+        }
+        return disabled;
+    }
+
     update(dt, player, world) {
+        const disabled = this.applyCreativeMobSetting(player);
         // Spawn mobs periodically based on dimension (controlled mob cap)
-        this.spawnTimer += dt;
-        if (this.spawnTimer > 13 && this.mobs.length < 5) {
+        if (!disabled) this.spawnTimer += dt;
+        if (!disabled && this.spawnTimer > 13 && this.mobs.length < 5) {
             this.spawnTimer = 0;
             this.handlePeriodicSpawns(player, world);
         }
@@ -1485,7 +1503,7 @@ class MobManager {
         const px = player ? player.position.x : 0;
         const pz = player ? player.position.z : 0;
 
-        for (let i = this.mobs.length - 1; i >= 0; i--) {
+        for (let i = this.mobs.length - 1; !disabled && i >= 0; i--) {
             const m = this.mobs[i];
             const distSq = (m.position.x - px) ** 2 + (m.position.z - pz) ** 2;
             if (distSq > 3600) { // > 60 blocks away
@@ -1514,6 +1532,8 @@ class MobManager {
                 this.itemDrops.splice(i, 1);
             }
         }
+
+        if (disabled) return;
 
         // Update End crystals
         for (let i = this.crystals.length - 1; i >= 0; i--) {

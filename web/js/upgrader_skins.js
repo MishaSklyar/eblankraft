@@ -516,23 +516,23 @@ function createMinecraftBoxGeometry(w, h, d, u, v, partW, partH, partD, mirror =
     };
 
     // Face 0: +X (Right side of part)
-    setUV(0, rX1, y1,  rX0, y1,  rX1, y2,  rX0, y2);
+    setUV(0, rX0, y1,  rX1, y1,  rX0, y2,  rX1, y2);
 
     // Face 1: -X (Left side of part)
-    setUV(1, lX1, y1,  lX0, y1,  lX1, y2,  lX0, y2);
+    setUV(1, lX0, y1,  lX1, y1,  lX0, y2,  lX1, y2);
 
     // Face 2: +Y (Top of part)
-    setUV(2, fX1, y0,  fX0, y0,  fX1, y1,  fX0, y1);
+    setUV(2, fX0, y0,  fX1, y0,  fX0, y1,  fX1, y1);
 
     // Face 3: -Y (Bottom of part)
     const botX0 = fX1, botX1 = botX0 + partW;
-    setUV(3, botX1, y0,  botX0, y0,  botX1, y1,  botX0, y1);
+    setUV(3, botX0, y0,  botX1, y0,  botX0, y1,  botX1, y1);
 
-    // Face 4: +Z (Front face of part)
-    setUV(4, fX1, y1,  fX0, y1,  fX1, y2,  fX0, y2);
+    // Face 4: +Z (Back; the game faces -Z)
+    setUV(4, bX0, y1,  bX1, y1,  bX0, y2,  bX1, y2);
 
-    // Face 5: -Z (Back face of part)
-    setUV(5, bX1, y1,  bX0, y1,  bX1, y2,  bX0, y2);
+    // Face 5: -Z (Front, unmirrored)
+    setUV(5, fX0, y1,  fX1, y1,  fX0, y2,  fX1, y2);
 
     geom.attributes.uv.needsUpdate = true;
     return geom;

@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
-for (const source of ['js/controls.js', 'web/js/controls.js', 'competitive/js/controls.js']) {
+for (const source of ['js/controls.js', 'web/js/controls.js']) {
     let now = 1000;
     const handlers = {};
     const window = { addEventListener: (event, handler) => handlers[event] = handler };

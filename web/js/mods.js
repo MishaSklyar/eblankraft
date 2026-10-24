@@ -5902,11 +5902,16 @@ Player.isWanted = function() return bridge.rp:isWanted() end
         if (this.teamsManager) this.teamsManager.clear();
         this.initLua();
 
-        for (const mod of this.mods) {
+        const resolved = window.AddonPackage ? window.AddonPackage.resolve(this.mods) : { ordered: this.mods.filter(m => m.enabled), errors: new Map() };
+        this.addonErrors = resolved.errors;
+        for (const mod of resolved.ordered) {
             if (mod.enabled) {
                 try {
-                    this.runLua(mod.code, mod.name);
+                    const failedDependency = (mod.dependencies || []).find(d => this.addonErrors.has(d.id));
+                    if (failedDependency) throw new Error(`Dependency ${failedDependency.id} failed to load.`);
+                    if (this.runLua(mod.code, mod.name) === false) throw new Error('Lua execution failed. See console.');
                 } catch (e) {
+                    this.addonErrors.set(mod.id, e.message);
                     console.warn(`Failed to run mod ${mod.name}:`, e);
                 }
             }
@@ -6395,6 +6400,10 @@ Player.isWanted = function() return bridge.rp:isWanted() end
         const authorInput = document.getElementById("editor-mod-author");
         const descInput = document.getElementById("editor-mod-desc");
         const codeInput = document.getElementById("editor-mod-code");
+        const category = document.getElementById('editor-addon-category');
+        const dependencies = document.getElementById('editor-addon-dependencies');
+        if (category) category.value = mod?.category || 'gameplay';
+        if (dependencies) dependencies.value = (mod?.dependencies || []).map(d => `${d.id}@${d.minVersion}`).join(', ');
 
         if (mod) {
             this.currentEditingModId = mod.id;
@@ -6431,6 +6440,7 @@ Player.isWanted = function() return bridge.rp:isWanted() end
         const enabled = existing ? existing.enabled : true;
 
         const modObj = {
+            ...existing,
             id,
             name,
             version,
@@ -6439,6 +6449,19 @@ Player.isWanted = function() return bridge.rp:isWanted() end
             code,
             enabled
         };
+
+        if (window.AddonPackage) {
+            try {
+                modObj.category = document.getElementById('editor-addon-category')?.value || existing?.category || 'gameplay';
+                const raw = document.getElementById('editor-addon-dependencies')?.value;
+                modObj.dependencies = raw === undefined ? (existing?.dependencies || []) : raw.split(',').filter(s => s.trim()).map(s => {
+                    const [id, minVersion, extra] = s.trim().split('@');
+                    if (extra !== undefined) throw new Error('Use dependency ID@1.0.0.');
+                    return { id, minVersion };
+                });
+                Object.assign(modObj, window.AddonPackage.pack(modObj).manifest);
+            } catch (error) { alert(error.message); return; }
+        }
 
         this.addOrUpdateMod(modObj);
         if (this.game.ui) this.game.ui.showToast(`💾 Мод "${name}" збережено!`);

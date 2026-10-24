@@ -725,6 +725,9 @@ class TNTEntity {
 
     update(dt) {
         if (this.exploded) return;
+        if (!this.isRemote && !this.serverRequestId && (this.game?.serverClient?.explosiveAuthority || this.game?.serverClient?.engineAuthority)) {
+            this.game.serverClient.registerExplosive(this);
+        }
         this.fuse -= dt;
 
         // Flashing and pulsating animation
@@ -759,6 +762,16 @@ class TNTEntity {
 
     explode() {
         if (this.exploded) return;
+        const server = this.game?.serverClient;
+        if (this.authorityRoom || (!this.isRemote && (server?.explosiveAuthority || server?.engineAuthority))) {
+            if (!this.serverRequestId && !this.isRemote) server?.registerExplosive(this);
+            if (this.isC4 && !this.isRemote && !this.detonationRequested && this.authorityRoom === server?.currentRoom) {
+                this.detonationRequested = server.requestDetonation(this);
+            }
+            // Wait for server-owned terrain changes, damage and knockback.
+            this.fuse = .05;
+            return;
+        }
         this.exploded = true;
         this.scene.remove(this.mesh);
 
@@ -901,7 +914,11 @@ class C4Entity extends TNTEntity {
         this.mesh.position.y = this.y + 0.2;
     }
 
-    update() {}
+    update() {
+        if (!this.exploded && !this.isRemote && !this.serverRequestId && (this.game?.serverClient?.explosiveAuthority || this.game?.serverClient?.engineAuthority)) {
+            this.game.serverClient.registerExplosive(this);
+        }
+    }
 
 }
 

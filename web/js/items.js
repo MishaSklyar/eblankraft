@@ -62,6 +62,31 @@ const ITEM_TYPES = {
     REDSTONE_LAMP: 'redstone_lamp',
     TERRACOTTA: 'terracotta',
 
+    STONE_BRICKS: 'stone_bricks',
+    SMOOTH_STONE: 'smooth_stone',
+    GRANITE: 'granite',
+    DIORITE: 'diorite',
+    ANDESITE: 'andesite',
+    QUARTZ_BLOCK: 'quartz_block',
+    IRON_BLOCK: 'iron_block',
+    COPPER_BLOCK: 'copper_block',
+    WHITE_CONCRETE: 'white_concrete',
+    ORANGE_CONCRETE: 'orange_concrete',
+    MAGENTA_CONCRETE: 'magenta_concrete',
+    LIGHT_BLUE_CONCRETE: 'light_blue_concrete',
+    YELLOW_CONCRETE: 'yellow_concrete',
+    LIME_CONCRETE: 'lime_concrete',
+    PINK_CONCRETE: 'pink_concrete',
+    GRAY_CONCRETE: 'gray_concrete',
+    LIGHT_GRAY_CONCRETE: 'light_gray_concrete',
+    CYAN_CONCRETE: 'cyan_concrete',
+    PURPLE_CONCRETE: 'purple_concrete',
+    BLUE_CONCRETE: 'blue_concrete',
+    BROWN_CONCRETE: 'brown_concrete',
+    GREEN_CONCRETE: 'green_concrete',
+    RED_CONCRETE: 'red_concrete',
+    BLACK_CONCRETE: 'black_concrete',
+
     // Redstone & Electronics
     REDSTONE_DUST: 'redstone_dust',
     REDSTONE_WIRE: 'redstone_wire',
@@ -218,6 +243,32 @@ const ITEM_REGISTRY = {
     [ITEM_TYPES.PRESSURE_PLATE]: { id: ITEM_TYPES.PRESSURE_PLATE, name: "Нажимная плита", category: 'block', blockType: 62, icon: 'pressure_plate', maxStack: 64 },
     [ITEM_TYPES.COMPUTER]: { id: ITEM_TYPES.COMPUTER, name: "Компьютер (EmuOS PC)", category: 'block', blockType: 63, icon: 'computer', maxStack: 16 },
     [ITEM_TYPES.REDSTONE_LAMP_ON]: { id: ITEM_TYPES.REDSTONE_LAMP_ON, name: "Включенная лампа", category: 'block', blockType: 64, icon: 'redstone_lamp_on', maxStack: 64 },
+
+    // Additional building blocks
+    [ITEM_TYPES.STONE_BRICKS]: { id: ITEM_TYPES.STONE_BRICKS, name: "Каменные кирпичи", category: 'block', blockType: 65, icon: 'stone_bricks', maxStack: 64 },
+    [ITEM_TYPES.SMOOTH_STONE]: { id: ITEM_TYPES.SMOOTH_STONE, name: "Гладкий камень", category: 'block', blockType: 66, icon: 'smooth_stone', maxStack: 64 },
+    [ITEM_TYPES.GRANITE]: { id: ITEM_TYPES.GRANITE, name: "Гранит", category: 'block', blockType: 67, icon: 'granite', maxStack: 64 },
+    [ITEM_TYPES.DIORITE]: { id: ITEM_TYPES.DIORITE, name: "Диорит", category: 'block', blockType: 68, icon: 'diorite', maxStack: 64 },
+    [ITEM_TYPES.ANDESITE]: { id: ITEM_TYPES.ANDESITE, name: "Андезит", category: 'block', blockType: 69, icon: 'andesite', maxStack: 64 },
+    [ITEM_TYPES.QUARTZ_BLOCK]: { id: ITEM_TYPES.QUARTZ_BLOCK, name: "Кварцевый блок", category: 'block', blockType: 70, icon: 'quartz_block', maxStack: 64 },
+    [ITEM_TYPES.IRON_BLOCK]: { id: ITEM_TYPES.IRON_BLOCK, name: "Железный блок", category: 'block', blockType: 71, icon: 'iron_block', maxStack: 64 },
+    [ITEM_TYPES.COPPER_BLOCK]: { id: ITEM_TYPES.COPPER_BLOCK, name: "Медный блок", category: 'block', blockType: 72, icon: 'copper_block', maxStack: 64 },
+    [ITEM_TYPES.WHITE_CONCRETE]: { id: ITEM_TYPES.WHITE_CONCRETE, name: "Белый бетон", category: 'block', blockType: 73, icon: 'white_concrete', maxStack: 64 },
+    [ITEM_TYPES.ORANGE_CONCRETE]: { id: ITEM_TYPES.ORANGE_CONCRETE, name: "Оранжевый бетон", category: 'block', blockType: 74, icon: 'orange_concrete', maxStack: 64 },
+    [ITEM_TYPES.MAGENTA_CONCRETE]: { id: ITEM_TYPES.MAGENTA_CONCRETE, name: "Пурпурный бетон", category: 'block', blockType: 75, icon: 'magenta_concrete', maxStack: 64 },
+    [ITEM_TYPES.LIGHT_BLUE_CONCRETE]: { id: ITEM_TYPES.LIGHT_BLUE_CONCRETE, name: "Голубой бетон", category: 'block', blockType: 76, icon: 'light_blue_concrete', maxStack: 64 },
+    [ITEM_TYPES.YELLOW_CONCRETE]: { id: ITEM_TYPES.YELLOW_CONCRETE, name: "Жёлтый бетон", category: 'block', blockType: 77, icon: 'yellow_concrete', maxStack: 64 },
+    [ITEM_TYPES.LIME_CONCRETE]: { id: ITEM_TYPES.LIME_CONCRETE, name: "Лаймовый бетон", category: 'block', blockType: 78, icon: 'lime_concrete', maxStack: 64 },
+    [ITEM_TYPES.PINK_CONCRETE]: { id: ITEM_TYPES.PINK_CONCRETE, name: "Розовый бетон", category: 'block', blockType: 79, icon: 'pink_concrete', maxStack: 64 },
+    [ITEM_TYPES.GRAY_CONCRETE]: { id: ITEM_TYPES.GRAY_CONCRETE, name: "Серый бетон", category: 'block', blockType: 80, icon: 'gray_concrete', maxStack: 64 },
+    [ITEM_TYPES.LIGHT_GRAY_CONCRETE]: { id: ITEM_TYPES.LIGHT_GRAY_CONCRETE, name: "Светло-серый бетон", category: 'block', blockType: 81, icon: 'light_gray_concrete', maxStack: 64 },
+    [ITEM_TYPES.CYAN_CONCRETE]: { id: ITEM_TYPES.CYAN_CONCRETE, name: "Бирюзовый бетон", category: 'block', blockType: 82, icon: 'cyan_concrete', maxStack: 64 },
+    [ITEM_TYPES.PURPLE_CONCRETE]: { id: ITEM_TYPES.PURPLE_CONCRETE, name: "Фиолетовый бетон", category: 'block', blockType: 83, icon: 'purple_concrete', maxStack: 64 },
+    [ITEM_TYPES.BLUE_CONCRETE]: { id: ITEM_TYPES.BLUE_CONCRETE, name: "Синий бетон", category: 'block', blockType: 84, icon: 'blue_concrete', maxStack: 64 },
+    [ITEM_TYPES.BROWN_CONCRETE]: { id: ITEM_TYPES.BROWN_CONCRETE, name: "Коричневый бетон", category: 'block', blockType: 85, icon: 'brown_concrete', maxStack: 64 },
+    [ITEM_TYPES.GREEN_CONCRETE]: { id: ITEM_TYPES.GREEN_CONCRETE, name: "Зелёный бетон", category: 'block', blockType: 86, icon: 'green_concrete', maxStack: 64 },
+    [ITEM_TYPES.RED_CONCRETE]: { id: ITEM_TYPES.RED_CONCRETE, name: "Красный бетон", category: 'block', blockType: 87, icon: 'red_concrete', maxStack: 64 },
+    [ITEM_TYPES.BLACK_CONCRETE]: { id: ITEM_TYPES.BLACK_CONCRETE, name: "Чёрный бетон", category: 'block', blockType: 88, icon: 'black_concrete', maxStack: 64 },
 
     // --- PICKAXES (SPEED BOOST) ---
     [ITEM_TYPES.WOOD_PICKAXE]: { id: ITEM_TYPES.WOOD_PICKAXE, name: "Деревянная кирка", category: 'tool', icon: 'wood_pickaxe', maxStack: 1, miningSpeed: 2.0, attackDamage: 18, attackSpeed: 1.2, durability: 60 },
@@ -947,8 +998,52 @@ const BLOCK_DROP_MAP = {
     31: ITEM_TYPES.END_STONE,
     32: ITEM_TYPES.DRAGON_EGG,
     33: ITEM_TYPES.PORTAL_NETHER,
-    34: ITEM_TYPES.PORTAL_END
+    34: ITEM_TYPES.PORTAL_END,
+    65: ITEM_TYPES.STONE_BRICKS,
+    66: ITEM_TYPES.SMOOTH_STONE,
+    67: ITEM_TYPES.GRANITE,
+    68: ITEM_TYPES.DIORITE,
+    69: ITEM_TYPES.ANDESITE,
+    70: ITEM_TYPES.QUARTZ_BLOCK,
+    71: ITEM_TYPES.IRON_BLOCK,
+    72: ITEM_TYPES.COPPER_BLOCK,
+    73: ITEM_TYPES.WHITE_CONCRETE,
+    74: ITEM_TYPES.ORANGE_CONCRETE,
+    75: ITEM_TYPES.MAGENTA_CONCRETE,
+    76: ITEM_TYPES.LIGHT_BLUE_CONCRETE,
+    77: ITEM_TYPES.YELLOW_CONCRETE,
+    78: ITEM_TYPES.LIME_CONCRETE,
+    79: ITEM_TYPES.PINK_CONCRETE,
+    80: ITEM_TYPES.GRAY_CONCRETE,
+    81: ITEM_TYPES.LIGHT_GRAY_CONCRETE,
+    82: ITEM_TYPES.CYAN_CONCRETE,
+    83: ITEM_TYPES.PURPLE_CONCRETE,
+    84: ITEM_TYPES.BLUE_CONCRETE,
+    85: ITEM_TYPES.BROWN_CONCRETE,
+    86: ITEM_TYPES.GREEN_CONCRETE,
+    87: ITEM_TYPES.RED_CONCRETE,
+    88: ITEM_TYPES.BLACK_CONCRETE
 };
+
+// Shaped blocks persist as ordinary inventory items and share base textures.
+for (const [shape, definition] of Object.entries(window.BLOCK_SHAPES || {})) {
+    for (const [base, type] of Object.entries(definition.types)) {
+        const source = Object.values(ITEM_REGISTRY).find(item => item.blockType === Number(base));
+        if (!source) continue;
+        const id = source.id + '_' + shape.toLowerCase();
+        ITEM_TYPES[id.toUpperCase()] = id;
+        ITEM_REGISTRY[id] = { ...source, id, name: source.name + ' (' + definition.name + ')', blockType: type };
+        BLOCK_DROP_MAP[type] = id;
+    }
+}
+
+// Every editable material has a stable inventory entry, including legacy omissions.
+for (const type of Object.values(window.BLOCK_TYPES)) {
+    if (!type || !window.BLOCK_INFO[type] || Object.values(ITEM_REGISTRY).some(item => item.blockType === type)) continue;
+    const id = 'editor_block_' + type;
+    ITEM_REGISTRY[id] = { id, name: window.BLOCK_INFO[type].name, category: 'block', blockType: type, icon: 'stone', maxStack: 64 };
+    BLOCK_DROP_MAP[type] ??= id;
+}
 
 // Random junk pool that can drop from breaking blocks or killing mobs
 const JUNK_ITEMS_POOL = [

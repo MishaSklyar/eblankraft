@@ -50,7 +50,7 @@ async function runVersion(prefix, clientFile, clientClass) {
     finishLaunch();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sc.loadingRoom, false);
-    assert.deepEqual(blocks, [[1, 2, 3, 0], [4, 2, 3, 5]]);
+    assert.deepEqual(blocks, [[1, 2, 3, 0, undefined], [4, 2, 3, 5, undefined]]);
     assert.equal(meshes, 2);
     assert.equal(saved, 1);
     assert.equal(synced, 1);
@@ -100,7 +100,6 @@ async function main() {
         assert.ok(html.includes('id="btn-coop-join"'));
         assert.ok(html.indexOf('js/shared_world_client.js') < html.indexOf('js/game.js'));
     }
-    await runVersion('competitive/js', 'server_client.js', 'CompetitiveServerClient');
     await runVersion('js', 'shared_world_client.js', 'SharedWorldClient');
     await runVersion('web/js', 'shared_world_client.js', 'SharedWorldClient');
 }

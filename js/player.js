@@ -24,6 +24,57 @@ function isPassThroughBlock(b) {
 }
 window.isPassThroughBlock = isPassThroughBlock;
 
+// Pixel-sized cuboids, aligned with the camera's -Z aiming direction.
+function createVoxelGunModel(type) {
+    const root = new THREE.Group(); root.name = 'gun_' + type;
+    const pistol = type === 'glock' || type === 'deagle';
+    const metal = new THREE.MeshLambertMaterial({ color: type === 'deagle' ? 0x9ba1a3 : 0x30383b });
+    const dark = new THREE.MeshLambertMaterial({ color: 0x161b1d });
+    const furniture = new THREE.MeshLambertMaterial({ color: type === 'ak47' ? 0x9a5930 : type === 'awp' || type === 'rpg' ? 0x647348 : 0x41494b });
+    const sight = new THREE.MeshLambertMaterial({ color: 0xb6c7b0 });
+    const box = (name, w, h, d, x, y, z, material = metal) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+        mesh.name = name; mesh.position.set(x, y, z); root.add(mesh); return mesh;
+    };
+    const length = pistol ? .34 : type === 'awp' ? .94 : type === 'mp5' ? .58 : .78;
+    box('receiver', pistol ? .10 : .13, .12, pistol ? .24 : .34, 0, 0, -.1);
+    box('barrel', .055, .055, length - .16, 0, .025, -.16 - (length - .16) / 2, dark);
+    box('muzzle', .075, .075, .045, 0, .025, -length, dark);
+    box('grip', .085, .20, .10, 0, -.12, pistol ? -.015 : .015, furniture).rotation.x = -.22;
+    if (!pistol) {
+        box('stock', .105, .15, .25, 0, -.015, .17, furniture);
+        box('handguard', .14, .105, length * .36, 0, -.015, -.3 - length * .12, furniture);
+        box('magazine', .085, type === 'shotgun' ? .08 : .22, .12, 0, -.15, -.18, dark).rotation.x = type === 'ak47' ? -.26 : .08;
+    }
+    // A separated rear notch keeps the center of the sight picture open.
+    const sightY = type === 'rpg' ? .21 : .095;
+    for (const x of [-.035, .035]) box('rear_sight', .018, .045, .025, x, sightY, pistol ? -.025 : .025, dark);
+    box('front_sight', .014, .05, .024, 0, sightY + .005, -length + .07, sight);
+    if (type === 'awp') {
+        box('scope_mount', .06, .07, .14, 0, .10, -.10, dark);
+        for (const x of [-.05, .05]) box('scope_side', .02, .12, .32, x, .17, -.14, dark);
+        for (const y of [.12, .22]) box('scope_rim', .08, .02, .32, 0, y, -.14, dark);
+    }
+    if (type === 'm4a1') {
+        for (const x of [-.05, .05]) box('handle_mount', .02, .08, .17, x, .12, -.12, dark);
+        box('carry_handle', .12, .02, .17, 0, .17, -.12, dark);
+    }
+    if (type === 'shotgun') box('pump', .17, .12, .20, 0, -.025, -.49, furniture);
+    if (type === 'rpg') box('launcher_tube', .20, .20, 1.02, 0, .03, -.25, furniture);
+    return root;
+}
+window.createVoxelGunModel = createVoxelGunModel;
+function disposeHeldModel(model) {
+    if (!model) return;
+    const materials = new Set();
+    model.traverse(node => {
+        node.geometry?.dispose();
+        for (const material of Array.isArray(node.material) ? node.material : node.material ? [node.material] : []) materials.add(material);
+    });
+    for (const material of materials) material.dispose();
+    model.parent?.remove(model);
+}
+
 const FIREARM_SPECS = {
     ak47: { magazine: 30, reload: 2500, fireDelay: 110, automatic: true, damage: 48, range: 85, spread: 0.012, recoil: 0.038, pitch: 0.95 },
     m4a1: { magazine: 30, reload: 2300, fireDelay: 90, automatic: true, damage: 40, range: 90, spread: 0.008, recoil: 0.025, pitch: 1.25 },
@@ -94,6 +145,12 @@ class Player {
         this.flySpeed = 11.0;
         this.godMode = false;
         this.isCreative = false;
+        this.creativeBreakIntervalMs = 0;
+        this._creativeBreakCooldown = 0;
+        try {
+            const saved = Number(localStorage.getItem('eblankraft_creative_break_interval'));
+            if (Number.isFinite(saved)) this.creativeBreakIntervalMs = Math.max(0, Math.min(1000, saved));
+        } catch {}
         this.instantBreak = false;
         this.infiniteBlocks = false;
         this.customReach = 5.2;
@@ -253,7 +310,7 @@ class Player {
             this.game.serverClient.sendInventorySync(this.inventory.map(slot => {
                 if (!slot) return null;
                 const r = window.ITEM_REGISTRY ? ITEM_REGISTRY[slot.itemId] : null;
-                return { itemId: slot.itemId, count: slot.count, name: r ? r.name : '' };
+                return { itemId: slot.itemId, count: slot.count, name: r ? r.name : '', ...(slot.design ? { design: slot.design } : {}) };
             }), heldItemKey, this.selectedHotbarIndex);
         }
 
@@ -531,17 +588,17 @@ class Player {
 
         // Unified item pivot in bottom-right corner of screen
         this.itemPivot = new THREE.Group();
-        this.itemPivot.position.set(0.36, -0.36, -0.52);
+        this.itemPivot.position.set(0.42, -0.40, -0.56);
         this.handGroup.add(this.itemPivot);
 
         // 1. Arm box (Minecraft right arm extending forward with equipped skin texture)
-        const armGeom = createMinecraftBoxGeometry(0.24, 0.72, 0.24, 40, 16, 4, 12, 4);
-        armGeom.translate(0, -0.22, 0.12);
+        const armGeom = createMinecraftBoxGeometry(0.25, 0.75, 0.25, 40, 16, 4, 12, 4);
+        armGeom.translate(0, .375, 0);
         const curSkinId = (this.game && this.game.upgrader) ? this.game.upgrader.equippedSkin : 'classic';
         const initTex = window.skinManager ? window.skinManager.getSkinTexture(curSkinId) : null;
         this.armMat = new THREE.MeshLambertMaterial({ map: initTex, color: 0xffffff });
         this.armMesh = new THREE.Mesh(armGeom, this.armMat);
-        this.armMesh.rotation.set(0.32, -0.22, 0.1);
+        this.armMesh.rotation.set(2.8, .2, -.2);
         this.itemPivot.add(this.armMesh);
 
         // 2. Held Block Mesh (3D isometric block held in hand)
@@ -591,12 +648,21 @@ class Player {
     updateHeldBlock() {
         this.syncInventoryWithServer();
         const it = this.getSelectedItem();
+        this.setAiming(false);
+        disposeHeldModel(this.heldGunMesh); this.heldGunMesh = null;
         if (this.gunReload && this.gunReload.item !== it) this.gunReload = null;
         if (this.isScoped && ITEM_REGISTRY[it?.itemId]?.gunType !== 'awp') {
             this.isScoped = false;
             this.setFOV(72);
         }
         if (!this.itemPivot) return;
+        if (this.mcModel?.itemContainer) {
+            while (this.mcModel.itemContainer.children.length > 0) {
+                const child = this.mcModel.itemContainer.children[0];
+                if (child.name.startsWith('gun_')) disposeHeldModel(child);
+                else this.mcModel.itemContainer.remove(child);
+            }
+        }
 
         if (!it) {
             // Bare hand (fist)
@@ -604,7 +670,8 @@ class Player {
             if (this.heldToolMesh) this.heldToolMesh.visible = false;
             if (this.armMesh) {
                 this.armMesh.visible = true;
-                this.armMesh.position.set(-0.06, 0, 0);
+                this.armMesh.position.set(-0.02, 0, 0);
+                this.armMesh.rotation.set(2.8, .2, -.2);
             }
             return;
         }
@@ -612,15 +679,25 @@ class Player {
         const reg = ITEM_REGISTRY[it.itemId];
         if (this.armMesh) {
             this.armMesh.visible = true;
+            this.armMesh.rotation.set(2.8, .2, -.2);
             this.armMesh.position.set(0, 0, 0);
         }
 
         if (reg && reg.category === 'block') {
             if (this.heldBlockMesh) {
                 this.heldBlockMesh.visible = true;
-                this.heldBlockMesh.material = this.game.textureManager.getBlockMaterial(reg.blockType);
+                this.heldBlockMesh.material = this.game.textureManager.getDesignMaterial(reg.blockType, it.design);
+                const boxes = window.blockDesignBoxes(reg.blockType, it.design);
+                const bounds = [0, 1, 2].map(a => Math.min(...boxes.map(b => b[a]))).concat([3, 4, 5].map(a => Math.max(...boxes.map(b => b[a]))));
+                this.heldBlockMesh.scale.set(bounds[3] - bounds[0], bounds[4] - bounds[1], bounds[5] - bounds[2]);
             }
             if (this.heldToolMesh) this.heldToolMesh.visible = false;
+        } else if (reg?.isGun) {
+            this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
+            this.heldGunMesh = createVoxelGunModel(reg.gunType);
+            this.itemPivot.add(this.heldGunMesh);
+            this.armMesh.position.set(.025, -.12, .16);
+            this.armMesh.rotation.set(2.1, 0, -.10);
         } else {
             // Weapon, tool, food, or item
             if (this.heldBlockMesh) this.heldBlockMesh.visible = false;
@@ -649,17 +726,19 @@ class Player {
 
         // Also update held item in 3rd person model
         if (this.mcModel && this.mcModel.itemContainer) {
-            while (this.mcModel.itemContainer.children.length > 0) {
-                this.mcModel.itemContainer.remove(this.mcModel.itemContainer.children[0]);
-            }
             if (it && reg) {
                 if (reg.category === 'block') {
+                    const bounds = window.getBlockBounds(reg.blockType);
                     const bMesh = new THREE.Mesh(
-                        new THREE.BoxGeometry(0.24, 0.24, 0.24),
+                        new THREE.BoxGeometry(0.24 * (bounds[3] - bounds[0]), 0.24 * (bounds[4] - bounds[1]), 0.24 * (bounds[5] - bounds[2])),
                         this.game.textureManager.getBlockMaterial(reg.blockType)
                     );
                     bMesh.position.set(0, -0.1, 0.1);
                     this.mcModel.itemContainer.add(bMesh);
+                } else if (reg.isGun) {
+                    const gun = createVoxelGunModel(reg.gunType);
+                    gun.scale.setScalar(.65); gun.rotation.x = Math.PI / 2;
+                    this.mcModel.itemContainer.add(gun);
                 } else {
                     const iconName = reg.icon || 'stone';
                     const tex = this.game.textureManager.getTexture(iconName);
@@ -913,43 +992,58 @@ class Player {
             -Math.cos(this.yaw) * Math.cos(this.pitch)
         ).normalize();
 
-        const step = 0.05;
-        const prevPos = this._rayPrevPos.copy(origin);
-        const currentPos = this._rayCurrentPos.copy(origin);
-
         this.targetBlock = null;
-        let lastBx = -999999, lastBy = -999999, lastBz = -999999;
-
-        for (let d = 0; d < maxDist; d += step) {
-            currentPos.addScaledVector(dir, step);
-            const bx = Math.floor(currentPos.x);
-            const by = Math.floor(currentPos.y);
-            const bz = Math.floor(currentPos.z);
-
-            if (bx === lastBx && by === lastBy && bz === lastBz) {
-                prevPos.copy(currentPos);
-                continue;
-            }
-            lastBx = bx;
-            lastBy = by;
-            lastBz = bz;
-
+        // Traverse voxel boundaries directly instead of sampling every 0.05 block.
+        const sx = Math.sign(dir.x), sy = Math.sign(dir.y), sz = Math.sign(dir.z);
+        let bx = Math.floor(origin.x), by = Math.floor(origin.y), bz = Math.floor(origin.z);
+        const onXBoundary = origin.x === bx, onYBoundary = origin.y === by, onZBoundary = origin.z === bz;
+        if (sx < 0 && onXBoundary) bx--;
+        if (sy < 0 && onYBoundary) by--;
+        if (sz < 0 && onZBoundary) bz--;
+        const dx = sx ? Math.abs(1 / dir.x) : Infinity;
+        const dy = sy ? Math.abs(1 / dir.y) : Infinity;
+        const dz = sz ? Math.abs(1 / dir.z) : Infinity;
+        let tx = sx ? (bx + (sx > 0 ? 1 : 0) - origin.x) / dir.x : Infinity;
+        let ty = sy ? (by + (sy > 0 ? 1 : 0) - origin.y) / dir.y : Infinity;
+        let tz = sz ? (bz + (sz > 0 ? 1 : 0) - origin.z) / dir.z : Infinity;
+        let distance = 0;
+        let nx = sx && onXBoundary ? -sx : 0;
+        let ny = nx === 0 && sy && onYBoundary ? -sy : 0;
+        let nz = nx === 0 && ny === 0 && sz && onZBoundary ? -sz : 0;
+        while (distance <= maxDist) {
             const block = this.world.getBlock(bx, by, bz);
-            if (block !== BLOCK_TYPES.AIR && block !== BLOCK_TYPES.WATER) {
-                const pbx = Math.floor(prevPos.x);
-                const pby = Math.floor(prevPos.y);
-                const pbz = Math.floor(prevPos.z);
-
-                let nx = pbx - bx;
-                let ny = pby - by;
-                let nz = pbz - bz;
-
-                if (Math.abs(nx) + Math.abs(ny) + Math.abs(nz) !== 1) {
-                    if (Math.abs(currentPos.x - (bx + 0.5)) > 0.48) nx = Math.sign(currentPos.x - (bx + 0.5));
-                    else if (Math.abs(currentPos.y - (by + 0.5)) > 0.48) ny = Math.sign(currentPos.y - (by + 0.5));
-                    else if (Math.abs(currentPos.z - (bz + 0.5)) > 0.48) nz = Math.sign(currentPos.z - (bz + 0.5));
+            let shapeHit = true;
+            const design = this.world.getBlockDesign?.(bx, by, bz);
+            if (window.BLOCK_INFO?.[block]?.bounds || design) {
+                let nearest = Infinity, nearestAxis = 0, nearestSign = 0;
+                for (const bounds of window.blockDesignBoxes(block, design)) {
+                    let enter = -Infinity, exit = Infinity, faceAxis = 0, faceSign = 0;
+                    for (let axis = 0; axis < 3; axis++) {
+                        const key = ['x', 'y', 'z'][axis];
+                        const cell = [bx, by, bz][axis];
+                        const low = cell + bounds[axis], high = cell + bounds[axis + 3];
+                        if (Math.abs(dir[key]) < 1e-12) {
+                            if (origin[key] < low || origin[key] > high) { exit = -Infinity; break; }
+                        } else {
+                            const first = (low - origin[key]) / dir[key];
+                            const last = (high - origin[key]) / dir[key];
+                            const near = Math.min(first, last);
+                            if (near > enter) { enter = near; faceAxis = axis; faceSign = -Math.sign(dir[key]); }
+                            exit = Math.min(exit, Math.max(first, last));
+                        }
+                    }
+                    if (exit >= Math.max(enter, distance, 0) && enter <= Math.min(tx, ty, tz, maxDist) && enter < nearest) {
+                        nearest = enter; nearestAxis = faceAxis; nearestSign = faceSign;
+                    }
                 }
-
+                shapeHit = nearest !== Infinity;
+                if (shapeHit && nearest >= 0) {
+                    nx = nearestAxis === 0 ? nearestSign : 0;
+                    ny = nearestAxis === 1 ? nearestSign : 0;
+                    nz = nearestAxis === 2 ? nearestSign : 0;
+                }
+            }
+            if (shapeHit && block !== BLOCK_TYPES.AIR && (block !== BLOCK_TYPES.WATER || design)) {
                 this.targetBlock = {
                     hit: true,
                     x: bx,
@@ -962,16 +1056,29 @@ class Player {
                 };
                 break;
             }
-            prevPos.copy(currentPos);
+            distance = Math.min(tx, ty, tz);
+            if (!Number.isFinite(distance) || distance > maxDist) break;
+            // At an edge or corner, enter all crossed axes but keep one placement face.
+            nx = tx === distance ? -sx : 0;
+            ny = nx === 0 && ty === distance ? -sy : 0;
+            nz = nx === 0 && ny === 0 ? -sz : 0;
+            if (tx === distance) { bx += sx; tx += dx; }
+            if (ty === distance) { by += sy; ty += dy; }
+            if (tz === distance) { bz += sz; tz += dz; }
         }
 
         // Update wireframe box outline
         if (this.targetBlock) {
+            const target = this.targetBlock;
+            const boxes = window.blockBoxesAt?.(this.world, target.x, target.y, target.z, target.type) || [[0, 0, 0, 1, 1, 1]];
+            const bounds = [0, 1, 2].map(axis => Math.min(...boxes.map(box => box[axis]))).concat(
+                [3, 4, 5].map(axis => Math.max(...boxes.map(box => box[axis]))));
+            this.wireframeBox.scale.set(bounds[3] - bounds[0], bounds[4] - bounds[1], bounds[5] - bounds[2]);
             this.wireframeBox.visible = true;
             this.wireframeBox.position.set(
-                this.targetBlock.x + 0.5,
-                this.targetBlock.y + 0.5,
-                this.targetBlock.z + 0.5
+                this.targetBlock.x + (bounds[0] + bounds[3]) / 2,
+                this.targetBlock.y + (bounds[1] + bounds[4]) / 2,
+                this.targetBlock.z + (bounds[2] + bounds[5]) / 2
             );
         } else {
             this.wireframeBox.visible = false;
@@ -1081,7 +1188,7 @@ class Player {
         }
 
         // 1. Check End Crystals
-        if (this.game.mobManager) {
+        if (this.game.mobManager && !this.game.mobManager.creativeMobsDisabled) {
             for (let c of this.game.mobManager.crystals) {
                 if (!c.isDestroyed && c.group) {
                     if (this.position.distanceTo(c.group.position) < reach + 1.2) {
@@ -1120,7 +1227,7 @@ class Player {
             let closestDist = 999;
 
             for (let mob of this.game.mobManager.mobs) {
-                if (!mob.isDead && mob.group) {
+                if (!mob.isDead && mob.group && !this.game.mobManager.creativeMobsDisabled) {
                     const mobCenter = mob.position.clone().add(new THREE.Vector3(0, (mob.height || 1.8) * 0.5, 0));
                     const toMob = mobCenter.sub(origin);
                     const distAlongRay = toMob.dot(dir);
@@ -1222,8 +1329,16 @@ class Player {
         return hitAny;
     }
 
+    setCreativeBreakInterval(value) {
+        const interval = Number(value);
+        this.creativeBreakIntervalMs = Number.isFinite(interval) ? Math.max(0, Math.min(1000, interval)) : 0;
+        this._creativeBreakCooldown = 0;
+        try { localStorage.setItem('eblankraft_creative_break_interval', String(this.creativeBreakIntervalMs)); } catch {}
+    }
+
     // Update Mining Progress & Speed
     updateMining(dt) {
+        this._creativeBreakCooldown = Math.max(0, (this._creativeBreakCooldown || 0) - dt);
         if (this.game?.arenaClient?.isActive) { this.isMining = false; this.miningProgress = 0; return; }
         if (!this.isMining || !this.targetBlock) {
             this.miningProgress = 0.0;
@@ -1239,6 +1354,8 @@ class Player {
             return;
         }
 
+        if (this.isCreative && this._creativeBreakCooldown > 0.000001) return;
+
         // Special: Instant ignite TNT
         if (type === BLOCK_TYPES.TNT) {
             if (window.modManager && !window.modManager.canBreakBlock(x, y, z, type, this)) {
@@ -1250,6 +1367,7 @@ class Player {
             this.world.updateMeshes();
             new TNTEntity(x, y, z, this.scene, this.game.textureManager, this.soundManager, this.world, this.particleSystem, this.game);
             this.iq += 15;
+            if (this.isCreative) this._creativeBreakCooldown = (this.creativeBreakIntervalMs || 0) / 1000;
             this.miningProgress = 0;
             this.isMining = false;
             return;
@@ -1258,6 +1376,7 @@ class Player {
         // Creative / Godmode / Instant Break
         if (this.godMode || this.isCreative || this.instantBreak) {
             this.finishBreakingBlock();
+            if (this.isCreative) this._creativeBreakCooldown = (this.creativeBreakIntervalMs || 0) / 1000;
             return;
         }
 
@@ -1391,8 +1510,8 @@ class Player {
         }
 
         // If holding sniper rifle (AWP), toggle scope!
-        if (heldReg && heldReg.gunType === 'awp') {
-            this.toggleScope();
+        if (heldReg?.isGun) {
+            this.setAiming(true);
             return;
         }
 
@@ -1405,7 +1524,7 @@ class Player {
         ).normalize();
         if (this.game && this.game.mobManager) {
             for (let mob of this.game.mobManager.mobs) {
-                if (!mob.isDead && mob.group && mob.type === 'villager' && !mob.isScriptBot) {
+                if (!mob.isDead && mob.group && !this.game.mobManager.creativeMobsDisabled && mob.type === 'villager' && !mob.isScriptBot) {
                     const toMob = mob.position.clone().sub(this.position);
                     if (toMob.length() < 4.8) {
                         const dot = lookDir.dot(toMob.clone().normalize());
@@ -1487,11 +1606,14 @@ class Player {
         const playerMinZ = this.position.z - this.depth / 2;
         const playerMaxZ = this.position.z + this.depth / 2;
 
-        const intersectsPlayer = (
-            playerMinX < px + 1 && playerMaxX > px &&
-            playerMinY < py + 1 && playerMaxY > py &&
-            playerMinZ < pz + 1 && playerMaxZ > pz
-        );
+        const placementDesign = item?.design ? window.normalizeBlockDesign(item.design) : null;
+        const placementType = this.getSelectedBlockType();
+        const placementBoxes = window.blockDesignBoxes(placementType, placementDesign);
+        const intersectsPlayer = (placementDesign ? placementDesign.solid : !isPassThroughBlock(placementType)) && placementBoxes.some(bounds => (
+            playerMinX < px + bounds[3] && playerMaxX > px + bounds[0] &&
+            playerMinY < py + bounds[4] && playerMaxY > py + bounds[1] &&
+            playerMinZ < pz + bounds[5] && playerMaxZ > pz + bounds[2]
+        ));
         if (intersectsPlayer) return;
 
         if (item?.itemId === ITEM_TYPES.C4) {
@@ -1515,11 +1637,11 @@ class Player {
         }
 
         this.armSwing = 1.0;
-        this.world.setBlock(px, py, pz, blockType);
+        this.world.setBlock(px, py, pz, blockType, placementDesign);
         this.world.updateMeshes();
 
         if (this.game.multiplayer) {
-            this.game.multiplayer.broadcastBlockPlace(px, py, pz, blockType);
+            this.game.multiplayer.broadcastBlockPlace(px, py, pz, blockType, undefined, placementDesign);
         }
 
         this.soundManager.playPlace(BLOCK_INFO[blockType]?.sound || 'stone');
@@ -1606,8 +1728,14 @@ class Player {
             for (let y = minY; y <= maxY; y++) {
                 for (let z = minZ; z <= maxZ; z++) {
                     const b = this.world.getBlock(x, y, z);
-                    if (!isPassThroughBlock(b)) {
-                        return true;
+                    const design = this.world.getBlockDesign?.(x, y, z);
+                    if (design ? design.solid : !isPassThroughBlock(b)) {
+                        if (!design && !window.BLOCK_INFO?.[b]?.bounds) return true;
+                        for (const bounds of window.blockDesignBoxes(b, design)) {
+                            if (pos.x + this.width / 2 - .001 > x + bounds[0] && pos.x - this.width / 2 + .001 < x + bounds[3] &&
+                                pos.y + this.height - .001 > y + bounds[1] && pos.y + .001 < y + bounds[4] &&
+                                pos.z + this.depth / 2 - .001 > z + bounds[2] && pos.z - this.depth / 2 + .001 < z + bounds[5]) return true;
+                        }
                     }
                 }
             }
@@ -1626,8 +1754,13 @@ class Player {
         for (let x = minX; x <= maxX; x++) {
             for (let z = minZ; z <= maxZ; z++) {
                 const b = this.world.getBlock(x, testY, z);
-                if (!isPassThroughBlock(b)) {
-                    return true;
+                const design = this.world.getBlockDesign?.(x, testY, z);
+                if (design ? design.solid : !isPassThroughBlock(b)) {
+                    for (const bounds of window.blockDesignBoxes(b, design)) {
+                        if (this.position.y - .15 < testY + bounds[4] && this.position.y >= testY + bounds[1] &&
+                            this.position.x + this.width / 2 > x + bounds[0] && this.position.x - this.width / 2 < x + bounds[3] &&
+                            this.position.z + this.depth / 2 > z + bounds[2] && this.position.z - this.depth / 2 < z + bounds[5]) return true;
+                    }
                 }
             }
         }
@@ -1671,11 +1804,6 @@ class Player {
             this.releaseGunTrigger();
         }
         if (this.isDead) return;
-        if (this.gunRecoilPitch > 0) {
-            const recovery = this.gunRecoilPitch * (1 - Math.exp(-9 * Math.max(0, dt)));
-            this.pitch = Math.max(-Math.PI / 2.05, this.pitch - recovery);
-            this.gunRecoilPitch -= recovery;
-        }
 
         // Anti-stuck safety clearance: if player somehow ended up inside solid blocks
         if (this.checkCollision(this.position)) {
@@ -2089,27 +2217,27 @@ class Player {
 
                 const startY = Math.floor(this.position.y);
                 const endY = Math.floor(nextPosY.y);
-                let landedBlockY = null;
-
+                let landedSurface = null;
                 for (let y = startY; y >= endY; y--) {
                     for (let x = minX; x <= maxX; x++) {
                         for (let z = minZ; z <= maxZ; z++) {
                             const b = this.world.getBlock(x, y, z);
-                            if (!isPassThroughBlock(b)) {
-                                landedBlockY = y;
-                                break;
+                            const design = this.world.getBlockDesign?.(x, y, z);
+                            if (design ? !design.solid : isPassThroughBlock(b)) continue;
+                            for (const bounds of window.blockDesignBoxes(b, design)) {
+                            const surface = y + bounds[4];
+                            if (this.position.x + this.width / 2 - .001 <= x + bounds[0] ||
+                                this.position.x - this.width / 2 + .001 >= x + bounds[3] ||
+                                this.position.z + this.depth / 2 - .001 <= z + bounds[2] ||
+                                this.position.z - this.depth / 2 + .001 >= z + bounds[5]) continue;
+                            if (surface <= this.position.y + .001 && surface >= nextPosY.y &&
+                                (landedSurface === null || surface > landedSurface)) landedSurface = surface;
                             }
                         }
-                        if (landedBlockY !== null) break;
                     }
-                    if (landedBlockY !== null) break;
+                    if (landedSurface !== null) break;
                 }
-
-                if (landedBlockY !== null) {
-                    this.position.y = landedBlockY + 1.0;
-                } else {
-                    this.position.y = Math.floor(nextPosY.y) + 1.0;
-                }
+                this.position.y = landedSurface ?? (Math.floor(nextPosY.y) + 1.0);
                 this.onGround = true;
                 this.timeSinceGrounded = 0;
 
@@ -2120,8 +2248,15 @@ class Player {
                 }
             } else if (this.velocity.y > 0) {
                 // Head hit ceiling: snap head cleanly below the ceiling block
-                const ceilBlockY = Math.floor(nextPosY.y + this.height);
-                this.position.y = ceilBlockY - this.height - 0.001;
+                // Find the last clear position below the actual shape's underside.
+                let clearY = this.position.y, blockedY = nextPosY.y;
+                const probe = this._scratchNextPos.clone();
+                for (let i = 0; i < 20; i++) {
+                    probe.y = (clearY + blockedY) / 2;
+                    if (this.checkCollision(probe)) blockedY = probe.y;
+                    else clearY = probe.y;
+                }
+                this.position.y = clearY;
             }
             this.velocity.y = 0;
         }
@@ -2150,6 +2285,7 @@ class Player {
     }
 
     updateView(dt) {
+        this.updateWeaponView(dt);
         // Vehicle camera
         if (this.mountedVehicle) {
             this.updateVehicleCamera();
@@ -2205,6 +2341,10 @@ class Player {
                     }
                 }
 
+                if (ITEM_REGISTRY[this.getSelectedItem()?.itemId]?.isGun) {
+                    this.mcModel.rightArmPivot.rotation.x = -Math.PI / 2 + this.pitch;
+                    this.mcModel.leftArmPivot.rotation.x = -1.15;
+                }
                 // 3rd Person Arm swing punch / mining attack
                 if (this.armSwing > 0) {
                     this.mcModel.rightArmPivot.rotation.x = -Math.sin(this.armSwing * Math.PI) * 1.35;
@@ -2215,7 +2355,7 @@ class Player {
             }
         } else {
             const verticalBob = this.onGround
-                ? Math.sin(this.walkCycle) * 0.04
+                ? Math.sin(this.walkCycle) * 0.04 * (1 - .85 * (this.aimBlend || 0))
                 : (this.isInWater ? Math.sin(this.swimBobbingTimer) * 0.04 : 0);
             this.camera.position.set(
                 this.position.x,
@@ -2240,18 +2380,24 @@ class Player {
             const heldGun = held && ITEM_REGISTRY[held.itemId]?.isGun;
 
             if (heldGun) {
-                const reloading = !this.game?.arenaClient?.isActive && this.gunReload?.item === held;
-                this.itemPivot.position.set(0.36 + bobX, -0.36 + bobY - (reloading ? 0.14 : 0), -0.52 + swingOffset * 0.08);
-                this.itemPivot.rotation.set(-swingOffset * 0.12, 0, reloading ? -0.45 : 0);
+                const arenaReload = this.game?.arenaClient?.isActive && this.game.arenaClient.localState?.reloadRemaining > 0;
+                const reloading = arenaReload || this.gunReload?.item === held;
+                const aim = this.aimBlend || 0, kick = this.weaponKick || 0;
+                const type = ITEM_REGISTRY[held.itemId]?.gunType;
+                const aimHeight = type === 'awp' ? .17 : type === 'rpg' ? .245 : .13;
+                this.itemPivot.position.set(.34 * (1 - aim) + bobX * (1 - aim),
+                    -.31 * (1 - aim) - aimHeight * aim + bobY * (1 - aim) - (reloading ? .14 : 0),
+                    -.48 - aim * .06 + kick * .10);
+                this.itemPivot.rotation.set(kick * .16, -.045 * (1 - aim), reloading ? -.45 : -kick * .035);
             } else if (this.isBlocking) {
                 // Minecraft-style Shield / Sword blocking pose (raised in front of chest)
                 this.itemPivot.position.set(0.12, -0.22, -0.44);
                 this.itemPivot.rotation.set(-0.35, 0.45, -0.65);
             } else {
                 this.itemPivot.position.set(
-                    0.36 + bobX - swingOffset * 0.16,
-                    -0.36 + bobY - swingOffset * 0.14,
-                    -0.52 - swingOffset * 0.22
+                    (held ? .42 : .35) + bobX - swingOffset * .22,
+                    (held ? -.40 : -.24) + bobY - swingOffset * .12,
+                    (held ? -.56 : -.62) - swingOffset * .18
                 );
                 this.itemPivot.rotation.set(
                     -swingOffset * 0.95,
@@ -2287,7 +2433,7 @@ class Player {
         // Check Mobs
         if (this.game && this.game.mobManager) {
             for (let mob of this.game.mobManager.mobs) {
-                if (!mob.isDead && mob.group) {
+                if (!mob.isDead && mob.group && !this.game.mobManager.creativeMobsDisabled) {
                     const mobCenter = mob.position.clone().add(new THREE.Vector3(0, (mob.height || 1.8) * 0.5, 0));
                     const toMob = mobCenter.sub(origin);
                     const distAlongRay = toMob.dot(dir);
@@ -2431,16 +2577,39 @@ class Player {
         return !!this.mountedVehicle;
     }
 
-    toggleScope() {
-        if (!this.camera) return;
-        this.isScoped = !this.isScoped;
-        const targetFOV = this.isScoped ? 24 : 72;
-        this.setFOV(targetFOV);
-        if (this.game && this.game.soundManager) this.game.soundManager.playClick();
-        if (this.game && this.game.ui) {
-            this.game.ui.showToast(this.isScoped ? "🎯 Оптичний приціл увімкнено (FOV 24)" : "👁️ Звичайний огляд (FOV 72)");
-        }
+    setAiming(active) {
+        const held = this.getSelectedItem();
+        const reg = held && ITEM_REGISTRY[held.itemId];
+        const arena = this.game?.arenaClient;
+        const reloading = arena?.isActive ? !!arena.localState?.reloading : this.gunReload?.item === held;
+        const allowed = !!reg?.isGun && !this.isDead && !this.isThirdPerson && !this.mountedVehicle && !reloading &&
+            !this.game?.ui?.menuOpen && !this.game?.ui?.mainMenuOpen && !arena?.buyOpen;
+        const aiming = !!active && allowed;
+        if (aiming && !this.isAiming) this.aimBaseFov = this.camera?.fov || 72;
+        this.isAiming = aiming;
+        this.isScoped = aiming && reg?.gunType === 'awp';
+        return !!reg?.isGun;
     }
+
+    updateWeaponView(dt) {
+        const time = Math.max(0, Math.min(dt || 0, .1));
+        if (this.isAiming) this.setAiming(true);
+        const blend = 1 - Math.exp(-16 * time);
+        this.aimBlend = (this.aimBlend || 0) + ((this.isAiming ? 1 : 0) - (this.aimBlend || 0)) * blend;
+        if (this.aimBaseFov && this.camera) {
+            const target = this.isAiming ? (this.isScoped ? 28 : this.aimBaseFov * .78) : this.aimBaseFov;
+            this.setFOV(this.camera.fov + (target - this.camera.fov) * blend);
+            if (!this.isAiming && Math.abs(this.camera.fov - target) < .02) { this.setFOV(target); this.aimBaseFov = null; }
+        }
+        if (this.gunRecoilPitch > 0) {
+            const recovery = this.gunRecoilPitch * (1 - Math.exp(-9 * time));
+            this.pitch = Math.max(-Math.PI / 2.05, this.pitch - recovery);
+            this.gunRecoilPitch -= recovery;
+        }
+        this.weaponKick = (this.weaponKick || 0) * Math.exp(-13 * time);
+    }
+
+    toggleScope() { this.setAiming(!this.isAiming); }
 
     tryThrowGrenade() {
         const item = this.getSelectedItem();
@@ -2567,13 +2736,14 @@ class Player {
             item.gunAmmo--;
             this.saveInventoryDebounced();
         }
+        this.weaponKick = Math.min(2, (this.weaponKick || 0) + Math.max(.4, spec.recoil * 14));
         if (reg.gunType === 'rpg') {
             manager.launchRocket({ damage: spec.damage, blastRadius: 4.8, speed: 36 });
             return true;
         }
         const speed = Math.hypot(this.velocity.x, this.velocity.z);
         const movement = Math.min(0.04, speed * 0.0025) + (this.onGround ? 0 : 0.025);
-        const spread = (reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread)
+        const spread = (reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread * (this.isAiming ? .55 : 1))
             + movement + (spec.automatic ? this.gunBurst * 0.003 : 0);
         const result = manager.shoot({
             damage: spec.damage, range: spec.range, spread,

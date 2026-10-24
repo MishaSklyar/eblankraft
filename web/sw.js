@@ -1,5 +1,5 @@
 // Eblankraft LITE — Service Worker for instant offline loading and PWA install
-const CACHE_NAME = 'eblankraft-lite-v2-shared-worlds';
+const CACHE_NAME = 'eblankraft-lite-v4-addons';
 
 const CORE_ASSETS = [
   './',
@@ -11,6 +11,7 @@ const CORE_ASSETS = [
   './js/world.js',
   './js/player.js',
   './js/controls.js',
+  './js/block_editor.js',
   './js/entities.js',
   './js/physics.js',
   './js/ui.js',
@@ -51,7 +52,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   // Cache-first for static assets, network fallback
-  if (event.request.method !== 'GET') return;
+  if (event.request.method !== 'GET' || new URL(event.request.url).pathname.startsWith('/api/')) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {

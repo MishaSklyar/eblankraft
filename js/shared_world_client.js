@@ -15,6 +15,10 @@ class SharedWorldClient {
         this.loadingRoom = false;
         this.roomPackets = [];
         this.roomGeneration = 0;
+        this.engineAuthority = false;
+        this.explosiveAuthority = false;
+        this.authorityChunks = new Map();
+        this.nextExplosiveId = 0;
         this.ping = 0;
         this.pingInterval = null;
         this.reconnectTimeout = null;
@@ -106,6 +110,7 @@ class SharedWorldClient {
             this.socket = new WebSocket(this.serverUrl);
 
             this.socket.onopen = () => {
+                window.authenticateAddonWallet?.(this.socket);
                 this.isConnected = true;
                 this.isConnecting = false;
                 this.reconnectAttempts = 0;
@@ -137,6 +142,9 @@ class SharedWorldClient {
                 this.isConnecting = false;
                 this.stopPingLoop();
                 this.roomGeneration++;
+                this.engineAuthority = false;
+                this.explosiveAuthority = false;
+                this.authorityChunks.clear();
                 this.loadingRoom = false;
                 this.roomPackets = [];
                 this.clearRemotePlayers();
@@ -231,6 +239,9 @@ class SharedWorldClient {
         this.sendRaw({ type: 'leave' });
         this.currentRoom = null;
         this.roomGeneration++;
+        this.engineAuthority = false;
+        this.explosiveAuthority = false;
+        this.authorityChunks?.clear();
         this.roomPackets = [];
         this.loadingRoom = false;
         this.clearRemotePlayers();
@@ -276,6 +287,12 @@ class SharedWorldClient {
                 mode: msg.world.mode, type: msg.world.type, dim: 'overworld' });
             if (generation !== this.roomGeneration) return;
             this.game.world.id = 'server:' + msg.room;
+            this.engineAuthority = msg.world.authority === 'eblan';
+            (this.authorityChunks ||= new Map()).clear();
+            if (this.engineAuthority && msg.spawn) {
+                player.position.set(msg.spawn.x, msg.spawn.y, msg.spawn.z);
+                player.velocity.set(0, 0, 0);
+            }
             player.isCreative = msg.world.mode === 'creative';
             player.godMode = player.isCreative;
             player.isFlying = false;
@@ -306,11 +323,14 @@ class SharedWorldClient {
         if (now - this.lastMoveTime < this.moveInterval) return;
         this.lastMoveTime = now;
 
+        if (this.engineAuthority) this.requestNearbyChunk(x, z);
+
         this.sendRaw({
+            // Preserve collision-safe coordinates at voxel boundaries.
             type: 'move',
-            x: Math.round(x * 1000) / 1000,
-            y: Math.round(y * 1000) / 1000,
-            z: Math.round(z * 1000) / 1000,
+            x: x,
+            y: y,
+            z: z,
             yaw: Math.round(yaw * 100) / 100,
             pitch: Math.round(pitch * 100) / 100,
             held_item: heldItem || null,
@@ -318,6 +338,40 @@ class SharedWorldClient {
             is_sprinting: !!isSprinting,
             is_blocking: !!this.game.player?.isBlocking
         });
+    }
+
+    requestNearbyChunk(x, z) {
+        const world = this.game.world;
+        if (!world) return;
+        const cx = Math.floor(x / 16), cz = Math.floor(z / 16);
+        const radius = Math.min(4, world.chunkRadius);
+        const candidates = [];
+        for (const [key, chunk] of this.authorityChunks) {
+            if (world.chunks[key] !== chunk) this.authorityChunks.delete(key);
+        }
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+                const key = `${cx + dx},${cz + dz}`;
+                if (!this.authorityChunks.has(key) && world.chunks[key]?.isGenerated) candidates.push({ cx: cx + dx, cz: cz + dz, key, d: dx * dx + dz * dz });
+            }
+        }
+        candidates.sort((a, b) => a.d - b.d);
+        const next = candidates[0];
+        if (next && this.sendRaw({ type: 'chunk_request', cx: next.cx, cz: next.cz })) this.authorityChunks.set(next.key, world.chunks[next.key]);
+    }
+
+    registerExplosive(entity) {
+        if (!(this.explosiveAuthority || this.engineAuthority) || !this.currentRoom || this.loadingRoom) return false;
+        const requestId = `${this.clientId}:${++this.nextExplosiveId}`;
+        const sent = this.sendRaw({ type: 'tnt_spawn', request_id: requestId,
+            kind: entity.isC4 ? 'c4' : 'tnt', x: entity.x, y: entity.y, z: entity.z,
+            vx: entity.vx, vy: entity.vy, vz: entity.vz });
+        if (sent) { entity.serverRequestId = requestId; entity.authorityRoom = this.currentRoom; }
+        return sent;
+    }
+
+    requestDetonation(entity) {
+        return this.sendRaw({ type: 'tnt_detonate', request_id: entity.serverRequestId });
     }
 
     requestAttack(targetId, isCrit = false) {
@@ -334,7 +388,7 @@ class SharedWorldClient {
         this.sendRaw({ type: 'respawn' });
     }
 
-    sendBlockAction(action, x, y, z, blockType) {
+    sendBlockAction(action, x, y, z, blockType, expectedType, design = null) {
         if (!this.currentRoom || this.loadingRoom) return;
         this.sendRaw({
             type: 'block_action',
@@ -342,7 +396,9 @@ class SharedWorldClient {
             x: Math.floor(x),
             y: Math.floor(y),
             z: Math.floor(z),
-            block_type: blockType
+            block_type: blockType,
+            ...(Number.isInteger(expectedType) ? { expected_type: expectedType } : {}),
+            ...(design ? { design } : {})
         });
     }
 
@@ -422,6 +478,7 @@ class SharedWorldClient {
         }
 
         if (msg.room && msg.type !== 'duel_matched' && msg.room !== this.currentRoom) return;
+        if (msg.type === 'welcome') this.explosiveAuthority = msg.explosives === 'server';
         if (msg.type === 'welcome' && msg.world && msg.room.startsWith('coop_')) {
             this.enterCooperativeWorld(msg);
             return;
@@ -433,6 +490,36 @@ class SharedWorldClient {
         const mp = this.game ? this.game.multiplayer : null;
 
         switch (msg.type) {
+            case 'position_correction': {
+                if (!this.currentRoom || this.game.arenaClient?.isActive) break;
+                const player = this.game.player;
+                if (player && [msg.x, msg.y, msg.z].every(Number.isFinite)) {
+                    player.position.set(msg.x, msg.y, msg.z);
+                    player.velocity.set(0, 0, 0);
+                }
+                break;
+            }
+
+            case 'chunk_state': {
+                if (!this.engineAuthority || typeof msg.voxels !== 'string') break;
+                const raw = atob(msg.voxels);
+                if (raw.length !== 8192) break;
+                const world = this.game.world;
+                const chunk = world.getOrCreateChunk(msg.cx, msg.cz);
+                chunk.voxels.set(Uint8Array.from(raw, c => c.charCodeAt(0)));
+                chunk.isGenerated = true;
+                chunk.isDirty = true;
+                for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const neighbor = world.chunks[`${msg.cx + dx},${msg.cz + dz}`];
+                    if (neighbor) neighbor.isDirty = true;
+                }
+                break;
+            }
+
+            case 'chunk_rejected': {
+                this.authorityChunks?.delete(`${msg.cx},${msg.cz}`);
+                break;
+            }
             case 'pong': {
                 const now = performance.now();
                 if (msg.client_time) {
@@ -452,7 +539,7 @@ class SharedWorldClient {
 
                 if (this.game && this.game.world && Array.isArray(msg.blocks)) {
                     for (const block of msg.blocks) {
-                        this.game.world.setBlock(block.x, block.y, block.z, block.block_type);
+                        this.game.world.setBlock(block.x, block.y, block.z, block.block_type, block.design);
                     }
                     this.game.world.updateMeshes();
                 }
@@ -610,7 +697,7 @@ class SharedWorldClient {
             case 'block_update': {
                 if (this.game && this.game.world) {
                     if (msg.action === 'place') {
-                        this.game.world.setBlock(msg.x, msg.y, msg.z, msg.block_type);
+                        this.game.world.setBlock(msg.x, msg.y, msg.z, msg.block_type, msg.design);
                     } else if (msg.action === 'break') {
                         this.game.world.setBlock(msg.x, msg.y, msg.z, 0);
                     }
@@ -652,8 +739,14 @@ class SharedWorldClient {
             }
 
             case 'tnt_spawned': {
+                const local = msg.request_id && msg.spawner_id === this.clientId && this.game.tntEntities?.find(t => t.serverRequestId === msg.request_id);
+                if (local) {
+                    local.serverId = msg.tnt_id;
+                    break;
+                }
                 if (this.game && this.game.scene) {
-                    const tnt = new TNTEntity(
+                    const Entity = msg.kind === 'c4' ? C4Entity : TNTEntity;
+                    const tnt = new Entity(
                         msg.x, msg.y, msg.z,
                         this.game.scene,
                         this.game.textureManager,
@@ -669,15 +762,22 @@ class SharedWorldClient {
                             vz: msg.vz || 0
                         }
                     );
-                    tnt.vx = msg.vx || 0;
-                    tnt.vy = msg.vy || 3.0;
-                    tnt.vz = msg.vz || 0;
+                    tnt.vx = msg.vx ?? 0;
+                    tnt.vy = msg.vy ?? 3.0;
+                    tnt.vz = msg.vz ?? 0;
+                    tnt.isRemote = true;
+                    tnt.authorityRoom = this.currentRoom;
+                    tnt.serverId = msg.tnt_id;
+                    // Server announces the explosion; this entity is visual only.
+                    tnt.explode = () => { tnt.fuse = .05; };
                 }
                 break;
             }
 
             case 'tnt_exploded': {
                 if (this.game) {
+                    const remote = this.game.tntEntities?.find(t => t.serverId === msg.tnt_id);
+                    if (remote) { remote.exploded = true; this.game.scene.remove(remote.mesh); }
                     if (this.game.soundManager && this.game.soundManager.playExplosion) {
                         this.game.soundManager.playExplosion();
                     }
@@ -698,7 +798,7 @@ class SharedWorldClient {
                                 for (let oz = -rInt; oz <= rInt; oz++) {
                                     if (ox * ox + oy * oy + oz * oz <= radius * radius) {
                                         const b = this.game.world.getBlock(cx + ox, cy + oy, cz + oz);
-                                        if (b !== 0 && b !== 18) { // AIR / BEDROCK
+                                        if (b !== 0 && b !== BLOCK_TYPES.BEDROCK) {
                                             this.game.world.setBlock(cx + ox, cy + oy, cz + oz, 0);
                                         }
                                     }
@@ -708,6 +808,12 @@ class SharedWorldClient {
                         this.game.world.updateMeshes();
                     }
                 }
+                break;
+            }
+
+            case 'tnt_rejected': {
+                const entity = this.game.tntEntities?.find(t => t.serverRequestId === msg.request_id);
+                if (entity) { entity.exploded = true; this.game.scene.remove(entity.mesh); }
                 break;
             }
 
