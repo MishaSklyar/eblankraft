@@ -1023,12 +1023,13 @@ class Game {
             const mobs = this.mobManager.mobs;
             for (let i = 0; i < mobs.length; i++) {
                 const mob = mobs[i];
-                if (!mob || !mob.mesh) continue;
-                if (this.mobManager.creativeMobsDisabled) { mob.mesh.visible = false; continue; }
+                const obj = mob && (mob.group || mob.mesh); // MobEntity renders through .group
+                if (!obj) continue;
+                if (this.mobManager.creativeMobsDisabled) { obj.visible = false; continue; }
                 this._cullSphere.center.copy(mob.position);
                 this._cullSphere.center.y += (mob.height || 1.8) * 0.5;
                 this._cullSphere.radius = Math.max(mob.width || 0.6, mob.height || 1.8);
-                mob.mesh.visible = mob.mesh.castShadow || this._cullFrustum.intersectsSphere(this._cullSphere);
+                obj.visible = obj.castShadow || this._cullFrustum.intersectsSphere(this._cullSphere);
             }
         }
 

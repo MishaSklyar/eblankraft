@@ -6566,3 +6566,31 @@ body.is-preloading #mining-progress-container {
 /* HUD cleanup: secondary buttons live in the pause menu (ESC) */
 #btn-warp, #btn-hud-layout, #btn-mods-manager, #quick-mods-btn,
 #btn-dev-console-top, #btn-open-multiplayer { display: none !important; }
+
+/* Upgrader.gg-style tab */
+.gg-wrap { display: grid; grid-template-columns: 1fr 260px 1fr; gap: 12px; align-items: start; }
+.gg-col h3 { margin: 0 0 4px; font-size: 14px; color: #ffd700; }
+.gg-hint { font-size: 10px; color: #999; margin-bottom: 6px; }
+.gg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 5px; max-height: 340px; overflow-y: auto; touch-action: pan-y; }
+.gg-cell { position: relative; background: #22222a; border: 1px solid #444455; border-radius: 6px; padding: 4px 2px 12px; text-align: center; cursor: pointer; user-select: none; }
+.gg-cell:hover { border-color: #ffd700; }
+.gg-cell img { width: 34px; height: 34px; image-rendering: pixelated; }
+.gg-cell-val { position: absolute; left: 0; right: 0; bottom: 1px; font-size: 9px; color: #9fd8ff; }
+.gg-cell-count { position: absolute; right: 3px; top: 1px; font-size: 10px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000; }
+.gg-selected { border-color: #2ecc71; box-shadow: 0 0 8px #2ecc71; }
+.gg-rare { border-color: #4b8bd6; } .gg-epic { border-color: #a45bd6; } .gg-legendary { border-color: #e6a817; }
+.gg-empty { grid-column: 1 / -1; color: #888; font-size: 12px; padding: 12px; text-align: center; }
+.gg-center { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.gg-wheel-box { position: relative; width: 200px; height: 200px; }
+.gg-wheel { width: 200px; height: 200px; border-radius: 50%; border: 4px solid #555; background: conic-gradient(#3a1d24 0 360deg); box-sizing: border-box; }
+.gg-wheel-hole { width: 110px; height: 110px; border-radius: 50%; background: #17171d; position: absolute; top: 45px; left: 45px; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: bold; color: #fff; }
+.gg-pointer { position: absolute; top: -10px; left: 50%; margin-left: -9px; width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent; border-top: 16px solid #ffd700; z-index: 2; filter: drop-shadow(0 0 3px #000); }
+.gg-staked { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; min-height: 20px; }
+.gg-staked .gg-cell { width: 52px; }
+.gg-info { font-size: 12px; text-align: center; color: #ddd; }
+.gg-go { width: 100%; padding: 10px; font-size: 16px; }
+.gg-filters { display: flex; gap: 6px; margin-bottom: 6px; }
+.gg-filters input { flex: 1 1 80px; min-width: 60px; width: 80px; background: #17171d; border: 1px solid #444455; color: #fff; border-radius: 6px; padding: 5px 8px; }
+.gg-chip { flex: none; width: auto; padding: 4px 8px; font-size: 12px; }
+.gg-clear { width: 100%; background: #2a2a33; color: #ddd; border: 1px solid #444455; }
+@media (max-width: 800px) { .gg-wrap { grid-template-columns: 1fr; } .gg-center { order: -1; } }

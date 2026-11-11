@@ -402,7 +402,7 @@ class UIManager {
             closeBtn.addEventListener('click', () => this.toggleInventory(false));
         }
 
-        const tabs = ['backpack', 'catalog', 'crafting', 'cases', 'upgrader', 'trash', 'skins'];
+        const tabs = ['backpack', 'catalog', 'crafting', 'cases', 'gg', 'upgrader', 'trash', 'skins'];
 
         // Tab Navigation Arrows (◀ / ▶)
         const btnNavPrev = document.getElementById('tab-nav-prev');
@@ -511,6 +511,9 @@ class UIManager {
                 break;
             case 'cases':
                 this.renderCasesTab(contentContainer);
+                break;
+            case 'gg':
+                this.renderUpgraderGGTab(contentContainer);
                 break;
             case 'upgrader':
                 this.renderUpgraderTab(contentContainer);
@@ -898,6 +901,155 @@ class UIManager {
         });
 
         container.appendChild(list);
+    }
+
+    // 4b. Upgrader.gg-style tab: stake items, pick a target, spin the wheel
+    renderUpgraderGGTab(container) {
+        const player = this.player;
+        const stake = this.ggStake || (this.ggStake = {});
+        const state = this.ggState || (this.ggState = { target: null, search: '', knives: false, spinning: false, rotation: 0 });
+        const icon = (reg) => this.textureManager.getIconDataURL(reg.icon);
+        const stakeValue = () => Object.keys(stake).reduce((sum, id) => sum + getItemValue(id) * stake[id], 0);
+        // drop stake entries the player no longer owns
+        for (const id of Object.keys(stake)) {
+            const have = player.getItemCount(id);
+            if (have <= 0) delete stake[id]; else if (stake[id] > have) stake[id] = have;
+        }
+
+        const cell = (reg, id, badge, value, onClick, onRight) => {
+            const el = document.createElement('div');
+            el.className = 'gg-cell';
+            el.title = `${reg.name} — ${value} €`;
+            el.innerHTML = `<img src="${icon(reg)}" alt=""><span class="gg-cell-val">${value}</span>` + (badge ? `<span class="gg-cell-count">${badge}</span>` : '');
+            if (reg.rarity) el.classList.add('gg-' + reg.rarity);
+            el.onclick = onClick;
+            if (onRight) el.oncontextmenu = (e) => { e.preventDefault(); onRight(); };
+            return el;
+        };
+
+        const wrap = document.createElement('div');
+        wrap.className = 'gg-wrap';
+        wrap.innerHTML = `
+            <div class="gg-col"><h3>🎒 Твої предмети</h3><div class="gg-hint">Клік — додати у ставку</div><div class="gg-grid" id="gg-inv"></div></div>
+            <div class="gg-center">
+                <div class="gg-wheel-box"><div class="gg-pointer"></div><div class="gg-wheel" id="gg-wheel"></div><div class="gg-wheel-hole" id="gg-chance">0%</div></div>
+                <div class="gg-summary" id="gg-summary"></div>
+                <button class="menu-btn btn-success gg-go" id="gg-go">🎰 UPGRADE</button>
+                <button class="menu-btn gg-clear" id="gg-clear">Скинути ставку</button>
+            </div>
+            <div class="gg-col"><h3>🎯 Що хочеш отримати</h3>
+                <div class="gg-filters"><input id="gg-search" type="text" placeholder="Пошук…" value="${state.search.replace(/"/g, '')}"><button class="menu-btn gg-chip" id="gg-knives">🔪 Ножі</button></div>
+                <div class="gg-grid" id="gg-targets"></div></div>`;
+        container.appendChild(wrap);
+
+        const $ = (id) => wrap.querySelector('#' + id);
+        const wheel = $('gg-wheel');
+        wheel.style.transform = `rotate(${state.rotation}deg)`;
+
+        const refresh = () => {
+            const value = stakeValue();
+            if (state.target && getItemValue(state.target) <= value * 1.05) state.target = null;
+
+            // inventory (aggregated by item)
+            const inv = $('gg-inv'); inv.innerHTML = '';
+            const totals = {};
+            for (const slot of player.inventory) if (slot) totals[slot.itemId] = (totals[slot.itemId] || 0) + slot.count;
+            Object.keys(totals).forEach(id => {
+                const reg = ITEM_REGISTRY[id]; if (!reg) return;
+                const left = totals[id] - (stake[id] || 0);
+                if (left <= 0) return;
+                inv.appendChild(cell(reg, id, left > 1 ? left : '', getItemValue(id), () => {
+                    if (state.spinning) return;
+                    stake[id] = (stake[id] || 0) + 1; refresh();
+                }));
+            });
+            if (!inv.children.length) inv.innerHTML = '<div class="gg-empty">Порожньо</div>';
+
+            // targets
+            const tg = $('gg-targets'); tg.innerHTML = '';
+            if (value <= 0) tg.innerHTML = '<div class="gg-empty">Спочатку додай предмети у ставку</div>';
+            else {
+                const list = getUpgradeTargets(value, state.search, state.knives).slice(0, 60);
+                if (!list.length) tg.innerHTML = '<div class="gg-empty">Нічого не знайдено</div>';
+                list.forEach(t => {
+                    const el = cell(t.reg, t.id, Math.round(calcUpgradeChance(value, t.value) * 100) + '%', t.value, () => {
+                        if (state.spinning) return;
+                        state.target = t.id; refresh();
+                    });
+                    if (state.target === t.id) el.classList.add('gg-selected');
+                    tg.appendChild(el);
+                });
+            }
+
+            // summary + wheel
+            const chance = state.target ? calcUpgradeChance(value, getItemValue(state.target)) : 0;
+            const sum = $('gg-summary'); sum.innerHTML = '';
+            const staked = Object.keys(stake).filter(id => stake[id] > 0);
+            const row = document.createElement('div'); row.className = 'gg-staked';
+            staked.forEach(id => row.appendChild(cell(ITEM_REGISTRY[id], id, stake[id] > 1 ? stake[id] : '', getItemValue(id), () => {
+                if (state.spinning) return;
+                if (--stake[id] <= 0) delete stake[id]; refresh();
+            })));
+            sum.appendChild(row);
+            const info = document.createElement('div'); info.className = 'gg-info';
+            const tReg = state.target ? ITEM_REGISTRY[state.target] : null;
+            info.innerHTML = `Ставка: <b>${value} €</b>` + (tReg ? ` → <b>${tReg.name}</b> (${getItemValue(state.target)} €)` : '');
+            sum.appendChild(info);
+            $('gg-chance').textContent = Math.round(chance * 100) + '%';
+            if (!state.spinning) wheel.style.background = `conic-gradient(#2ecc71 0deg ${chance * 360}deg, #3a1d24 ${chance * 360}deg 360deg)`;
+            $('gg-go').disabled = state.spinning || !tReg || value <= 0;
+            $('gg-go').classList.toggle('btn-disabled', $('gg-go').disabled);
+        };
+
+        $('gg-search').oninput = (e) => { state.search = e.target.value; refresh(); };
+        $('gg-knives').onclick = () => { state.knives = !state.knives; $('gg-knives').classList.toggle('btn-primary', state.knives); refresh(); };
+        $('gg-knives').classList.toggle('btn-primary', state.knives);
+        $('gg-clear').onclick = () => { if (!state.spinning) { for (const id of Object.keys(stake)) delete stake[id]; refresh(); } };
+
+        $('gg-go').onclick = () => {
+            if (state.spinning || !state.target) return;
+            const value = stakeValue();
+            const targetId = state.target;
+            const chance = calcUpgradeChance(value, getItemValue(targetId));
+            // validate the stake against the real inventory before touching anything
+            for (const id of Object.keys(stake)) if (player.getItemCount(id) < stake[id]) { this.showToast('❌ Предметів уже немає в рюкзаку'); refresh(); return; }
+            const result = rollUpgrade(chance);
+
+            // settle immediately (animation is cosmetic, closing the menu can't dupe or lose anything)
+            for (const id of Object.keys(stake)) player.removeItem(id, stake[id]);
+            let given = true;
+            if (result.win) {
+                given = player.addItem(targetId, 1);
+                if (!given && this.game.mobManager) this.game.mobManager.spawnItemDrop(player.position.x, player.position.y + 1, player.position.z, targetId, 1);
+            }
+            for (const id of Object.keys(stake)) delete stake[id];
+
+            state.spinning = true;
+            const turns = 5 + Math.floor(Math.random() * 3);
+            state.rotation = Math.ceil(state.rotation / 360) * 360 + turns * 360 + (360 - result.angle);
+            wheel.style.transition = 'transform 5s cubic-bezier(0.12, 0.8, 0.2, 1)';
+            wheel.style.transform = `rotate(${state.rotation}deg)`;
+            $('gg-go').disabled = true;
+            let ticks = 0;
+            const tick = setInterval(() => { if (this.soundManager?.playRouletteTick) this.soundManager.playRouletteTick(); if (++ticks > 26) clearInterval(tick); }, 190);
+
+            setTimeout(() => {
+                state.spinning = false;
+                const name = ITEM_REGISTRY[targetId]?.name || targetId;
+                if (result.win) {
+                    this.soundManager?.playWinFanfare?.();
+                    this.showToast(`🎉 АПГРЕЙД УСПІШНИЙ: ${name}!`);
+                    state.target = null;
+                } else {
+                    this.soundManager?.playHurt?.();
+                    this.showToast(`💀 Не пощастило... ${name} не випав`);
+                }
+                if (this.currentTab === 'gg' && wrap.isConnected) this.renderCurrentTab();
+            }, 5200);
+            refresh();
+        };
+
+        refresh();
     }
 
     // 5. Trash & Recycler Tab
@@ -1366,7 +1518,7 @@ class UIManager {
 
         if (btnRespawn) {
             btnRespawn.onclick = () => {
-                this.player.spawnSafe();
+                this.respawnPlayer();
                 hideMenu();
             };
         }
@@ -3156,11 +3308,40 @@ class UIManager {
         const deathScreen = document.getElementById('death-screen');
         const btnDeathRespawn = document.getElementById('btn-death-respawn');
         if (btnDeathRespawn) {
-            btnDeathRespawn.onclick = () => {
-                this.player.spawnSafe();
-                if (deathScreen) deathScreen.style.display = 'none';
-            };
+            btnDeathRespawn.onclick = () => this.respawnPlayer();
         }
+    }
+
+    hideDeathScreen() {
+        const deathScreen = document.getElementById('death-screen');
+        if (deathScreen) deathScreen.style.display = 'none';
+    }
+
+    // In a server-authoritative room the server must revive the player (it ignores a dead player's
+    // moves, hits and building), so ask it and wait for `player_respawned`. Offline / arena / duel
+    // keep the old local respawn.
+    respawnPlayer() {
+        const sc = this.game.serverClient;
+        const online = sc && sc.isConnected && sc.currentRoom && !sc.loadingRoom &&
+            !this.game.arenaClient?.isActive && !this.isDuelActive;
+        if (!(online && this.player.isDead)) {
+            this.player.spawnSafe();
+            this.hideDeathScreen();
+            return;
+        }
+        clearTimeout(this._respawnRetry);
+        let tries = 0;
+        const attempt = () => {
+            if (!this.player.isDead) return;                  // revived by player_respawned
+            if (++tries > 3 || !sc.isConnected) {             // server silent: fall back to a local respawn
+                this.player.spawnSafe();
+                this.hideDeathScreen();
+                return;
+            }
+            sc.requestRespawn();
+            this._respawnRetry = setTimeout(attempt, 1000);
+        };
+        attempt();
     }
 
     showDeathScreen() {

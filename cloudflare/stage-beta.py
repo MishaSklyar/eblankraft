@@ -12,8 +12,14 @@ for name in ('js', 'css', 'assets', 'textures', 'packs', 'mods', 'blockly', 'bab
     shutil.copytree(root / name, out / name, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('node_modules', '__pycache__', '*.py', '*.md', '.*'))
 shutil.copytree(root / 'ALL_ASSETS', out / 'GAME_ASSETS', dirs_exist_ok=True)
-for name in ('index.html', 'manifest.json', 'favicon.ico', 'robots.txt', 'sitemap.xml', 'de_eblan2.zip'):
+for name in ('index.html', 'manifest.json', 'favicon.ico', 'robots.txt', 'sitemap.xml'):
     shutil.copyfile(root / name, out / name)
+# Optional download: *.zip is gitignored, so a fresh clone (e.g. the Cloudflare build) may not have it.
+for name in ('de_eblan2.zip',):
+    if (root / name).exists():
+        shutil.copyfile(root / name, out / name)
+    else:
+        print(f'note: optional {name} not found, skipping')
 # Publish the edited main menu, not the legacy web/index.html or generated binaries.
 p = out / 'index.html'
 s = p.read_text().replace('https://eblancraft.tech/', 'https://eblancraftbeta.pages.dev/')

@@ -30,3 +30,7 @@ server/.economy.json.tmp
 
 # Local agent tooling
 .serena/
+
+# Compiled build intermediates
+*.o
+*.elf.map

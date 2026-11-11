@@ -142,6 +142,15 @@ const ITEM_TYPES = {
     DIAMOND_SWORD: 'diamond_sword',
     NETHERITE_SWORD: 'netherite_sword',
     EBLAN_SWORD: 'eblan_sword',
+
+    // CS-style knives (obtainable via the Upgrader)
+    KNIFE_DEFAULT: 'knife_default',
+    KNIFE_BAYONET: 'knife_bayonet',
+    KNIFE_HUNTSMAN: 'knife_huntsman',
+    KNIFE_M9: 'knife_m9',
+    KNIFE_BUTTERFLY: 'knife_butterfly',
+    KNIFE_KARAMBIT: 'knife_karambit',
+    KNIFE_GOLD: 'knife_gold',
     SHIELD: 'shield',
 
     // Raw Materials
@@ -285,6 +294,13 @@ const ITEM_REGISTRY = {
     [ITEM_TYPES.DIAMOND_SWORD]: { id: ITEM_TYPES.DIAMOND_SWORD, name: "Алмазный меч", category: 'weapon', icon: 'diamond_sword', maxStack: 1, miningSpeed: 2.0, attackDamage: 140, attackSpeed: 1.6, isSword: true, durability: 600 },
     [ITEM_TYPES.NETHERITE_SWORD]: { id: ITEM_TYPES.NETHERITE_SWORD, name: "Незеритовый клинок", category: 'weapon', icon: 'netherite_sword', maxStack: 1, miningSpeed: 2.5, attackDamage: 210, attackSpeed: 1.6, isSword: true, durability: 1500 },
     [ITEM_TYPES.EBLAN_SWORD]: { id: ITEM_TYPES.EBLAN_SWORD, name: "МЕЧ ДРАКОНОБОРЕЦ 🐉", category: 'weapon', icon: 'eblan_sword', maxStack: 1, miningSpeed: 4.0, attackDamage: 400, attackSpeed: 1.8, isSword: true, durability: 9999 },
+    [ITEM_TYPES.KNIFE_DEFAULT]: { id: ITEM_TYPES.KNIFE_DEFAULT, name: "Ніж (Стандартний) 🔪", category: 'weapon', icon: ITEM_TYPES.KNIFE_DEFAULT, maxStack: 1, miningSpeed: 1.5, attackDamage: 60, attackSpeed: 3.0, isSword: true, isKnife: true, rarity: 'common', value: 40 },
+    [ITEM_TYPES.KNIFE_BAYONET]: { id: ITEM_TYPES.KNIFE_BAYONET, name: "Багнет ★ 🗡️", category: 'weapon', icon: ITEM_TYPES.KNIFE_BAYONET, maxStack: 1, miningSpeed: 1.5, attackDamage: 80, attackSpeed: 2.8, isSword: true, isKnife: true, rarity: 'rare', value: 120 },
+    [ITEM_TYPES.KNIFE_HUNTSMAN]: { id: ITEM_TYPES.KNIFE_HUNTSMAN, name: "Мисливський ніж ★", category: 'weapon', icon: ITEM_TYPES.KNIFE_HUNTSMAN, maxStack: 1, miningSpeed: 1.5, attackDamage: 85, attackSpeed: 3.0, isSword: true, isKnife: true, rarity: 'rare', value: 150 },
+    [ITEM_TYPES.KNIFE_M9]: { id: ITEM_TYPES.KNIFE_M9, name: "M9 Багнет ★", category: 'weapon', icon: ITEM_TYPES.KNIFE_M9, maxStack: 1, miningSpeed: 1.5, attackDamage: 110, attackSpeed: 2.6, isSword: true, isKnife: true, rarity: 'epic', value: 260 },
+    [ITEM_TYPES.KNIFE_BUTTERFLY]: { id: ITEM_TYPES.KNIFE_BUTTERFLY, name: "Ніж-метелик ★", category: 'weapon', icon: ITEM_TYPES.KNIFE_BUTTERFLY, maxStack: 1, miningSpeed: 1.5, attackDamage: 90, attackSpeed: 3.4, isSword: true, isKnife: true, rarity: 'epic', value: 420 },
+    [ITEM_TYPES.KNIFE_KARAMBIT]: { id: ITEM_TYPES.KNIFE_KARAMBIT, name: "Керамбіт ★", category: 'weapon', icon: ITEM_TYPES.KNIFE_KARAMBIT, maxStack: 1, miningSpeed: 1.5, attackDamage: 95, attackSpeed: 3.2, isSword: true, isKnife: true, rarity: 'legendary', value: 600 },
+    [ITEM_TYPES.KNIFE_GOLD]: { id: ITEM_TYPES.KNIFE_GOLD, name: "Золотий Ніж ★★", category: 'weapon', icon: ITEM_TYPES.KNIFE_GOLD, maxStack: 1, miningSpeed: 1.5, attackDamage: 130, attackSpeed: 3.0, isSword: true, isKnife: true, rarity: 'legendary', value: 1500 },
 
     // --- SHIELD (DEFENSE & BLOCKING) ---
     [ITEM_TYPES.SHIELD]: { id: ITEM_TYPES.SHIELD, name: "Щит 🛡️", category: 'tool', icon: 'shield', maxStack: 1, isShield: true, durability: 336 },

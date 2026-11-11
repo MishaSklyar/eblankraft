@@ -670,10 +670,17 @@ class SharedWorldClient {
 
             case 'player_respawned': {
                 if (msg.id === this.clientId) {
-                    if (this.game && this.game.player) {
-                        this.game.player.health = 100;
-                        this.game.player.isDead = false;
-                        this.game.player.position.set(msg.x || 0, msg.y || 32, msg.z || 0);
+                    const pl = this.game && this.game.player;
+                    if (pl) {
+                        pl.spawnSafe();                       // resets hunger/health/timers, then take the server's position
+                        pl.health = msg.health || 100;
+                        pl.isDead = false;
+                        pl.velocity.set(0, 0, 0);
+                        pl.position.set(msg.x || 0, msg.y || 32, msg.z || 0);
+                        if (this.game.ui) {
+                            clearTimeout(this.game.ui._respawnRetry);
+                            this.game.ui.hideDeathScreen();
+                        }
                     }
                 } else if (mp) {
                     const rp = mp.remotePlayers.get(msg.id);
