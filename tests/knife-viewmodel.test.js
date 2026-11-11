@@ -1,0 +1,71 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const THREE = require('../js/three.min.js');
+
+const TYPES = ['default', 'bayonet', 'huntsman', 'm9', 'butterfly', 'karambit', 'gold'];
+
+for (const prefix of ['js', 'web/js']) {
+    function load() {
+        const c = vm.createContext({ THREE, performance, console, ITEM_TYPES: {}, ITEM_REGISTRY: {
+            knife_m9: { isKnife: true, isSword: true, icon: 'knife_m9' } },
+            localStorage: { getItem: () => null }, document: { getElementById: () => null } });
+        c.window = c;
+        for (const f of ['upgrader_skins', 'player']) vm.runInContext(fs.readFileSync(`${prefix}/${f}.js`, 'utf8'), c);
+        return c;
+    }
+    const pose = (c, extra = {}) => {
+        const p = Object.create(c.Player.prototype);
+        Object.assign(p, { itemPivot: new THREE.Group(), armSwing: 0, onGround: true, isSprinting: false,
+            heldKnifeMesh: c.createVoxelKnifeModel('m9'), ...extra });
+        return p;
+    };
+
+    test(`${prefix}: every CS knife has a distinct 3D model pointing along -Z with its pivot at the handle`, () => {
+        const c = load();
+        const sigs = new Set();
+        for (const type of TYPES) {
+            const k = c.createVoxelKnifeModel(type);
+            assert.equal(k.name, 'knife_' + type);
+            let meshes = 0; k.traverse(n => { if (n.isMesh) { meshes++; assert.equal(n.geometry.type, 'BoxGeometry'); } });
+            assert.ok(meshes >= 12, `${type} is built from enough parts`);
+            const b = new THREE.Box3().setFromObject(k);
+            assert.ok(b.min.z < -.2 && b.min.z > -.45, `${type}: blade points to -Z`);
+            assert.ok(b.max.z > .02 && b.max.z < .35, `${type}: handle behind the pivot`);
+            sigs.add(JSON.stringify([meshes, +b.min.z.toFixed(3), +b.max.z.toFixed(3), k.children[0].children[0].material.color.getHex()]));
+        }
+        assert.equal(sigs.size, TYPES.length);
+    });
+
+    test(`${prefix}: knife viewmodel — draw settles, attacks alternate slash/back-slash/stab, inspect rolls and ends`, () => {
+        const c = load();
+        const p = pose(c, { knifeDraw: 1 });
+        const idle = () => { p.updateKnifeView(1 / 60, 0, 0, 0); return p.itemPivot.position.clone(); };
+        const first = idle();
+        for (let i = 0; i < 60; i++) idle();
+        const settled = idle();
+        assert.ok(settled.y > first.y + .2, 'draw comes up from below');
+        // three attacks -> three different swing variants
+        const poses = [];
+        for (let k = 0; k < 3; k++) {
+            p.armSwing = 1; p.updateKnifeView(1 / 60, 0, 0, 0);           // new swing detected
+            p.updateKnifeView(1 / 60, 0, 0, 1);                             // peak of the swing
+            poses.push(p.itemPivot.position.toArray().concat(p.itemPivot.rotation.toArray().slice(0, 3)).map(v => +v.toFixed(2)).join());
+            p.armSwing = 0; p.updateKnifeView(1 / 60, 0, 0, 0);
+        }
+        assert.equal(new Set(poses).size, 3, 'slash, back-slash and stab differ');
+        // inspect rolls the knife itself, then returns to rest
+        p.getSelectedItem = () => ({ itemId: 'knife_m9' });
+        assert.equal(p.inspectKnife(), true);
+        let maxRoll = 0;
+        for (let i = 0; i < 200; i++) { p.updateKnifeView(1 / 60, 0, 0, 0); maxRoll = Math.max(maxRoll, Math.abs(p.heldKnifeMesh.rotation.z)); }
+        assert.ok(maxRoll > 3, 'knife rolls');
+        assert.equal(p.knifeInspect, 0);
+        assert.ok(Math.abs(p.heldKnifeMesh.rotation.z) < 1e-6 || Math.abs(p.heldKnifeMesh.rotation.z - Math.PI * 2) < 1e-6 || p.heldKnifeMesh.rotation.z === 0);
+        for (const v of [...p.itemPivot.position.toArray(), ...p.itemPivot.rotation.toArray().slice(0, 3)]) assert.ok(Number.isFinite(v));
+        // cannot inspect without a knife
+        p.getSelectedItem = () => ({ itemId: 'stone' });
+        assert.equal(p.inspectKnife(), false);
+    });
+}

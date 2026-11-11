@@ -753,6 +753,8 @@ class Controls {
             } else if (e.code === 'KeyQ') {
                 if (e.repeat) return;
                 this.player.dropItem();
+            } else if (e.code === 'KeyX') {
+                if (!e.repeat) this.player.inspectKnife?.();
             } else if (e.code === 'KeyV') {
                 this.player.toggleThirdPerson();
             } else if (e.code === 'KeyT') {
