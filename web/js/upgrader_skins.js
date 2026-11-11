@@ -994,7 +994,65 @@ window.createMinecraftPlayerHierarchy = createMinecraftPlayerHierarchy;
 window.MinecraftSkinManager = MinecraftSkinManager;
 window.skinManager = new MinecraftSkinManager();
 
+// --- UPGRADER.GG-STYLE ITEM UPGRADER ---
+// Stake items -> pick a pricier target -> wheel decides. chance = stakeValue / targetValue (minus house edge).
+const GG_HOUSE_EDGE = 0.95;
+const GG_MAX_CHANCE = 0.9;
+const GG_MIN_CHANCE = 0.01;
+const ITEM_VALUE_TABLE = {
+    junk_sock: 1, junk_beer: 2, junk_cig: 1, junk_nut: 1, junk_token: 3,
+    stick: 1, coal: 3, iron_ingot: 8, gold_ingot: 20, emerald: 30, diamond_item: 60, redstone_dust: 4,
+    netherite_scrap: 150, ender_eye: 40, blaze_rod: 15, gunpowder: 4, rotten_flesh: 1,
+    ammo_pistol: 5, ammo_rifle: 5, ammo_sniper: 8, ammo_shotgun: 5, ammo_rocket: 15,
+    apple: 2, cooked_steak: 6, meme_doner: 40,
+    wood_pickaxe: 5, stone_pickaxe: 10, iron_pickaxe: 35, diamond_pickaxe: 200, netherite_pickaxe: 500, eblan_pickaxe: 1200, shield: 25,
+    wood_sword: 5, stone_sword: 10, iron_sword: 40, diamond_sword: 220, netherite_sword: 520, eblan_sword: 1200,
+    glock: 80, mp5: 150, shotgun: 200, deagle: 280, m4a1: 450, ak47: 500, awp: 800, rpg: 1000, grenade: 30, c4: 120,
+    totem_of_undying: 300,
+    bicycle: 100, car_police: 600, car_truck: 650, car_sport: 700, car_cyber: 1500, car_f1: 1800,
+    case_hobo: 6, case_diamond: 130, case_nether: 160, case_dragon: 800
+};
+
+function getItemValue(itemId) {
+    const reg = window.ITEM_REGISTRY && window.ITEM_REGISTRY[itemId];
+    if (reg && typeof reg.value === 'number') return reg.value;
+    if (ITEM_VALUE_TABLE[itemId] !== undefined) return ITEM_VALUE_TABLE[itemId];
+    return 1; // blocks and anything unlisted
+}
+
+function calcUpgradeChance(stakeValue, targetValue) {
+    if (!(stakeValue > 0) || !(targetValue > 0)) return 0;
+    return Math.max(GG_MIN_CHANCE, Math.min(GG_MAX_CHANCE, (stakeValue / targetValue) * GG_HOUSE_EDGE));
+}
+
+// Items that can be won: real items (not blocks) worth clearly more than the stake, cheapest first.
+function getUpgradeTargets(stakeValue, search = '', onlyKnives = false) {
+    const q = String(search || '').trim().toLowerCase();
+    const out = [];
+    for (const id in window.ITEM_REGISTRY) {
+        const reg = window.ITEM_REGISTRY[id];
+        if (reg.category === 'block' || reg.category === 'junk' || !reg.icon) continue;
+        if (onlyKnives && !reg.isKnife) continue;
+        if (q && !String(reg.name).toLowerCase().includes(q)) continue;
+        const value = getItemValue(id);
+        if (value > stakeValue * 1.05) out.push({ id, reg, value });
+    }
+    return out.sort((x, y) => x.value - y.value);
+}
+
+// Decides the spin. Returns { win, angle }: angle is where the pointer stops, in wheel degrees (win zone starts at 0).
+function rollUpgrade(chance, rng = Math.random) {
+    const win = rng() < chance;
+    const zone = chance * 360;
+    const angle = win ? zone * (0.08 + 0.84 * rng()) : zone + (360 - zone) * (0.04 + 0.92 * rng());
+    return { win, angle };
+}
+
 window.SKINS_REGISTRY = SKINS_REGISTRY;
+window.getItemValue = getItemValue;
+window.calcUpgradeChance = calcUpgradeChance;
+window.getUpgradeTargets = getUpgradeTargets;
+window.rollUpgrade = rollUpgrade;
 window.CASES_CONFIG = CASES_CONFIG;
 window.UPGRADES_CONFIG = UPGRADES_CONFIG;
 window.UpgraderSkinsManager = UpgraderSkinsManager;

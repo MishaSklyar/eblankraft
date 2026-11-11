@@ -1130,7 +1130,7 @@ class MultiplayerManager {
 
         switch (c) {
             case '/help':
-                this.addChatMessage('СИСТЕМА', '📋 Команди: /help, /preload, /gamemode <c/s>, /weather <clear/rain/thunder/snow>, /fly, /mods, /lua <код>, /nick <ім\'я>, /time <day/night>, /spawn, /clear', true);
+                this.addChatMessage('СИСТЕМА', '📋 Команди: /help, /preload, /gamemode <c/s>, /weather <clear/rain/thunder/snow>, /fly, /bunnyhop, /mob <тип>, /mods, /lua <код>, /nick <ім\'я>, /time <day/night>, /spawn, /clear', true);
                 break;
             case '/pregen':
             case '/preload':
@@ -1298,6 +1298,18 @@ class MultiplayerManager {
                     if (this.game.ui) this.game.ui.showToast('🏡 Село з жителями збудовано!');
                 }
                 break;
+            case '/bunnyhop': {
+                const p = this.game && this.game.player;
+                if (p) {
+                    const arg = (parts[1] || '').toLowerCase();
+                    p.bunnyhop = arg === 'on' ? true : arg === 'off' ? false : !p.bunnyhop;
+                    try { localStorage.setItem('eblankraft_bunnyhop', p.bunnyhop ? '1' : '0'); } catch (e) {}
+                    this.addChatMessage('СИСТЕМА', p.bunnyhop
+                        ? '🐇 Bunny hop УВІМКНЕНО: тримай ПРОБІЛ і стрейфись (A/D + поворот миші) — швидкість росте з кожним стрибком'
+                        : '🐇 Bunny hop ВИМКНЕНО', true);
+                }
+                break;
+            }
             case '/mob': {
                 const type = String(parts[1] || '').toLowerCase();
                 const defs = window.MOB_DEFS || {};

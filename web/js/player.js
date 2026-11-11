@@ -139,6 +139,8 @@ class Player {
         this.onGround = false;
         this.timeSinceGrounded = 0;
         this.jumpBufferTimer = 0;
+        // Source-style bunny hop: auto-hop on held jump + air-strafe acceleration (toggle: /bunnyhop)
+        try { this.bunnyhop = localStorage.getItem('eblankraft_bunnyhop') !== '0'; } catch (e) { this.bunnyhop = true; }
         this.jumpCooldown = 0;
         this.isFlying = false;
         this.canFly = false;
@@ -1787,6 +1789,29 @@ class Player {
         }
     }
 
+    // Source-engine style air acceleration: only the speed *along the wish direction* is capped,
+    // so turning the camera while strafing (A/D + mouse) adds speed every hop.
+    airAccelerate(moveX, moveZ, baseSpeed, dt) {
+        const mag = Math.hypot(moveX, moveZ);
+        if (mag > 0.001) {
+            const wx = moveX / mag, wz = moveZ / mag;
+            const frames = Math.min(Math.max(dt * 60, 0.25), 4);   // keep the gain frame-rate independent
+            const wishCap = 1.0 * Math.sqrt(frames);
+            const add = wishCap - (this.velocity.x * wx + this.velocity.z * wz);
+            if (add > 0) {
+                const acc = Math.min(add, 10 * baseSpeed * dt * Math.min(1, mag));
+                this.velocity.x += wx * acc;
+                this.velocity.z += wz * acc;
+            }
+        }
+        const maxSpeed = 16;
+        const speed = Math.hypot(this.velocity.x, this.velocity.z);
+        if (speed > maxSpeed) {
+            this.velocity.x *= maxSpeed / speed;
+            this.velocity.z *= maxSpeed / speed;
+        }
+    }
+
     updatePhysics(dt, inputVector, jumpPressed, flyUpPressed, flyDownPressed) {
         if (this.game?.arenaClient?.isActive) {
             this.game.arenaClient.updatePlayer(dt, inputVector, jumpPressed);
@@ -2149,7 +2174,9 @@ class Player {
 
             // Jump execution (Responsive with coyote time & buffer)
             const canJump = (this.timeSinceGrounded < 0.16);
+            let jumpedThisFrame = false;
             if (this.jumpBufferTimer > 0 && canJump && this.jumpCooldown <= 0) {
+                jumpedThisFrame = true;
                 let jumpPower = (this.physJumpPower ?? 8.5);
                 const skin = (window.SKINS_REGISTRY && this.game.upgrader) ? window.SKINS_REGISTRY[this.game.upgrader.equippedSkin] : null;
                 if (skin && skin.buffs && skin.buffs.jumpMult) jumpPower *= skin.buffs.jumpMult;
@@ -2163,8 +2190,11 @@ class Player {
                 this.hunger = Math.max(0, this.hunger - 0.2);
             }
 
-            const isAirborne = !isGroundedNow;
-            if (isAirborne && !this.isFlying) {
+            // With bunny hop a jump on the landing frame keeps the horizontal speed (no ground snap)
+            const isAirborne = !isGroundedNow || (this.bunnyhop && jumpedThisFrame);
+            if (isAirborne && !this.isFlying && this.bunnyhop) {
+                this.airAccelerate(moveX, moveZ, baseSpeed, dt);
+            } else if (isAirborne && !this.isFlying) {
                 // Normal in-air steering & momentum
                 this.velocity.x += moveX * 0.28;
                 this.velocity.z += moveZ * 0.28;
