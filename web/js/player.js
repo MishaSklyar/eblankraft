@@ -873,12 +873,17 @@ class Player {
             this.game.flashDamageScreen();
         }
 
-        if (this.health <= 0) {
-            this.isDead = true;
-            this.deathReason = reason;
-            this.iq -= 50;
-            this.soundManager.speakRandomMeme(["Ой бля, ти здох!", "Ну все, приїхали!", "Єблан розбився!"]);
-        }
+        if (this.health <= 0) this.die(reason);
+    }
+
+    // Marks the player dead (also called when the authoritative server confirms a kill).
+    die(reason) {
+        if (this.isDead) return;
+        this.health = 0;
+        this.isDead = true;
+        this.deathReason = reason;
+        this.iq -= 50;
+        this.soundManager?.speakRandomMeme?.(["Ой бля, ти здох!", "Ну все, приїхали!", "Єблан розбився!"]);
     }
 
     // Consume Totem of Undying upon lethal damage

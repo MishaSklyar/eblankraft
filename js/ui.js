@@ -1518,7 +1518,7 @@ class UIManager {
 
         if (btnRespawn) {
             btnRespawn.onclick = () => {
-                this.player.spawnSafe();
+                this.respawnPlayer();
                 hideMenu();
             };
         }
@@ -3308,11 +3308,40 @@ class UIManager {
         const deathScreen = document.getElementById('death-screen');
         const btnDeathRespawn = document.getElementById('btn-death-respawn');
         if (btnDeathRespawn) {
-            btnDeathRespawn.onclick = () => {
-                this.player.spawnSafe();
-                if (deathScreen) deathScreen.style.display = 'none';
-            };
+            btnDeathRespawn.onclick = () => this.respawnPlayer();
         }
+    }
+
+    hideDeathScreen() {
+        const deathScreen = document.getElementById('death-screen');
+        if (deathScreen) deathScreen.style.display = 'none';
+    }
+
+    // In a server-authoritative room the server must revive the player (it ignores a dead player's
+    // moves, hits and building), so ask it and wait for `player_respawned`. Offline / arena / duel
+    // keep the old local respawn.
+    respawnPlayer() {
+        const sc = this.game.serverClient;
+        const online = sc && sc.isConnected && sc.currentRoom && !sc.loadingRoom &&
+            !this.game.arenaClient?.isActive && !this.isDuelActive;
+        if (!(online && this.player.isDead)) {
+            this.player.spawnSafe();
+            this.hideDeathScreen();
+            return;
+        }
+        clearTimeout(this._respawnRetry);
+        let tries = 0;
+        const attempt = () => {
+            if (!this.player.isDead) return;                  // revived by player_respawned
+            if (++tries > 3 || !sc.isConnected) {             // server silent: fall back to a local respawn
+                this.player.spawnSafe();
+                this.hideDeathScreen();
+                return;
+            }
+            sc.requestRespawn();
+            this._respawnRetry = setTimeout(attempt, 1000);
+        };
+        attempt();
     }
 
     showDeathScreen() {
