@@ -969,7 +969,7 @@ class UIManager {
             const tg = $('gg-targets'); tg.innerHTML = '';
             if (value <= 0) tg.innerHTML = '<div class="gg-empty">Спочатку додай предмети у ставку</div>';
             else {
-                const list = getUpgradeTargets(value, state.search, state.knives).slice(0, 60);
+                const list = getUpgradeTargets(value, state.search, state.knives).slice(0, 120);
                 if (!list.length) tg.innerHTML = '<div class="gg-empty">Нічого не знайдено</div>';
                 list.forEach(t => {
                     const el = cell(t.reg, t.id, Math.round(calcUpgradeChance(value, t.value) * 100) + '%', t.value, () => {

@@ -206,6 +206,7 @@ const CASES_CONFIG = {
             { item: ITEM_TYPES.NETHERITE_BLOCK, count: 2, weight: 25, isSkin: false },
             { item: ITEM_TYPES.EBLAN_SWORD, count: 1, weight: 20, isSkin: false },
             { item: ITEM_TYPES.EBLAN_PICKAXE, count: 1, weight: 20, isSkin: false },
+            { item: ITEM_TYPES.AWP_DRAGON_LORE, count: 1, weight: 3, isSkin: false },
             { skinId: 'slayer', weight: 20, isSkin: true },
             { skinId: 'gigachad', weight: 15, isSkin: true }
         ]
@@ -1007,7 +1008,7 @@ const ITEM_VALUE_TABLE = {
     apple: 2, cooked_steak: 6, meme_doner: 40,
     wood_pickaxe: 5, stone_pickaxe: 10, iron_pickaxe: 35, diamond_pickaxe: 200, netherite_pickaxe: 500, eblan_pickaxe: 1200, shield: 25,
     wood_sword: 5, stone_sword: 10, iron_sword: 40, diamond_sword: 220, netherite_sword: 520, eblan_sword: 1200,
-    glock: 80, mp5: 150, shotgun: 200, deagle: 280, m4a1: 450, ak47: 500, awp: 800, rpg: 1000, grenade: 30, c4: 120,
+    awp_dragon_lore: 25000, glock: 80, mp5: 150, shotgun: 200, deagle: 280, m4a1: 450, ak47: 500, awp: 800, rpg: 1000, grenade: 30, c4: 120,
     totem_of_undying: 300,
     bicycle: 100, car_police: 600, car_truck: 650, car_sport: 700, car_cyber: 1500, car_f1: 1800,
     case_hobo: 6, case_diamond: 130, case_nether: 160, case_dragon: 800

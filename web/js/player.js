@@ -25,7 +25,7 @@ function isPassThroughBlock(b) {
 window.isPassThroughBlock = isPassThroughBlock;
 
 // Pixel-sized cuboids, aligned with the camera's -Z aiming direction.
-function createVoxelGunModel(type) {
+function createVoxelGunModel(type, skin) {
     const root = new THREE.Group(); root.name = 'gun_' + type;
     const pistol = type === 'glock' || type === 'deagle';
     const metal = new THREE.MeshLambertMaterial({ color: type === 'deagle' ? 0x9ba1a3 : 0x30383b });
@@ -61,6 +61,27 @@ function createVoxelGunModel(type) {
     }
     if (type === 'shotgun') box('pump', .17, .12, .20, 0, -.025, -.49, furniture);
     if (type === 'rpg') box('launcher_tube', .20, .20, 1.02, 0, .03, -.25, furniture);
+
+    // Skins recolor the receiver/furniture and add decals (names start with `skin_`).
+    if (skin === 'dragon_lore') {
+        const gold = new THREE.MeshLambertMaterial({ color: 0xc9a227, emissive: 0x2a2000 });
+        const red = new THREE.MeshLambertMaterial({ color: 0xb02a1a });
+        metal.color.setHex(0x365a30);                      // receiver: dragon-scale green
+        furniture.color.setHex(0x1d3320);                  // stock / grip
+        for (const m of root.children) {
+            if (m.name === 'muzzle' || m.name.startsWith('scope_rim') || m.name === 'scope_mount') m.material = gold;
+        }
+        box('skin_band', .14, .03, .05, 0, .0, -.02, gold);
+        box('skin_tag', .10, .012, .10, 0, -.067, -.05, gold);                      // souvenir plate
+        for (let i = 0; i < 7; i++) for (const sx of [-1, 1]) {                       // gold scales along the receiver
+            box('skin_scale', .006, .03, .032, sx * .068, .02 - (i % 2) * .032, -.30 + i * .05, gold);
+        }
+        for (const sx of [-1, 1]) {
+            box('skin_dragon', .006, .07, .09, sx * .056, -.012, .17, red);           // dragon on the stock
+            box('skin_eye', .008, .016, .016, sx * .058, .012, .20, gold);
+            for (let i = 0; i < 4; i++) box('skin_sticker', .005, .026, .026, sx * .058, .035 - (i % 2) * .03, .09 + Math.floor(i / 2) * .035, gold);   // souvenir stickers
+        }
+    }
     return root;
 }
 window.createVoxelGunModel = createVoxelGunModel;
@@ -803,7 +824,7 @@ class Player {
             if (this._knifeKey !== it) { this._knifeKey = it; this.knifeDraw = 1; this.knifeInspect = 0; }   // draw animation only when the knife is (re)selected
         } else if (reg?.isGun) {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
-            this.heldGunMesh = createVoxelGunModel(reg.gunType);
+            this.heldGunMesh = createVoxelGunModel(reg.gunType, reg.skin);
             this.itemPivot.add(this.heldGunMesh);
             this.armMesh.position.set(.025, -.12, .16);
             this.armMesh.rotation.set(2.1, 0, -.10);
@@ -849,7 +870,7 @@ class Player {
                     knife.scale.setScalar(.85); knife.rotation.set(.5, 0, 0); knife.position.set(0, -.05, .05);
                     this.mcModel.itemContainer.add(knife);
                 } else if (reg.isGun) {
-                    const gun = createVoxelGunModel(reg.gunType);
+                    const gun = createVoxelGunModel(reg.gunType, reg.skin);
                     gun.scale.setScalar(.65); gun.rotation.x = Math.PI / 2;
                     this.mcModel.itemContainer.add(gun);
                 } else {
