@@ -967,6 +967,15 @@
                 <button id="btn-respawn" class="menu-btn btn-secondary">📍 Спавн</button>
             </div>
 
+            <div class="menu-buttons-grid" id="pause-quick-actions">
+                <button class="menu-btn btn-primary" data-proxy="btn-warp">🌀 Портали</button>
+                <button class="menu-btn btn-primary" data-proxy="quick-mods-btn">🧩 Моди ⚡</button>
+                <button class="menu-btn btn-primary" data-proxy="btn-mods-manager">📜 Редактор</button>
+                <button class="menu-btn btn-primary" data-proxy="btn-dev-console-top">💻 Консоль</button>
+                <button class="menu-btn btn-primary" data-proxy="btn-open-multiplayer">🌐 Онлайн</button>
+                <button class="menu-btn btn-primary" data-proxy="btn-hud-layout">📐 Розкладка</button>
+            </div>
+
             <div class="menu-extra-actions">
                 <button id="btn-pause-blockly" class="menu-btn" style="width:100%; margin-bottom: 6px; font-weight: bold; background: linear-gradient(135deg, #1b5e20, #0d47a1); border: 2px solid #00e676;">🧩 Blockly Студія (PRO)</button>
                 <button id="btn-pause-multiplayer" class="menu-btn" style="width:100%; margin-bottom: 6px; font-weight: bold; background: linear-gradient(135deg, #1565c0, #7b1fa2); border: 2px solid #ffd700;">🌐 PvP-арена</button>
@@ -1531,5 +1540,17 @@
     </dialog>
     <script src="js/debug.js?v=3" defer></script>
     <script src="js/bug_report.js?v=2" defer></script>
+<script>
+(function(){
+  document.addEventListener('click', function(e){
+    var b = e.target.closest && e.target.closest('#pause-quick-actions [data-proxy]');
+    if (!b) return;
+    var target = document.getElementById(b.dataset.proxy);
+    var ui = window.game && window.game.ui;
+    if (ui && ui.togglePauseMenu) ui.togglePauseMenu(false);
+    if (target) setTimeout(function(){ target.click(); }, 0);
+  });
+})();
+</script>
 </body>
 </html>

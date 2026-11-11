@@ -955,13 +955,33 @@ class Chunk {
             }
         }
 
-        const finalMaterials = isTurboOrA02 ? materials.map(m => (m && m.basicCounterpart) ? m.basicCounterpart : m) : materials;
+        const shadedMat = (m) => {
+            if (!m || m.isShaderMaterial) return m;
+            if (!Chunk._shadedMats) Chunk._shadedMats = new WeakMap();
+            let c = Chunk._shadedMats.get(m);
+            if (!c) { c = m.clone(); c.vertexColors = true; c.needsUpdate = true; Chunk._shadedMats.set(m, c); }
+            return c;
+        };
+        const finalMaterials = (isTurboOrA02 ? materials.map(m => (m && m.basicCounterpart) ? m.basicCounterpart : m) : materials).map(shadedMat);
 
         if (combinedPositions && combinedPositions.length > 0) {
             const geom = new THREE.BufferGeometry();
             geom.setAttribute('position', new THREE.BufferAttribute(combinedPositions, 3));
             geom.setAttribute('normal', new THREE.BufferAttribute(combinedNormals, 3));
             geom.setAttribute('uv', new THREE.BufferAttribute(combinedUVs, 2));
+            // Directional face tint: top 1.0, sides 0.82/0.9, bottom 0.6 (cheap fake AO / depth)
+            const faceColors = new Float32Array(combinedNormals.length);
+            for (let i = 0; i < combinedNormals.length; i += 3) {
+                const ax = Math.abs(combinedNormals[i]), ay = combinedNormals[i + 1], az = Math.abs(combinedNormals[i + 2]);
+                let sh;
+                if (ay > 0.5) sh = 1.0;
+                else if (ay < -0.5) sh = 0.6;
+                else if (ax > 0.9) sh = 0.82;
+                else if (az > 0.9) sh = 0.9;
+                else sh = 0.95; // cross plants
+                faceColors[i] = faceColors[i + 1] = faceColors[i + 2] = sh;
+            }
+            geom.setAttribute('color', new THREE.BufferAttribute(faceColors, 3));
 
             for (let g of groups) {
                 geom.addGroup(g.start, g.count, g.materialIndex);

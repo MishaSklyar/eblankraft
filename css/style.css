@@ -145,6 +145,18 @@ html, body {
     box-shadow: 0 0 8px #ff0000, 0 0 2px #000 !important;
 }
 
+#crosshair.block-target {
+    animation: crosshair-pulse 1.1s ease-in-out infinite;
+}
+#crosshair.block-target::before,
+#crosshair.block-target::after {
+    background: #b8ffcf;
+}
+@keyframes crosshair-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.15); }
+}
+
 /* Totem of Undying Pop Animation */
 .totem-pop-container {
     position: fixed;
@@ -6550,3 +6562,7 @@ body.is-preloading #mining-progress-container {
 .middle-click-touch .middle-click-hint { top: auto; bottom: 20px; padding: 0 12px; box-sizing: border-box; font-size: 13px; }
 @media (pointer: coarse) { .block-editor-panel button { min-height: 44px; } .block-editor-content input[type=range] { min-height: 36px; } }
 @media (max-height: 500px) and (orientation: landscape) { .block-editor-body { grid-template-columns: minmax(0, 1fr) 240px; } .block-editor-preview { order: 0; } .block-editor-content { min-height: 200px; } }
+
+/* HUD cleanup: secondary buttons live in the pause menu (ESC) */
+#btn-warp, #btn-hud-layout, #btn-mods-manager, #quick-mods-btn,
+#btn-dev-console-top, #btn-open-multiplayer { display: none !important; }

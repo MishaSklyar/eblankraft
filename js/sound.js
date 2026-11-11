@@ -89,6 +89,13 @@ class SoundManager {
             filter.type = 'bandpass';
             filter.frequency.setValueAtTime(950, now);
             filter.Q.setValueAtTime(2.0, now);
+        } else if (soundType === 'sand') {
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(1800, now);
+            filter.Q.setValueAtTime(0.8, now);
+        } else if (soundType === 'dirt') {
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(450, now);
         } else if (soundType === 'wood') {
             filter.type = 'lowpass';
             filter.frequency.setValueAtTime(600, now);
@@ -152,7 +159,7 @@ class SoundManager {
         osc.stop(now + 0.11);
     }
 
-    playStep() {
+    playStep(surface = 'stone') {
         if (!this.enabled) return;
         const nowMs = performance.now();
         if (nowMs - this.lastStepTime < 320) return;
@@ -165,13 +172,24 @@ class SoundManager {
         const noise = this.ctx.createBufferSource();
         noise.buffer = this.createNoiseBuffer(0.06);
 
+        // Per-surface tone: [filter, base freq, Q, volume]
+        const prof = {
+            sand:  ['bandpass', 2200, 0.7, 0.13],
+            dirt:  ['lowpass',   420, 1.0, 0.20],
+            grass: ['bandpass', 1300, 1.2, 0.13],
+            leaves:['bandpass', 1500, 1.2, 0.11],
+            snow:  ['bandpass',  950, 2.0, 0.12],
+            wood:  ['lowpass',   700, 1.5, 0.20],
+            glass: ['highpass', 3200, 1.0, 0.09],
+            stone: ['bandpass',  700, 2.0, 0.15]
+        }[surface] || ['bandpass', 700, 2.0, 0.15];
         const filter = this.ctx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.setValueAtTime(600 + Math.random() * 200, now);
-        filter.Q.setValueAtTime(2.0, now);
+        filter.type = prof[0];
+        filter.frequency.setValueAtTime(prof[1] * (0.85 + Math.random() * 0.35), now);
+        filter.Q.setValueAtTime(prof[2], now);
 
         const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.setValueAtTime(prof[3], now);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
 
         noise.connect(filter);

@@ -588,7 +588,7 @@ class Player {
 
         // Unified item pivot in bottom-right corner of screen
         this.itemPivot = new THREE.Group();
-        this.itemPivot.position.set(0.42, -0.40, -0.56);
+        this.itemPivot.position.set(0.50, -0.50, -0.60);
         this.handGroup.add(this.itemPivot);
 
         // 1. Arm box (Minecraft right arm extending forward with equipped skin texture)
@@ -712,8 +712,8 @@ class Player {
 
                 if (reg && (reg.category === 'weapon' || reg.category === 'tool')) {
                     // Sword / pickaxe: angled forward ready to slash
-                    this.heldToolMesh.scale.set(1.15, 1.15, 1.0);
-                    this.heldToolMesh.position.set(-0.04, 0.22, -0.18);
+                    this.heldToolMesh.scale.set(0.78, 0.78, 1.0);
+                    this.heldToolMesh.position.set(-0.04, 0.17, -0.18);
                     this.heldToolMesh.rotation.set(-0.35, 0.75, -0.42);
                 } else {
                     // Food, junk, material: held in hand
@@ -2275,7 +2275,10 @@ class Player {
             const isMoving = Math.abs(inputVector.x) > 0.1 || Math.abs(inputVector.y) > 0.1;
             if (isMoving && this.onGround && !this.isInWater) {
                 this.walkCycle += dt * (this.isSprinting ? 14 : 9);
-                this.soundManager.playStep();
+                {
+                    const fb = this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y - 0.1), Math.floor(this.position.z));
+                    this.soundManager.playStep((window.BLOCK_INFO && BLOCK_INFO[fb]?.sound) || 'stone');
+                }
             } else {
                 this.walkCycle = 0;
             }
@@ -2395,14 +2398,15 @@ class Player {
                 this.itemPivot.rotation.set(-0.35, 0.45, -0.65);
             } else {
                 this.itemPivot.position.set(
-                    (held ? .42 : .35) + bobX - swingOffset * .22,
-                    (held ? -.40 : -.24) + bobY - swingOffset * .12,
-                    (held ? -.56 : -.62) - swingOffset * .18
+                    (held ? .50 : .35) + bobX - swingOffset * .16,
+                    (held ? -.50 : -.24) + bobY - swingOffset * .20,
+                    (held ? -.60 : -.62) - swingOffset * .16
                 );
+                // quick downward chop arc
                 this.itemPivot.rotation.set(
-                    -swingOffset * 0.95,
-                    swingOffset * 0.65,
-                    -swingOffset * 0.75
+                    -swingOffset * 1.25,
+                    swingOffset * 0.45,
+                    -swingOffset * 0.55
                 );
             }
         }
@@ -2480,6 +2484,7 @@ class Player {
             } else {
                 crosshair.classList.remove('target-locked');
             }
+            crosshair.classList.toggle('block-target', !locked && !!this.targetBlock);
         }
     }
 
