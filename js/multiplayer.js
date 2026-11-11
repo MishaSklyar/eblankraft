@@ -171,7 +171,7 @@ class RemotePlayer {
         if (!info) return;
 
         if (info.isGun && window.createVoxelGunModel) {
-            const gun = window.createVoxelGunModel(info.gunType);
+            const gun = window.createVoxelGunModel(info.gunType, info.skin);
             gun.scale.setScalar(.65); gun.rotation.x = Math.PI / 2;
             this.itemContainer.add(gun);
             return;

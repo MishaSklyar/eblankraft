@@ -1180,6 +1180,20 @@ class TextureManager {
         awpCtx.fillStyle = '#00ffff'; awpCtx.fillRect(10, 6, 1, 2); // Scope lens
         this.canvasCache['awp'] = awpCv;
 
+        // 2b. AWP | Dragon Lore (Souvenir): green dragon-scale body, gold trim and stickers
+        const dlCv = this.createCanvas();
+        const dl = dlCv.getContext('2d');
+        dl.fillStyle = '#2c4a2a'; dl.fillRect(1, 8, 14, 2);               // body
+        dl.fillStyle = '#16251a'; dl.fillRect(1, 9, 3, 4);                // stock
+        dl.fillStyle = '#c9a227'; dl.fillRect(13, 8, 3, 1);               // gold muzzle
+        dl.fillRect(5, 8, 1, 1); dl.fillRect(7, 9, 1, 1); dl.fillRect(9, 8, 1, 1); dl.fillRect(11, 9, 1, 1);   // gold dragon scales
+        dl.fillRect(6, 5, 5, 1); dl.fillRect(6, 7, 5, 1);                 // gold scope rims
+        dl.fillStyle = '#3d6b38'; dl.fillRect(6, 6, 5, 1);                // scope body
+        dl.fillStyle = '#00ffff'; dl.fillRect(10, 6, 1, 1);               // lens
+        dl.fillStyle = '#d4af37'; dl.fillRect(2, 10, 1, 1); dl.fillRect(3, 11, 1, 1); dl.fillRect(2, 12, 1, 1);   // souvenir stickers
+        dl.fillStyle = '#c0392b'; dl.fillRect(3, 9, 1, 1);                // dragon eye
+        this.canvasCache['awp_dragon_lore'] = dlCv;
+
         // 3. Shotgun SPAS-12
         const sgCv = this.createCanvas();
         const sgCtx = sgCv.getContext('2d');

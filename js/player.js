@@ -25,7 +25,7 @@ function isPassThroughBlock(b) {
 window.isPassThroughBlock = isPassThroughBlock;
 
 // Pixel-sized cuboids, aligned with the camera's -Z aiming direction.
-function createVoxelGunModel(type) {
+function createVoxelGunModel(type, skin) {
     const root = new THREE.Group(); root.name = 'gun_' + type;
     const pistol = type === 'glock' || type === 'deagle';
     const metal = new THREE.MeshLambertMaterial({ color: type === 'deagle' ? 0x9ba1a3 : 0x30383b });
@@ -61,9 +61,124 @@ function createVoxelGunModel(type) {
     }
     if (type === 'shotgun') box('pump', .17, .12, .20, 0, -.025, -.49, furniture);
     if (type === 'rpg') box('launcher_tube', .20, .20, 1.02, 0, .03, -.25, furniture);
+
+    // Skins recolor the receiver/furniture and add decals (names start with `skin_`).
+    if (skin === 'dragon_lore') {
+        const gold = new THREE.MeshLambertMaterial({ color: 0xc9a227, emissive: 0x2a2000 });
+        const red = new THREE.MeshLambertMaterial({ color: 0xb02a1a });
+        metal.color.setHex(0x365a30);                      // receiver: dragon-scale green
+        furniture.color.setHex(0x1d3320);                  // stock / grip
+        for (const m of root.children) {
+            if (m.name === 'muzzle' || m.name.startsWith('scope_rim') || m.name === 'scope_mount') m.material = gold;
+        }
+        box('skin_band', .14, .03, .05, 0, .0, -.02, gold);
+        box('skin_tag', .10, .012, .10, 0, -.067, -.05, gold);                      // souvenir plate
+        for (let i = 0; i < 7; i++) for (const sx of [-1, 1]) {                       // gold scales along the receiver
+            box('skin_scale', .006, .03, .032, sx * .068, .02 - (i % 2) * .032, -.30 + i * .05, gold);
+        }
+        for (const sx of [-1, 1]) {
+            box('skin_dragon', .006, .07, .09, sx * .056, -.012, .17, red);           // dragon on the stock
+            box('skin_eye', .008, .016, .016, sx * .058, .012, .20, gold);
+            for (let i = 0; i < 4; i++) box('skin_sticker', .005, .026, .026, sx * .058, .035 - (i % 2) * .03, .09 + Math.floor(i / 2) * .035, gold);   // souvenir stickers
+        }
+    }
     return root;
 }
 window.createVoxelGunModel = createVoxelGunModel;
+
+// --- 3D CS-style knives (voxel cuboids; blade points to -Z, origin = middle of the handle) ---
+const KNIFE_STYLES = {
+    default:  { blade: 0x9aa3ad, edge: 0xd5dbe0, spine: 0x6c747c, handle: 0x2b2b2b, dark: 0x161616, guard: 0x555b61 },
+    bayonet:  { blade: 0xaab6c4, edge: 0xe8f0f8, spine: 0x7a8794, handle: 0x8a6a3c, dark: 0x4a3820, guard: 0x6b7078 },
+    huntsman: { blade: 0xa8b0b8, edge: 0xe0e6ea, spine: 0x737b83, handle: 0x6b4426, dark: 0x3a2412, guard: 0xb08a4a },
+    m9:       { blade: 0xb8c0c9, edge: 0xf2f6fa, spine: 0x7e868f, handle: 0x1f1f24, dark: 0x0c0c10, guard: 0x7b8189 },
+    butterfly:{ blade: 0x4b8bd6, edge: 0xb8d8ff, spine: 0x2f66a8, handle: 0x8e44ad, dark: 0x4a2260, guard: 0xd0d0d0 },
+    karambit: { blade: 0xc0392b, edge: 0xff8a7a, spine: 0x8a2418, handle: 0x222222, dark: 0x101010, guard: 0xe0b020 },
+    gold:     { blade: 0xf5c518, edge: 0xfff3a0, spine: 0xc9961a, handle: 0x7a4a10, dark: 0x3d2408, guard: 0xffe066, shine: 0x2a1f00 },
+};
+// Blade outline: n slices from the guard to the tip. low/high = edge/spine y at slice t (0..1).
+const KNIFE_BLADES = {
+    default:  { L: .24, n: 8, th: .010, low: t => -.024 * (1 - .85 * t ** 3), high: t => .018 * (1 - Math.max(0, (t - .55) / .45) ** 1.5) },
+    bayonet:  { L: .27, n: 9, th: .012, low: t => -.024 * (1 - .5 * t ** 3), high: t => .020 * (t < .5 ? 1 : 1 - ((t - .5) / .5) * .85), fuller: true },
+    huntsman: { L: .25, n: 9, th: .011, low: t => -.030 * (1 - .8 * t ** 2.2), high: t => .014 * (1 - (t > .5 ? ((t - .5) / .5) ** 1.3 : 0)) },
+    m9:       { L: .29, n: 10, th: .016, low: t => -.030 * (1 - .55 * t ** 3), high: t => .026 * (t < .5 ? 1 : 1 - ((t - .5) / .5) * .8), fuller: true, saw: true },
+    gold:     { L: .29, n: 10, th: .016, low: t => -.030 * (1 - .55 * t ** 3), high: t => .026 * (t < .5 ? 1 : 1 - ((t - .5) / .5) * .8), fuller: true, saw: true },
+    butterfly:{ L: .21, n: 8, th: .009, low: t => -.026 * (1 - .8 * t ** 3), high: t => .016 * (1 - (t > .5 ? ((t - .5) / .5) ** 1.4 : 0)) },
+};
+
+function createVoxelKnifeModel(type) {
+    const style = KNIFE_STYLES[type] || KNIFE_STYLES.default;
+    const root = new THREE.Group(); root.name = 'knife_' + type;
+    const inner = new THREE.Group(); inner.position.z = -.085; root.add(inner);   // origin in the middle of the handle
+    const mats = {};
+    const mat = (key) => mats[key] || (mats[key] = new THREE.MeshLambertMaterial({ color: new THREE.Color(style[key]).multiplyScalar(.78), emissive: style.shine && (key === 'blade' || key === 'edge') ? style.shine : 0x000000 }));
+    const box = (name, w, h, d, x, y, z, key, rx = 0, ry = 0, rz = 0) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(key));
+        m.name = name; m.position.set(x, y, z); m.rotation.set(rx, ry, rz); inner.add(m); return m;
+    };
+
+    if (type === 'karambit') {
+        // curved claw blade: arc of tilted slices, edge on the inside of the curve
+        const R = .17, n = 10, span = 1.25;
+        for (let i = 0; i < n; i++) {
+            const a0 = span * i / n, a1 = span * (i + 1) / n, am = (a0 + a1) / 2;
+            const h = .034 * (1 - .93 * (i / n) ** 1.6) + .004;
+            const len = R * (a1 - a0) * 1.08;
+            const cy = -R + R * Math.cos(am), cz = -R * Math.sin(am);
+            box('blade', .009, h, len, 0, cy + h * .35, cz, 'blade', -am);
+            box('edge', .011, .006, len, 0, cy - h * .15, cz, 'edge', -am);
+        }
+        box('spine', .011, .006, .09, 0, .018, -.035, 'spine', -.12);
+        box('guard', .018, .05, .012, 0, 0, 0, 'guard');
+        // curved handle + finger ring
+        box('handle', .026, .042, .13, 0, -.002, .075, 'handle');
+        for (const z of [.04, .08, .12]) box('grip_band', .028, .044, .012, 0, -.002, z, 'dark');
+        const rr = .036;
+        for (let i = 0; i < 12; i++) {
+            const a = i / 12 * Math.PI * 2;
+            box('ring', .010, .012, .026, 0, -.012 + Math.sin(a) * rr, .175 + Math.cos(a) * rr, 'guard', a);
+        }
+        return root;
+    }
+
+    const bl = KNIFE_BLADES[type] || KNIFE_BLADES.default;
+    const slice = bl.L / bl.n;
+    for (let i = 0; i < bl.n; i++) {
+        const t = (i + .5) / bl.n, lo = bl.low(t), hi = Math.max(lo + .006, bl.high(t));
+        const z = -(i + .5) * slice;
+        box('blade', bl.th, hi - lo, slice * 1.02, 0, (lo + hi) / 2, z, 'blade');
+        box('edge', bl.th + .002, .005, slice * 1.02, 0, lo + .0025, z, 'edge');
+        box('spine', bl.th + .002, .004, slice * 1.02, 0, hi - .002, z, 'spine');
+    }
+    if (bl.fuller) box('fuller', bl.th + .003, .006, bl.L * .6, 0, .003, -bl.L * .45, 'dark');
+    if (bl.saw) for (let i = 0; i < 6; i++) box('saw_tooth', bl.th, .008, .012, 0, .029, -.06 - i * .022, 'dark');
+
+    if (type === 'butterfly') {
+        // two handle halves flanking the tang, with pivot pins
+        for (const sx of [-1, 1]) {
+            box('handle_half', .011, .038, .17, sx * .0105, 0, .09, 'handle');
+            box('handle_rail', .013, .01, .17, sx * .0105, -.02, .09, 'guard');
+        }
+        for (const z of [.02, .12]) box('pivot_pin', .036, .012, .012, 0, 0, z, 'guard');
+        box('latch', .03, .02, .02, 0, .0, .185, 'dark');
+        return root;
+    }
+
+    // guard
+    const heavy = type === 'm9' || type === 'gold' || type === 'bayonet';
+    box('guard', heavy ? .026 : .02, heavy ? .072 : .06, .014, 0, 0, .004, type === 'huntsman' ? 'guard' : 'guard');
+    if (type === 'huntsman') box('bolster', .03, .046, .02, 0, -.001, .018, 'guard');
+    // handle
+    const hLen = .16, hz = .01 + hLen / 2 + .006;
+    box('handle', .028, .040, hLen, 0, -.002, hz, 'handle');
+    for (let i = 0; i < 4; i++) box('grip_band', .03, .042, .01, 0, -.002, .04 + i * .034, 'dark');
+    if (type === 'huntsman') for (const z of [.05, .13]) box('rivet', .032, .01, .01, 0, .006, z, 'guard');
+    if (type === 'bayonet') box('muzzle_ring', .036, .05, .014, 0, 0, .185, 'guard');
+    box('pommel', .034, .044, .016, 0, -.002, .178, type === 'default' ? 'guard' : 'dark');
+    if (type === 'm9' || type === 'gold') box('lanyard_hole', .006, .014, .01, 0, .01, .178, 'guard');
+    return root;
+}
+window.createVoxelKnifeModel = createVoxelKnifeModel;
 function disposeHeldModel(model) {
     if (!model) return;
     const materials = new Set();
@@ -652,6 +767,7 @@ class Player {
         const it = this.getSelectedItem();
         this.setAiming(false);
         disposeHeldModel(this.heldGunMesh); this.heldGunMesh = null;
+        disposeHeldModel(this.heldKnifeMesh); this.heldKnifeMesh = null;
         if (this.gunReload && this.gunReload.item !== it) this.gunReload = null;
         if (this.isScoped && ITEM_REGISTRY[it?.itemId]?.gunType !== 'awp') {
             this.isScoped = false;
@@ -661,7 +777,7 @@ class Player {
         if (this.mcModel?.itemContainer) {
             while (this.mcModel.itemContainer.children.length > 0) {
                 const child = this.mcModel.itemContainer.children[0];
-                if (child.name.startsWith('gun_')) disposeHeldModel(child);
+                if (child.name.startsWith('gun_') || child.name.startsWith('knife_')) disposeHeldModel(child);
                 else this.mcModel.itemContainer.remove(child);
             }
         }
@@ -679,6 +795,7 @@ class Player {
         }
 
         const reg = ITEM_REGISTRY[it.itemId];
+        if (!reg?.isKnife) this._knifeKey = null;
         if (this.armMesh) {
             this.armMesh.visible = true;
             this.armMesh.rotation.set(2.8, .2, -.2);
@@ -694,9 +811,20 @@ class Player {
                 this.heldBlockMesh.scale.set(bounds[3] - bounds[0], bounds[4] - bounds[1], bounds[5] - bounds[2]);
             }
             if (this.heldToolMesh) this.heldToolMesh.visible = false;
+        } else if (reg?.isKnife) {
+            this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
+            this.heldKnifeMesh = createVoxelKnifeModel(String(reg.icon).replace('knife_', ''));
+            this.heldKnifeMesh.scale.setScalar(1.12);
+            this.itemPivot.add(this.heldKnifeMesh);
+            // the hand sits on the grip; the forearm points down-right/back, in camera space (base rotation cancelled)
+            const qBase = new THREE.Quaternion().setFromEuler(new THREE.Euler(.34, .52, -.34)).invert();
+            const forearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(.38, -.78, .5).normalize());
+            this.armMesh.quaternion.copy(qBase).multiply(forearm);
+            this.armMesh.position.set(.0, -.035, .02).applyQuaternion(qBase);
+            if (this._knifeKey !== it) { this._knifeKey = it; this.knifeDraw = 1; this.knifeInspect = 0; }   // draw animation only when the knife is (re)selected
         } else if (reg?.isGun) {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
-            this.heldGunMesh = createVoxelGunModel(reg.gunType);
+            this.heldGunMesh = createVoxelGunModel(reg.gunType, reg.skin);
             this.itemPivot.add(this.heldGunMesh);
             this.armMesh.position.set(.025, -.12, .16);
             this.armMesh.rotation.set(2.1, 0, -.10);
@@ -737,8 +865,12 @@ class Player {
                     );
                     bMesh.position.set(0, -0.1, 0.1);
                     this.mcModel.itemContainer.add(bMesh);
+                } else if (reg.isKnife) {
+                    const knife = createVoxelKnifeModel(String(reg.icon).replace('knife_', ''));
+                    knife.scale.setScalar(.85); knife.rotation.set(.5, 0, 0); knife.position.set(0, -.05, .05);
+                    this.mcModel.itemContainer.add(knife);
                 } else if (reg.isGun) {
-                    const gun = createVoxelGunModel(reg.gunType);
+                    const gun = createVoxelGunModel(reg.gunType, reg.skin);
                     gun.scale.setScalar(.65); gun.rotation.x = Math.PI / 2;
                     this.mcModel.itemContainer.add(gun);
                 } else {
@@ -2416,6 +2548,7 @@ class Player {
             const swingOffset = Math.sin(this.armSwing * Math.PI);
             const held = this.getSelectedItem();
             const heldGun = held && ITEM_REGISTRY[held.itemId]?.isGun;
+            const heldKnife = held && ITEM_REGISTRY[held.itemId]?.isKnife;
 
             if (heldGun) {
                 const arenaReload = this.game?.arenaClient?.isActive && this.game.arenaClient.localState?.reloadRemaining > 0;
@@ -2431,6 +2564,8 @@ class Player {
                 // Minecraft-style Shield / Sword blocking pose (raised in front of chest)
                 this.itemPivot.position.set(0.12, -0.22, -0.44);
                 this.itemPivot.rotation.set(-0.35, 0.45, -0.65);
+            } else if (heldKnife) {
+                this.updateKnifeView(dt, bobX, bobY, swingOffset);
             } else {
                 this.itemPivot.position.set(
                     (held ? .50 : .35) + bobX - swingOffset * .16,
@@ -2647,6 +2782,60 @@ class Player {
             this.gunRecoilPitch -= recovery;
         }
         this.weaponKick = (this.weaponKick || 0) * Math.exp(-13 * time);
+    }
+
+
+    // --- Knife viewmodel: pose, breathing, draw, 3 alternating attacks, inspect (key X) ---
+    inspectKnife() {
+        const held = this.getSelectedItem();
+        if (!held || !ITEM_REGISTRY[held.itemId]?.isKnife || this.isDead || this.isThirdPerson) return false;
+        if (this.knifeInspect > 0 || this.armSwing > 0 || this.knifeDraw > 0.2) return false;
+        this.knifeInspect = 1;
+        this.soundManager?.playClick?.();
+        return true;
+    }
+
+    updateKnifeView(dt, bobX, bobY, swing) {
+        // a fresh swing starts when armSwing jumps back up: rotate slash / back-slash / stab
+        if (this.armSwing > (this._knifePrevSwing || 0) + 0.4) {
+            this.knifeSwingIdx = ((this.knifeSwingIdx || 0) + 1) % 3;
+            this.knifeInspect = 0;
+        }
+        this._knifePrevSwing = this.armSwing;
+        this.knifeDraw = Math.max(0, (this.knifeDraw || 0) - dt * 3.2);
+        if (this.knifeInspect > 0) this.knifeInspect = Math.max(0, this.knifeInspect - dt / 1.9);
+
+        const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+        let px = .22 + bobX, py = -.215 + bobY + Math.sin(t * 1.6) * .004, pz = -.43;
+        let rx = .34, ry = .52, rz = -.34 + Math.sin(t * 1.3) * .012;
+
+        if (this.isSprinting && this.onGround && !this.isAiming) { py -= .05; px += .03; rx -= .28; rz -= .12; }
+
+        const draw = (this.knifeDraw || 0) ** 2;
+        if (draw > 0) { py -= draw * .42; px += draw * .12; rx -= draw * 1.2; rz += draw * .9; }
+
+        const s = swing;
+        if (s > 0) {
+            const k = this.knifeSwingIdx || 0;
+            if (k === 0) { px -= s * .36; py -= s * .08; pz -= s * .12; ry += s * .95; rz -= s * .6; rx += s * .1; }
+            else if (k === 1) { px -= s * .1; py += s * .14; pz -= s * .10; ry -= s * .55; rz += s * .95; rx -= s * .22; }
+            else { pz -= s * .38; py += s * .05; px -= s * .08; rx -= s * .18; ry *= 1 - s * .55; }
+        }
+
+        // inspect: the knife is lifted toward the centre and rolled around its own axis; the arm stays put
+        const ins = this.knifeInspect || 0;
+        let roll = 0, tilt = 0;
+        if (ins > 0) {
+            const p = 1 - ins, e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;   // ease in/out
+            const lift = Math.sin(p * Math.PI);
+            px += (.16 - px) * lift * .6; py += .05 * lift; pz += .05 * lift;
+            ry += lift * .35; rx += lift * .12;
+            roll = e * Math.PI * 2; tilt = lift * .5;
+        }
+        if (this.heldKnifeMesh) this.heldKnifeMesh.rotation.set(0, tilt * .4, roll);
+
+        this.itemPivot.position.set(px, py, pz);
+        this.itemPivot.rotation.set(rx, ry, rz);
     }
 
     toggleScope() { this.setAiming(!this.isAiming); }

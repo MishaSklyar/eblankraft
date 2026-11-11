@@ -105,6 +105,7 @@ const ITEM_TYPES = {
     AK47: 'ak47',
     M4A1: 'm4a1',
     AWP: 'awp',
+    AWP_DRAGON_LORE: 'awp_dragon_lore',
     SHOTGUN: 'shotgun',
     DEAGLE: 'deagle',
     GLOCK: 'glock',
@@ -308,6 +309,7 @@ const ITEM_REGISTRY = {
     // --- FIREARMS & WEAPONS ARSENAL ---
     [ITEM_TYPES.AK47]: { id: ITEM_TYPES.AK47, name: "Автомат АК-47 💥", category: 'weapon', icon: 'ak47', maxStack: 1, attackDamage: 48, isGun: true, gunType: 'ak47', ammoType: ITEM_TYPES.AMMO_RIFLE },
     [ITEM_TYPES.M4A1]: { id: ITEM_TYPES.M4A1, name: "Штурмова гвинтівка M4A1", category: 'weapon', icon: 'm4a1', maxStack: 1, attackDamage: 40, isGun: true, gunType: 'm4a1', ammoType: ITEM_TYPES.AMMO_RIFLE },
+    [ITEM_TYPES.AWP_DRAGON_LORE]: { id: ITEM_TYPES.AWP_DRAGON_LORE, name: "AWP | Dragon Lore (Souvenir) ★", category: 'weapon', icon: 'awp_dragon_lore', maxStack: 1, attackDamage: 150, isGun: true, gunType: 'awp', skin: 'dragon_lore', ammoType: ITEM_TYPES.AMMO_SNIPER, rarity: 'legendary', souvenir: true, value: 25000 },
     [ITEM_TYPES.AWP]: { id: ITEM_TYPES.AWP, name: "Снайперська гвинтівка AWP", category: 'weapon', icon: 'awp', maxStack: 1, attackDamage: 150, isGun: true, gunType: 'awp', ammoType: ITEM_TYPES.AMMO_SNIPER },
     [ITEM_TYPES.SHOTGUN]: { id: ITEM_TYPES.SHOTGUN, name: "Дробовик SPAS-12", category: 'weapon', icon: 'shotgun', maxStack: 1, attackDamage: 90, isGun: true, gunType: 'shotgun', ammoType: ITEM_TYPES.AMMO_SHOTGUN },
     [ITEM_TYPES.DEAGLE]: { id: ITEM_TYPES.DEAGLE, name: "Пістолет Desert Eagle .50", category: 'weapon', icon: 'deagle', maxStack: 1, attackDamage: 65, isGun: true, gunType: 'deagle', ammoType: ITEM_TYPES.AMMO_PISTOL },
