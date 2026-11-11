@@ -1298,6 +1298,19 @@ class MultiplayerManager {
                     if (this.game.ui) this.game.ui.showToast('🏡 Село з жителями збудовано!');
                 }
                 break;
+            case '/mob': {
+                const type = String(parts[1] || '').toLowerCase();
+                const defs = window.MOB_DEFS || {};
+                if (this.game && this.game.mobManager && this.game.player && defs[type] && type !== 'slime_small') {
+                    const p = this.game.player.position;
+                    this.game.mobManager.spawnMob(type, p.x + 1.5, p.y, p.z + 1.5);
+                    this.addChatMessage('СИСТЕМА', `Заспавнено: ${defs[type].name}`, true);
+                } else {
+                    const names = Object.keys(defs).filter(k => k !== 'slime_small').join(', ');
+                    this.addChatMessage('СИСТЕМА', `Використання: /mob <${names}>`, true);
+                }
+                break;
+            }
             case '/villager':
                 if (this.game && this.game.mobManager && this.game.player) {
                     const p = this.game.player.position;

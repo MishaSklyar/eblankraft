@@ -246,14 +246,314 @@ class EndCrystal {
     }
 }
 
+// --- MOB DEFINITIONS (data-driven: add a new mob = add one entry here) ---
+// ai: 'melee' | 'creeper' | 'enderman' | 'villager' | 'animal' | 'ranged' | 'slime'
+// hostile mobs count towards the hostile spawn cap, everything else towards the passive one.
+const _boxGeoCache = new Map();
+function _boxGeo(w, h, d) {
+    const key = w + 'x' + h + 'x' + d;
+    let g = _boxGeoCache.get(key);
+    if (!g) {
+        g = new THREE.BoxGeometry(w, h, d);
+        _boxGeoCache.set(key, g);
+    }
+    return g;
+}
+
+const _rnd = (n) => Math.floor(Math.random() * n);
+
+// Shared by all mob attacks: applies the player's armour/upgrade damage reduction.
+function _mobDamage(game, dmg) {
+    if (game && game.upgrader) {
+        return Math.max(1, Math.round(dmg * (1 - game.upgrader.getDamageReduction())));
+    }
+    return dmg;
+}
+
+// Builds a 4-legged body (pig / cow / sheep share it)
+function _buildQuadruped(mob, box, o) {
+    mob.torso = box(o.bw, o.bh, o.bl, o.body, 0, o.legH + o.bh / 2, 0);
+    mob.head = box(o.hw, o.hh, o.hl, o.headColor || o.body, 0, o.legH + o.bh * 0.8, o.bl / 2 + o.hl / 2 - 0.05);
+    const lx = o.bw / 2 - o.lw / 2, lz = o.bl / 2 - o.lw / 2 - 0.02;
+    mob.leftLeg = box(o.lw, o.legH, o.lw, o.legColor || o.body, -lx, o.legH / 2, lz);
+    mob.rightLeg = box(o.lw, o.legH, o.lw, o.legColor || o.body, lx, o.legH / 2, lz);
+    mob.backLeftLeg = box(o.lw, o.legH, o.lw, o.legColor || o.body, -lx, o.legH / 2, -lz);
+    mob.backRightLeg = box(o.lw, o.legH, o.lw, o.legColor || o.body, lx, o.legH / 2, -lz);
+}
+
+const MOB_DEFS = {
+    zombie: {
+        name: 'Зомбі-Єблан', ai: 'melee', hostile: true, burnsInDay: true, groan: true,
+        height: 1.95, hp: 28, speed: 2.0, damage: 5, reach: 1.5, exp: 20,
+        build(m, box) {
+            m.head = box(0.48, 0.48, 0.48, 0x4fa846, 0, 1.48, 0);
+            m.torso = box(0.48, 0.68, 0.28, 0x1f78b4, 0, 0.9, 0);
+            m.leftArm = box(0.2, 0.6, 0.2, 0x4fa846, -0.35, 0.85, 0.2);
+            m.leftArm.rotation.x = -Math.PI / 2.5; // zombie hands forward!
+            m.rightArm = box(0.2, 0.6, 0.2, 0x4fa846, 0.35, 0.85, 0.2);
+            m.rightArm.rotation.x = -Math.PI / 2.5;
+            m.leftLeg = box(0.22, 0.65, 0.22, 0x223366, -0.14, 0.32, 0);
+            m.rightLeg = box(0.22, 0.65, 0.22, 0x223366, 0.14, 0.32, 0);
+        },
+        loot(g, x, y, z) {
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.ROTTEN_FLESH, _rnd(2) + 1);
+            if (Math.random() < 0.35) g.spawnItemDrop(x, y, z, ITEM_TYPES.IRON_INGOT, 1);
+            if (Math.random() < 0.4) g.spawnItemDrop(x, y, z, JUNK_ITEMS_POOL[_rnd(JUNK_ITEMS_POOL.length)], 1);
+        }
+    },
+    skeleton: {
+        name: 'Скелет-Єблан', ai: 'ranged', hostile: true, burnsInDay: true,
+        height: 1.95, hp: 20, speed: 2.1, damage: 7, reach: 14, exp: 28,
+        build(m, box) {
+            const bone = 0xe6e6da, dark = 0x2b2b2b;
+            m.head = box(0.46, 0.46, 0.46, bone, 0, 1.5, 0);
+            box(0.1, 0.08, 0.02, dark, -0.1, 1.53, 0.24);
+            box(0.1, 0.08, 0.02, dark, 0.1, 1.53, 0.24);
+            m.torso = box(0.4, 0.66, 0.2, bone, 0, 0.92, 0);
+            box(0.42, 0.06, 0.22, dark, 0, 0.98, 0); // ribs
+            box(0.42, 0.06, 0.22, dark, 0, 0.86, 0);
+            m.leftArm = box(0.1, 0.62, 0.1, bone, -0.3, 0.9, 0.1);
+            m.leftArm.rotation.x = -Math.PI / 3;
+            m.rightArm = box(0.1, 0.62, 0.1, bone, 0.3, 0.9, 0.1);
+            m.rightArm.rotation.x = -Math.PI / 3;
+            box(0.05, 0.7, 0.05, 0x8a5a2b, 0, 0.95, 0.38); // bow
+            m.leftLeg = box(0.11, 0.65, 0.11, bone, -0.11, 0.32, 0);
+            m.rightLeg = box(0.11, 0.65, 0.11, bone, 0.11, 0.32, 0);
+        },
+        loot(g, x, y, z) {
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.REDSTONE_DUST, _rnd(2) + 1);
+            if (Math.random() < 0.3) g.spawnItemDrop(x, y, z, ITEM_TYPES.IRON_INGOT, 1);
+        }
+    },
+    spider: {
+        name: 'Павук-Єблан', ai: 'melee', hostile: true, neutralByDay: true,
+        height: 0.9, hp: 18, speed: 3.3, damage: 4, reach: 1.5, exp: 25, width: 0.9,
+        build(m, box) {
+            const fur = 0x3b2f2f, dark = 0x1a1414;
+            m.torso = box(0.7, 0.4, 0.9, fur, 0, 0.55, -0.15);
+            m.head = box(0.5, 0.4, 0.5, dark, 0, 0.55, 0.5);
+            box(0.1, 0.1, 0.02, 0xff2222, -0.12, 0.6, 0.76);
+            box(0.1, 0.1, 0.02, 0xff2222, 0.12, 0.6, 0.76);
+            m.leftLeg = box(0.8, 0.08, 0.08, dark, -0.7, 0.45, 0.25);
+            m.rightLeg = box(0.8, 0.08, 0.08, dark, 0.7, 0.45, 0.25);
+            m.backLeftLeg = box(0.8, 0.08, 0.08, dark, -0.7, 0.45, -0.4);
+            m.backRightLeg = box(0.8, 0.08, 0.08, dark, 0.7, 0.45, -0.4);
+            m.legRollAxis = 'z';
+        },
+        loot(g, x, y, z) {
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.ROTTEN_FLESH, _rnd(2) + 1);
+            if (Math.random() < 0.25) g.spawnItemDrop(x, y, z, ITEM_TYPES.GUNPOWDER, 1);
+        }
+    },
+    slime: {
+        name: 'Слиз-Єблан', ai: 'slime', hostile: true,
+        height: 1.0, hp: 16, speed: 3.0, damage: 6, reach: 1.1, exp: 18, width: 1.0,
+        build(m, box) {
+            m.torso = box(0.9, 0.9, 0.9, 0x5fd45f, 0, 0.5, 0);
+            m.head = m.torso;
+            box(0.14, 0.14, 0.02, 0x143d14, -0.2, 0.62, 0.46);
+            box(0.14, 0.14, 0.02, 0x143d14, 0.2, 0.62, 0.46);
+        },
+        onDeath(m, g) { // splits into two small slimes
+            for (let i = 0; i < 2; i++) {
+                const s = g.spawnMob('slime_small', m.position.x + (i ? 0.4 : -0.4), m.position.y + 0.1, m.position.z);
+                s.velocity.set((i ? 1 : -1) * 3, 5, 0);
+            }
+        },
+        loot(g, x, y, z) {
+            if (Math.random() < 0.3) g.spawnItemDrop(x, y, z, ITEM_TYPES.EMERALD, 1);
+        }
+    },
+    slime_small: {
+        name: 'Малий слиз', ai: 'slime', hostile: true,
+        height: 0.5, hp: 5, speed: 2.6, damage: 3, reach: 0.8, exp: 6, width: 0.5,
+        build(m, box) {
+            m.torso = box(0.45, 0.45, 0.45, 0x7be87b, 0, 0.25, 0);
+            m.head = m.torso;
+            box(0.07, 0.07, 0.02, 0x143d14, -0.1, 0.3, 0.23);
+            box(0.07, 0.07, 0.02, 0x143d14, 0.1, 0.3, 0.23);
+        },
+        loot(g, x, y, z) {
+            if (Math.random() < 0.4) g.spawnItemDrop(x, y, z, JUNK_ITEMS_POOL[_rnd(JUNK_ITEMS_POOL.length)], 1);
+        }
+    },
+    creeper: {
+        name: 'Кріпер-Єблан', ai: 'creeper', hostile: true,
+        height: 1.7, hp: 24, speed: 2.3, damage: 22, reach: 1.8, exp: 30,
+        build(m, box) {
+            m.head = box(0.46, 0.46, 0.46, 0x3cb043, 0, 1.35, 0);
+            m.torso = box(0.44, 0.66, 0.26, 0x2e8b57, 0, 0.8, 0);
+            m.leftLeg = box(0.2, 0.45, 0.2, 0x3cb043, -0.14, 0.22, 0.12);
+            m.rightLeg = box(0.2, 0.45, 0.2, 0x3cb043, 0.14, 0.22, 0.12);
+            m.backLeftLeg = box(0.2, 0.45, 0.2, 0x2e8b57, -0.14, 0.22, -0.12);
+            m.backRightLeg = box(0.2, 0.45, 0.2, 0x2e8b57, 0.14, 0.22, -0.12);
+        },
+        loot(g, x, y, z) {
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.GUNPOWDER, _rnd(3) + 1);
+            if (Math.random() < 0.25) g.spawnItemDrop(x, y, z, ITEM_TYPES.TNT, 1);
+        }
+    },
+    piglin: {
+        name: 'Незерський Піглін', ai: 'melee', hostile: true,
+        height: 1.95, hp: 36, speed: 2.8, damage: 8, reach: 1.6, exp: 35,
+        build(m, box) {
+            m.head = box(0.55, 0.48, 0.5, 0xeea5a5, 0, 1.48, 0);
+            m.torso = box(0.48, 0.68, 0.28, 0x8a4b23, 0, 0.9, 0);
+            m.leftArm = box(0.2, 0.6, 0.2, 0xeea5a5, -0.35, 0.85, 0);
+            m.rightArm = box(0.2, 0.6, 0.2, 0xeea5a5, 0.35, 0.85, 0);
+            m.leftLeg = box(0.22, 0.65, 0.22, 0x5a2d12, -0.14, 0.32, 0);
+            m.rightLeg = box(0.22, 0.65, 0.22, 0x5a2d12, 0.14, 0.32, 0);
+            const sword = box(0.08, 0.45, 0.08, 0xf5c518, 0.35, 0.55, 0.2); // gold sword
+            sword.rotation.x = -Math.PI / 4;
+        },
+        loot(g, x, y, z) {
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.GOLD_INGOT, _rnd(2) + 1);
+            if (Math.random() < 0.4) g.spawnItemDrop(x, y, z, ITEM_TYPES.BLAZE_ROD, 1);
+        }
+    },
+    enderman: {
+        name: 'Ендер-Єблан', ai: 'enderman', hostile: true,
+        height: 2.9, hp: 55, speed: 4.0, damage: 12, reach: 2.2, exp: 60,
+        build(m, box) {
+            m.head = box(0.38, 0.38, 0.38, 0x111111, 0, 2.65, 0);
+            m.torso = box(0.36, 0.85, 0.2, 0x0a0a0a, 0, 2.05, 0);
+            m.leftArm = box(0.12, 1.2, 0.12, 0x0a0a0a, -0.28, 1.7, 0);
+            m.rightArm = box(0.12, 1.2, 0.12, 0x0a0a0a, 0.28, 1.7, 0);
+            m.leftLeg = box(0.12, 1.45, 0.12, 0x0a0a0a, -0.12, 0.72, 0);
+            m.rightLeg = box(0.12, 1.45, 0.12, 0x0a0a0a, 0.12, 0.72, 0);
+            box(0.08, 0.04, 0.02, 0xda22ff, -0.09, 2.68, 0.2, true); // glowing eyes
+            box(0.08, 0.04, 0.02, 0xda22ff, 0.09, 2.68, 0.2, true);
+        },
+        loot(g, x, y, z) {
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.ENDER_EYE, _rnd(2) + 1);
+            if (Math.random() < 0.5) g.spawnItemDrop(x, y, z, ITEM_TYPES.END_STONE, 2);
+        }
+    },
+    villager: {
+        name: 'Житель села (Торгівець)', ai: 'villager', hostile: false,
+        height: 1.95, hp: 30, speed: 1.6, damage: 0, reach: 1.5, exp: 15,
+        build(m, box) {
+            m.head = box(0.48, 0.52, 0.48, 0xd29676, 0, 1.5, 0);
+            box(0.36, 0.08, 0.04, 0x4a2a16, 0, 1.58, 0.25); // unibrow
+            m.nose = box(0.12, 0.22, 0.16, 0xb87b58, 0, 1.42, 0.3);
+            box(0.08, 0.06, 0.02, 0x1f9933, -0.12, 1.52, 0.25, true);
+            box(0.08, 0.06, 0.02, 0x1f9933, 0.12, 1.52, 0.25, true);
+            m.torso = box(0.52, 0.72, 0.36, 0x8a5533, 0, 0.88, 0);
+            m.foldedArms = box(0.60, 0.24, 0.28, 0x6e4024, 0, 0.86, 0.16);
+            m.skirt = box(0.54, 0.38, 0.38, 0x7a4829, 0, 0.48, 0);
+            m.leftLeg = box(0.2, 0.4, 0.2, 0x4e2c16, -0.13, 0.2, 0);
+            m.rightLeg = box(0.2, 0.4, 0.2, 0x4e2c16, 0.13, 0.2, 0);
+        },
+        loot(g, x, y, z) {
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.EMERALD, _rnd(2) + 1);
+            g.spawnItemDrop(x, y, z, ITEM_TYPES.APPLE, 2);
+        }
+    },
+    // --- Passive farm animals ---
+    pig: {
+        name: 'Свиня', ai: 'animal', hostile: false, animal: true,
+        height: 0.9, hp: 10, speed: 1.4, damage: 0, reach: 1, exp: 4, width: 0.7,
+        build(m, box) {
+            _buildQuadruped(m, box, { bw: 0.55, bh: 0.5, bl: 0.9, body: 0xf0a8a8, hw: 0.45, hh: 0.4, hl: 0.4, lw: 0.2, legH: 0.3 });
+            box(0.22, 0.16, 0.06, 0xd98080, 0, 0.66, 0.83); // snout
+        },
+        loot(g, x, y, z) { g.spawnItemDrop(x, y, z, ITEM_TYPES.COOKED_STEAK, _rnd(2) + 1); }
+    },
+    cow: {
+        name: 'Корова', ai: 'animal', hostile: false, animal: true,
+        height: 1.4, hp: 14, speed: 1.2, damage: 0, reach: 1, exp: 5, width: 0.8,
+        build(m, box) {
+            _buildQuadruped(m, box, { bw: 0.65, bh: 0.65, bl: 1.1, body: 0x4a3a2c, hw: 0.5, hh: 0.5, hl: 0.4, lw: 0.2, legH: 0.55, headColor: 0x5a4636 });
+            box(0.52, 0.3, 0.05, 0xf2f2f2, 0, 1.0, 0.91); // white muzzle
+            box(0.02, 0.3, 0.3, 0xf2f2f2, -0.33, 0.95, 0.1); // patch
+        },
+        loot(g, x, y, z) { g.spawnItemDrop(x, y, z, ITEM_TYPES.COOKED_STEAK, _rnd(2) + 1); }
+    },
+    sheep: {
+        name: 'Вівця', ai: 'animal', hostile: false, animal: true,
+        height: 1.2, hp: 10, speed: 1.2, damage: 0, reach: 1, exp: 4, width: 0.7,
+        build(m, box) {
+            _buildQuadruped(m, box, { bw: 0.7, bh: 0.65, bl: 0.95, body: 0xf1f1f1, hw: 0.4, hh: 0.4, hl: 0.4, lw: 0.16, legH: 0.45, headColor: 0xc9b79a, legColor: 0xc9b79a });
+        },
+        loot(g, x, y, z) { g.spawnItemDrop(x, y, z, ITEM_TYPES.COOKED_STEAK, 1); }
+    },
+    chicken: {
+        name: 'Курка', ai: 'animal', hostile: false, animal: true,
+        height: 0.7, hp: 4, speed: 1.5, damage: 0, reach: 1, exp: 2, width: 0.4,
+        build(m, box) {
+            m.torso = box(0.3, 0.3, 0.4, 0xf4f4f4, 0, 0.4, 0);
+            m.head = box(0.18, 0.28, 0.18, 0xf4f4f4, 0, 0.65, 0.2);
+            box(0.1, 0.06, 0.1, 0xf0a020, 0, 0.62, 0.32); // beak
+            box(0.06, 0.1, 0.06, 0xd22020, 0, 0.82, 0.2); // comb
+            m.leftLeg = box(0.05, 0.25, 0.05, 0xf0a020, -0.08, 0.125, 0);
+            m.rightLeg = box(0.05, 0.25, 0.05, 0xf0a020, 0.08, 0.125, 0);
+        },
+        loot(g, x, y, z) { g.spawnItemDrop(x, y, z, ITEM_TYPES.COOKED_STEAK, 1); }
+    }
+};
+window.MOB_DEFS = MOB_DEFS;
+
+// --- SKELETON ARROW (lives in MobManager.fireballs so it is updated/hidden/cleared with them) ---
+const _arrowMat = new THREE.MeshBasicMaterial({ color: 0xd8d0b8 });
+const _arrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.6);
+const _arrowTarget = new THREE.Vector3();
+class MobArrow {
+    constructor(x, y, z, dir, damage, scene, game) {
+        this.scene = scene;
+        this.game = game;
+        this.damage = damage;
+        this.position = new THREE.Vector3(x, y, z);
+        this.velocity = dir.clone().multiplyScalar(22);
+        this.age = 0;
+        this.exploded = false;
+        this.mesh = new THREE.Mesh(_arrowGeo, _arrowMat);
+        this.mesh.position.copy(this.position);
+        this.mesh.lookAt(_arrowTarget.copy(this.position).add(this.velocity));
+        scene.add(this.mesh);
+    }
+
+    update(dt, player, world) {
+        if (this.exploded) return;
+        this.age += dt;
+        if (this.age > 6) { this.destroy(); return; }
+        this.velocity.y -= 4 * dt;
+        this.position.addScaledVector(this.velocity, dt);
+        this.mesh.position.copy(this.position);
+        this.mesh.lookAt(_arrowTarget.copy(this.position).add(this.velocity));
+
+        const dx = this.position.x - player.position.x;
+        const dy = this.position.y - (player.position.y + 0.9);
+        const dz = this.position.z - player.position.z;
+        if (dx * dx + dy * dy + dz * dz < 0.64) {
+            player.takeDamage(_mobDamage(this.game, this.damage), 'Тебе підстрелив Скелет-Єблан!');
+            this.destroy();
+            return;
+        }
+        const b = world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y), Math.floor(this.position.z));
+        if (b !== BLOCK_TYPES.AIR && b !== BLOCK_TYPES.WATER) this.destroy();
+    }
+
+    destroy() {
+        this.exploded = true;
+        if (this.mesh) {
+            this.scene.remove(this.mesh); // geometry/material are shared, never disposed
+            this.mesh = null;
+        }
+    }
+}
+window.MobArrow = MobArrow;
+
 // --- BASE MOB ENTITY ---
 const _vToPlayer = new THREE.Vector3();
 const _vPlayerLook = new THREE.Vector3();
 const _vToMobNorm = new THREE.Vector3();
+const _vTry = new THREE.Vector3();
+const _vShot = new THREE.Vector3();
 
 class MobEntity {
     constructor(type, x, y, z, scene, textureManager, soundManager, game) {
-        this.type = type; // 'zombie' | 'creeper' | 'piglin' | 'enderman'
+        this.type = type; // key of MOB_DEFS
+        this.def = MOB_DEFS[type] || MOB_DEFS.zombie;
         this.scene = scene;
         this.textureManager = textureManager;
         this.soundManager = soundManager;
@@ -267,80 +567,42 @@ class MobEntity {
         this.walkCycle = 0;
         this.hurtTimer = 0;
         this.attackCooldown = 0;
+        this._tint = 0; // 0 normal, 1 red, 2 white
+        this._sunTimer = Math.random() * 0.5;
+        this._exposed = false;
+        this.panicTimer = 0;
+        this.hopTimer = 0.5 + Math.random();
+        this.shootTimer = 1 + Math.random() * 1.5;
 
-        // Stats by mob type
         this.setupStats();
         this.createMesh();
     }
 
     setupStats() {
-        this.width = 0.6;
-        this.depth = 0.6;
+        const d = this.def;
+        this.width = d.width || 0.6;
+        this.depth = this.width;
+        this.height = d.height;
+        this.maxHealth = d.hp;
+        this.health = d.hp;
+        this.speed = d.speed;
+        this.damage = d.damage;
+        this.reach = d.reach;
+        this.expReward = d.exp;
+        this.isPassive = !d.hostile;
         this.wanderTimer = Math.random() * 3;
         this.wanderDir = new THREE.Vector3();
         this.isAngry = false;
-
-        switch (this.type) {
-            case 'zombie':
-                this.height = 1.95;
-                this.maxHealth = 28;
-                this.health = 28;
-                this.speed = 2.0;
-                this.damage = 5;
-                this.reach = 1.5;
-                this.expReward = 20;
-                break;
-            case 'creeper':
-                this.height = 1.7;
-                this.maxHealth = 24;
-                this.health = 24;
-                this.speed = 2.3;
-                this.damage = 22;
-                this.reach = 1.8;
-                this.fuseTimer = 0;
-                this.isFusing = false;
-                this.expReward = 30;
-                break;
-            case 'piglin':
-                this.height = 1.95;
-                this.maxHealth = 36;
-                this.health = 36;
-                this.speed = 2.8;
-                this.damage = 8;
-                this.reach = 1.6;
-                this.expReward = 35;
-                break;
-            case 'enderman':
-                this.height = 2.9;
-                this.maxHealth = 55;
-                this.health = 55;
-                this.speed = 4.0;
-                this.damage = 12;
-                this.reach = 2.2;
-                this.teleportCooldown = 0;
-                this.expReward = 60;
-                break;
-            case 'villager':
-                this.height = 1.95;
-                this.maxHealth = 30;
-                this.health = 30;
-                this.speed = 1.6;
-                this.damage = 0;
-                this.reach = 1.5;
-                this.expReward = 15;
-                this.isPassive = true;
-                break;
-        }
+        if (d.ai === 'creeper') { this.fuseTimer = 0; this.isFusing = false; }
+        if (d.ai === 'enderman') this.teleportCooldown = 0;
     }
 
     checkCollision(pos, world) {
         if (!world) return false;
-        const minX = Math.floor(pos.x - this.width / 2 + 0.02);
-        const maxX = Math.floor(pos.x + this.width / 2 - 0.02);
-        const minY = Math.floor(pos.y + 0.02);
-        const maxY = Math.floor(pos.y + this.height - 0.02);
-        const minZ = Math.floor(pos.z - this.depth / 2 + 0.02);
-        const maxZ = Math.floor(pos.z + this.depth / 2 - 0.02);
+        const hw = this.width / 2 - 0.02, hd = this.depth / 2 - 0.02;
+        const minX = Math.floor(pos.x - hw), maxX = Math.floor(pos.x + hw);
+        const minY = Math.floor(pos.y + 0.02), maxY = Math.floor(pos.y + this.height - 0.02);
+        const minZ = Math.floor(pos.z - hd), maxZ = Math.floor(pos.z + hd);
 
         for (let x = minX; x <= maxX; x++) {
             for (let y = minY; y <= maxY; y++) {
@@ -358,135 +620,56 @@ class MobEntity {
     createMesh() {
         this.group = new THREE.Group();
         this.group.position.copy(this.position);
+        this._meshes = [];
 
-        const createBox = (w, h, d, color) => {
-            const geom = new THREE.BoxGeometry(w, h, d);
-            const mat = new THREE.MeshLambertMaterial({ color });
-            return new THREE.Mesh(geom, mat);
+        // box(w,h,d,color,x,y,z[,unlit]) -> mesh already attached to the group
+        const box = (w, h, d, color, x, y, z, unlit) => {
+            const mat = unlit ? new THREE.MeshBasicMaterial({ color }) : new THREE.MeshLambertMaterial({ color });
+            const mesh = new THREE.Mesh(_boxGeo(w, h, d), mat);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = !unlit;
+            mesh.receiveShadow = !unlit;
+            if (!unlit) mesh.userData.origColor = color; // restored after hurt / fuse flashes
+            this.group.add(mesh);
+            if (!unlit) this._meshes.push(mesh);
+            return mesh;
         };
-
-        if (this.type === 'zombie') {
-            // Green head, blue shirt, dark pants
-            this.head = createBox(0.48, 0.48, 0.48, 0x4fa846);
-            this.head.position.y = 1.48;
-            this.torso = createBox(0.48, 0.68, 0.28, 0x1f78b4);
-            this.torso.position.y = 0.9;
-            this.leftArm = createBox(0.2, 0.6, 0.2, 0x4fa846);
-            this.leftArm.position.set(-0.35, 0.85, 0.2);
-            this.leftArm.rotation.x = -Math.PI / 2.5; // zombie hands forward!
-            this.rightArm = createBox(0.2, 0.6, 0.2, 0x4fa846);
-            this.rightArm.position.set(0.35, 0.85, 0.2);
-            this.rightArm.rotation.x = -Math.PI / 2.5;
-            this.leftLeg = createBox(0.22, 0.65, 0.22, 0x223366);
-            this.leftLeg.position.set(-0.14, 0.32, 0);
-            this.rightLeg = createBox(0.22, 0.65, 0.22, 0x223366);
-            this.rightLeg.position.set(0.14, 0.32, 0);
-
-            this.group.add(this.head, this.torso, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg);
-        } else if (this.type === 'creeper') {
-            // Mottled green body, 4 legs
-            this.head = createBox(0.46, 0.46, 0.46, 0x3cb043);
-            this.head.position.y = 1.35;
-            this.torso = createBox(0.44, 0.66, 0.26, 0x2e8b57);
-            this.torso.position.y = 0.8;
-            this.leftLeg = createBox(0.2, 0.45, 0.2, 0x3cb043);
-            this.leftLeg.position.set(-0.14, 0.22, 0.12);
-            this.rightLeg = createBox(0.2, 0.45, 0.2, 0x3cb043);
-            this.rightLeg.position.set(0.14, 0.22, 0.12);
-            this.backLeftLeg = createBox(0.2, 0.45, 0.2, 0x2e8b57);
-            this.backLeftLeg.position.set(-0.14, 0.22, -0.12);
-            this.backRightLeg = createBox(0.2, 0.45, 0.2, 0x2e8b57);
-            this.backRightLeg.position.set(0.14, 0.22, -0.12);
-
-            this.group.add(this.head, this.torso, this.leftLeg, this.rightLeg, this.backLeftLeg, this.backRightLeg);
-        } else if (this.type === 'piglin') {
-            // Pig head, brown tunic, sword in hand
-            this.head = createBox(0.55, 0.48, 0.5, 0xeea5a5);
-            this.head.position.y = 1.48;
-            this.torso = createBox(0.48, 0.68, 0.28, 0x8a4b23);
-            this.torso.position.y = 0.9;
-            this.leftArm = createBox(0.2, 0.6, 0.2, 0xeea5a5);
-            this.leftArm.position.set(-0.35, 0.85, 0);
-            this.rightArm = createBox(0.2, 0.6, 0.2, 0xeea5a5);
-            this.rightArm.position.set(0.35, 0.85, 0);
-            this.leftLeg = createBox(0.22, 0.65, 0.22, 0x5a2d12);
-            this.leftLeg.position.set(-0.14, 0.32, 0);
-            this.rightLeg = createBox(0.22, 0.65, 0.22, 0x5a2d12);
-            this.rightLeg.position.set(0.14, 0.32, 0);
-
-            // Gold sword in right hand
-            const sword = createBox(0.08, 0.45, 0.08, 0xf5c518);
-            sword.position.set(0.35, 0.55, 0.2);
-            sword.rotation.x = -Math.PI / 4;
-            this.group.add(sword);
-
-            this.group.add(this.head, this.torso, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg);
-        } else if (this.type === 'enderman') {
-            // Tall, sleek black body, glowing purple eyes
-            this.head = createBox(0.38, 0.38, 0.38, 0x111111);
-            this.head.position.y = 2.65;
-            this.torso = createBox(0.36, 0.85, 0.2, 0x0a0a0a);
-            this.torso.position.y = 2.05;
-            this.leftArm = createBox(0.12, 1.2, 0.12, 0x0a0a0a);
-            this.leftArm.position.set(-0.28, 1.7, 0);
-            this.rightArm = createBox(0.12, 1.2, 0.12, 0x0a0a0a);
-            this.rightArm.position.set(0.28, 1.7, 0);
-            this.leftLeg = createBox(0.12, 1.45, 0.12, 0x0a0a0a);
-            this.leftLeg.position.set(-0.12, 0.72, 0);
-            this.rightLeg = createBox(0.12, 1.45, 0.12, 0x0a0a0a);
-            this.rightLeg.position.set(0.12, 0.72, 0);
-
-            // Glowing purple eyes
-            const eyeGeom = new THREE.BoxGeometry(0.08, 0.04, 0.02);
-            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xda22ff });
-            const eyeL = new THREE.Mesh(eyeGeom, eyeMat);
-            eyeL.position.set(-0.09, 2.68, 0.2);
-            const eyeR = new THREE.Mesh(eyeGeom, eyeMat);
-            eyeR.position.set(0.09, 2.68, 0.2);
-
-            this.group.add(this.head, this.torso, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg, eyeL, eyeR);
-        } else if (this.type === 'villager') {
-            // Classic Minecraft Villager (head, prominent nose, brown robe, folded arms, skirt, legs)
-            this.head = createBox(0.48, 0.52, 0.48, 0xd29676);
-            this.head.position.y = 1.5;
-
-            const unibrow = createBox(0.36, 0.08, 0.04, 0x4a2a16);
-            unibrow.position.set(0, 1.58, 0.25);
-
-            this.nose = createBox(0.12, 0.22, 0.16, 0xb87b58);
-            this.nose.position.set(0, 1.42, 0.3);
-
-            const eyeGeom = new THREE.BoxGeometry(0.08, 0.06, 0.02);
-            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1f9933 });
-            const eyeL = new THREE.Mesh(eyeGeom, eyeMat);
-            eyeL.position.set(-0.12, 1.52, 0.25);
-            const eyeR = new THREE.Mesh(eyeGeom, eyeMat);
-            eyeR.position.set(0.12, 1.52, 0.25);
-
-            this.torso = createBox(0.52, 0.72, 0.36, 0x8a5533);
-            this.torso.position.y = 0.88;
-
-            this.foldedArms = createBox(0.60, 0.24, 0.28, 0x6e4024);
-            this.foldedArms.position.set(0, 0.86, 0.16);
-
-            this.skirt = createBox(0.54, 0.38, 0.38, 0x7a4829);
-            this.skirt.position.set(0, 0.48, 0);
-
-            this.leftLeg = createBox(0.2, 0.4, 0.2, 0x4e2c16);
-            this.leftLeg.position.set(-0.13, 0.2, 0);
-            this.rightLeg = createBox(0.2, 0.4, 0.2, 0x4e2c16);
-            this.rightLeg.position.set(0.13, 0.2, 0);
-
-            this.group.add(this.head, unibrow, this.nose, eyeL, eyeR, this.torso, this.foldedArms, this.skirt, this.leftLeg, this.rightLeg);
-        }
-
-        this.group.traverse((child) => {
-            if (child.isMesh) {
-                child.castShadow = true;
-                child.receiveShadow = true;
-            }
-        });
+        this.def.build(this, box);
         this.scene.add(this.group);
+    }
+
+    // Tint all lit parts. Cheap no-op when the state does not change.
+    _setTint(mode) {
+        if (this._tint === mode) return;
+        this._tint = mode;
+        const meshes = this._meshes;
+        if (!meshes) return;
+        for (let i = 0; i < meshes.length; i++) {
+            const m = meshes[i];
+            m.material.color.setHex(mode === 1 ? 0xff3333 : mode === 2 ? 0xffffff : m.userData.origColor);
+        }
+    }
+
+    // Simple wander used by passive mobs; returns true while moving.
+    _wander(dt, speed, idleChance) {
+        this.wanderTimer -= dt;
+        if (this.wanderTimer <= 0) {
+            this.wanderTimer = 2.5 + Math.random() * 4;
+            if (Math.random() >= idleChance) {
+                const a = Math.random() * Math.PI * 2;
+                this.wanderDir.set(Math.sin(a), 0, Math.cos(a));
+            } else {
+                this.wanderDir.set(0, 0, 0);
+            }
+        }
+        this.velocity.x = this.wanderDir.x * speed;
+        this.velocity.z = this.wanderDir.z * speed;
+        const moving = this.velocity.x !== 0 || this.velocity.z !== 0;
+        if (moving) {
+            this.yaw = Math.atan2(this.velocity.x, this.velocity.z);
+            this.walkCycle += dt * (speed > 2 ? 8 : 5);
+        }
+        return moving;
     }
 
     update(dt, player, world) {
@@ -495,19 +678,17 @@ class MobEntity {
         // Hurt flash cooldown
         if (this.hurtTimer > 0) {
             this.hurtTimer -= dt;
-            if (this.hurtTimer <= 0) {
-                this.resetColor();
-            }
+            if (this.hurtTimer <= 0) this.resetColor();
         }
-
         if (this.attackCooldown > 0) this.attackCooldown -= dt;
+        if (this.panicTimer > 0) this.panicTimer -= dt;
 
-        // Vector and distance to player
+        const ai = this.def.ai;
         const toPlayer = _vToPlayer.subVectors(player.position, this.position);
         const dist = toPlayer.length();
 
         // Enderman player gaze / eye contact detection
-        if (this.type === 'enderman' && !this.isAngry && dist < 26 && player.camera) {
+        if (ai === 'enderman' && !this.isAngry && dist < 26 && player.camera) {
             player.camera.getWorldDirection(_vPlayerLook);
             const toMobNorm = _vToMobNorm.copy(toPlayer).negate().normalize();
             if (_vPlayerLook.dot(toMobNorm) > 0.95) {
@@ -517,16 +698,14 @@ class MobEntity {
         }
 
         // Creeper swelling & explosion
-        if (this.type === 'creeper') {
+        if (ai === 'creeper') {
             if (dist < 3.2) {
                 if (!this.isFusing) {
                     this.isFusing = true;
                     if (this.soundManager) this.soundManager.playCreeperHiss();
                 }
                 this.fuseTimer += dt;
-                const flash = Math.sin(this.fuseTimer * 20) > 0;
-                this.setFlashWhite(flash);
-
+                this._setTint(Math.sin(this.fuseTimer * 20) > 0 ? 2 : 0);
                 if (this.fuseTimer >= 1.5) {
                     this.explode(world, player);
                     return;
@@ -534,14 +713,16 @@ class MobEntity {
             } else {
                 this.isFusing = false;
                 this.fuseTimer = Math.max(0, this.fuseTimer - dt * 1.5);
-                this.setFlashWhite(false);
+                if (this._tint === 2) this._setTint(0);
             }
         }
 
-        // AI Movement Decision
-        const shouldChase = (this.type !== 'enderman' && this.type !== 'villager')
-            ? (dist > this.reach && dist < 34)
-            : (this.isAngry && dist > this.reach && dist < 38);
+        // ---------------- AI ----------------
+        // Spiders are neutral during the day until provoked.
+        const dayCalm = this.def.neutralByDay && !this.isAngry && this._isDay();
+        const hunts = (ai === 'enderman') ? (this.isAngry && dist < 38)
+            : (ai === 'villager' || ai === 'animal') ? false
+            : !dayCalm && dist < 34;
 
         if (this.isScriptBot) {
             const target = this.botFollowPlayer ? player.position : this.botTarget;
@@ -560,89 +741,70 @@ class MobEntity {
                     this.botTarget = null;
                 }
             }
-        } else if (shouldChase) {
+        } else if (ai === 'ranged') {
+            this._aiRanged(dt, player, world, toPlayer, dist, hunts);
+        } else if (ai === 'slime') {
+            this._aiSlime(dt, player, toPlayer, dist, hunts);
+        } else if (hunts && dist > this.reach) {
             this.yaw = Math.atan2(toPlayer.x, toPlayer.z);
             this.velocity.x = Math.sin(this.yaw) * this.speed;
             this.velocity.z = Math.cos(this.yaw) * this.speed;
             this.walkCycle += dt * 8;
 
             // Angry Enderman occasional flanking teleport if stuck
-            if (this.type === 'enderman') {
+            if (ai === 'enderman') {
                 this.teleportCooldown += dt;
-                if (this.teleportCooldown > 12 && Math.random() < 0.04) {
-                    this.teleportRandomly(player.position);
-                }
+                if (this.teleportCooldown > 12 && Math.random() < 0.04) this.teleportRandomly(player.position);
             }
-        } else if (this.type === 'villager') {
-            // Villager peaceful AI: watch player if close, or wander safely
+        } else if (ai === 'villager') {
+            // peaceful: watch player if close, or wander safely
             if (dist < 5.0) {
                 this.yaw = Math.atan2(toPlayer.x, toPlayer.z);
-                this.velocity.x = 0;
-                this.velocity.z = 0;
+                this.velocity.x = this.velocity.z = 0;
             } else {
-                this.wanderTimer -= dt;
-                if (this.wanderTimer <= 0) {
-                    this.wanderTimer = 2.5 + Math.random() * 4.0;
-                    if (Math.random() < 0.6) {
-                        const wAngle = Math.random() * Math.PI * 2;
-                        this.wanderDir.set(Math.sin(wAngle), 0, Math.cos(wAngle));
-                    } else {
-                        this.wanderDir.set(0, 0, 0);
-                    }
-                }
-                this.velocity.x = this.wanderDir.x * this.speed;
-                this.velocity.z = this.wanderDir.z * this.speed;
-                if (this.velocity.x !== 0 || this.velocity.z !== 0) {
-                    this.yaw = Math.atan2(this.velocity.x, this.velocity.z);
-                    this.walkCycle += dt * 5.0;
-                }
+                this._wander(dt, this.speed, 0.4);
             }
-        } else if (this.type === 'enderman' && !this.isAngry) {
-            // Calm wandering / idle looking around (does not rush into terrain)
-            this.wanderTimer -= dt;
-            if (this.wanderTimer <= 0) {
-                this.wanderTimer = 2.5 + Math.random() * 4;
-                if (Math.random() < 0.5) {
-                    const wAngle = Math.random() * Math.PI * 2;
-                    this.wanderDir.set(Math.sin(wAngle), 0, Math.cos(wAngle));
-                } else {
-                    this.wanderDir.set(0, 0, 0);
-                }
+        } else if (ai === 'animal') {
+            if (this.panicTimer > 0) { // flee from the player
+                this.yaw = Math.atan2(-toPlayer.x, -toPlayer.z);
+                this.velocity.x = Math.sin(this.yaw) * this.speed * 2.2;
+                this.velocity.z = Math.cos(this.yaw) * this.speed * 2.2;
+                this.walkCycle += dt * 11;
+            } else {
+                this._wander(dt, this.speed, 0.55);
             }
-            this.velocity.x = this.wanderDir.x * 1.2;
-            this.velocity.z = this.wanderDir.z * 1.2;
-            if (this.velocity.x !== 0 || this.velocity.z !== 0) {
-                this.yaw = Math.atan2(this.velocity.x, this.velocity.z);
-                this.walkCycle += dt * 4.5;
-            }
+        } else if (ai === 'enderman' && !this.isAngry) {
+            this._wander(dt, 1.2, 0.5);
+        } else if (dayCalm) {
+            this._wander(dt, this.speed * 0.5, 0.5);
         } else {
             this.velocity.x = 0;
             this.velocity.z = 0;
-
-            // Attack player
-            if (dist <= this.reach && this.attackCooldown <= 0 && this.type !== 'creeper' && this.type !== 'villager') {
-                if (this.type !== 'enderman' || this.isAngry) {
-                    this.attackPlayer(player);
-                }
+            if (dist <= this.reach && this.attackCooldown <= 0 && this.damage > 0 && ai !== 'creeper' && ai !== 'villager') {
+                if (ai !== 'enderman' || this.isAngry) this.attackPlayer(player);
             }
         }
 
-        // Leg walk animation
+        // Leg walk animation (quadrupeds swing diagonal pairs, spiders roll legs)
         if (this.leftLeg && this.rightLeg) {
-            const legAngle = Math.sin(this.walkCycle) * 0.45;
-            this.leftLeg.rotation.x = legAngle;
-            this.rightLeg.rotation.x = -legAngle;
+            const a = Math.sin(this.walkCycle) * 0.45;
+            const axis = this.legRollAxis === 'z' ? 'z' : 'x';
+            this.leftLeg.rotation[axis] = a;
+            this.rightLeg.rotation[axis] = -a;
+            if (this.backLeftLeg) {
+                this.backLeftLeg.rotation[axis] = -a;
+                this.backRightLeg.rotation[axis] = a;
+            }
         }
 
         // Water reaction
         const footBlock = world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y + 0.1), Math.floor(this.position.z));
         const inWater = (footBlock === BLOCK_TYPES.WATER);
-
         if (inWater) {
-            if (this.type === 'enderman') {
-                // Enderman takes damage in water and teleports out!
+            if (ai === 'enderman') {
                 this.takeDamage(4);
                 this.teleportRandomly(this.position);
+                if (this.isDead) return;
             } else {
                 this.velocity.y = Math.min(this.velocity.y + 14 * dt, 1.8);
                 this.onGround = false;
@@ -650,43 +812,30 @@ class MobEntity {
         }
 
         // --- HORIZONTAL MOVEMENT WITH AABB COLLISION & 1-BLOCK STEP-CLIMBING ---
-        // Prevents mobs from running through hills/mountains into underground caves!
-        const isGrounded = this.onGround;
-
-        // Move X
-        const nextPosX = this.position.clone();
-        nextPosX.x += this.velocity.x * dt;
-        if (!this.checkCollision(nextPosX, world)) {
-            this.position.x = nextPosX.x;
-        } else if (isGrounded) {
-            const stepUpX = nextPosX.clone();
-            stepUpX.y += 1.05;
-            if (!this.checkCollision(stepUpX, world)) {
-                this.position.x = nextPosX.x;
-                this.position.y += 1.05;
+        const pos = this.position;
+        if (this.velocity.x !== 0) {
+            const nx = pos.x + this.velocity.x * dt;
+            _vTry.set(nx, pos.y, pos.z);
+            if (!this.checkCollision(_vTry, world)) {
+                pos.x = nx;
+            } else if (this.onGround && (_vTry.y += 1.05, !this.checkCollision(_vTry, world))) {
+                pos.x = nx;
+                pos.y += 1.05;
             } else {
                 this.velocity.x = 0;
             }
-        } else {
-            this.velocity.x = 0;
         }
-
-        // Move Z
-        const nextPosZ = this.position.clone();
-        nextPosZ.z += this.velocity.z * dt;
-        if (!this.checkCollision(nextPosZ, world)) {
-            this.position.z = nextPosZ.z;
-        } else if (isGrounded) {
-            const stepUpZ = nextPosZ.clone();
-            stepUpZ.y += 1.05;
-            if (!this.checkCollision(stepUpZ, world)) {
-                this.position.z = nextPosZ.z;
-                this.position.y += 1.05;
+        if (this.velocity.z !== 0) {
+            const nz = pos.z + this.velocity.z * dt;
+            _vTry.set(pos.x, pos.y, nz);
+            if (!this.checkCollision(_vTry, world)) {
+                pos.z = nz;
+            } else if (this.onGround && (_vTry.y += 1.05, !this.checkCollision(_vTry, world))) {
+                pos.z = nz;
+                pos.y += 1.05;
             } else {
                 this.velocity.z = 0;
             }
-        } else {
-            this.velocity.z = 0;
         }
 
         // --- VERTICAL MOVEMENT (GRAVITY & FLOOR/CEILING COLLISION) ---
@@ -694,76 +843,131 @@ class MobEntity {
             this.velocity.y -= 24 * dt;
             if (this.velocity.y < -30) this.velocity.y = -30;
         }
-
-        const nextPosY = this.position.clone();
-        nextPosY.y += this.velocity.y * dt;
-
-        if (!this.checkCollision(nextPosY, world)) {
-            this.position.y = nextPosY.y;
+        const ny = pos.y + this.velocity.y * dt;
+        _vTry.set(pos.x, ny, pos.z);
+        if (!this.checkCollision(_vTry, world)) {
+            pos.y = ny;
             this.onGround = false;
         } else {
             if (this.velocity.y < 0) {
-                // Land safely on floor block without sinking
                 this.onGround = true;
-                this.position.y = Math.floor(nextPosY.y) + 1.0;
-            } else if (this.velocity.y > 0) {
-                // Hit ceiling
-                this.velocity.y = 0;
+                pos.y = Math.floor(ny) + 1.0; // land on the floor block without sinking
             }
             this.velocity.y = 0;
         }
 
         // Update mesh position & rotation
-        this.group.position.copy(this.position);
+        this.group.position.copy(pos);
         this.group.rotation.y = this.yaw;
 
-        // Void check & Distance despawn
-        if (this.position.y < -15 || dist > 55) {
+        // Void check & distance despawn
+        if (pos.y < -15 || dist > 55) {
             this.die(false);
             return;
         }
 
-        // Zombie sunlight burn check during daytime in overworld
-        if (this.type === 'zombie' && world.dimension === 'overworld') {
-            const isDay = (this.game.timeOfDay >= 0.15 && this.game.timeOfDay <= 0.6);
-            if (isDay) {
-                const bx = Math.floor(this.position.x);
-                const by = Math.floor(this.position.y);
-                const bz = Math.floor(this.position.z);
-                let exposed = true;
+        // Sunlight burn (zombies and skeletons, overworld daytime)
+        if (this.def.burnsInDay && world.dimension === 'overworld') this._sunBurn(dt, world);
+    }
+
+    _isDay() {
+        const t = this.game.timeOfDay;
+        return t >= 0.15 && t <= 0.6;
+    }
+
+    _sunBurn(dt, world) {
+        this._sunTimer -= dt;
+        if (this._sunTimer <= 0) { // the sky scan only needs to run a couple of times per second
+            this._sunTimer = 0.5;
+            this._exposed = false;
+            if (this._isDay()) {
+                const bx = Math.floor(this.position.x), by = Math.floor(this.position.y), bz = Math.floor(this.position.z);
+                this._exposed = true;
                 for (let y = by + 2; y < 32; y++) {
-                    const b = world.getBlock(bx, y, bz);
-                    if (b !== BLOCK_TYPES.AIR) {
-                        exposed = false;
-                        break;
-                    }
+                    if (world.getBlock(bx, y, bz) !== BLOCK_TYPES.AIR) { this._exposed = false; break; }
                 }
-                if (exposed) {
-                    this.health -= dt * 8;
-                    this.setFlashRed(true);
-                    if (this.game.particleSystem && Math.random() < 0.3) {
-                        this.game.particleSystem.spawnBlockBreakParticles(this.position.x, this.position.y + 1, this.position.z, BLOCK_TYPES.LAVA, 2);
-                    }
-                    if (this.health <= 0) {
-                        this.die(true);
-                        return;
-                    }
-                }
+            }
+        }
+        if (this._exposed) {
+            this.health -= dt * 8;
+            this._setTint(1);
+            if (this.game.particleSystem && Math.random() < 0.3) {
+                this.game.particleSystem.spawnBlockBreakParticles(this.position.x, this.position.y + 1, this.position.z, BLOCK_TYPES.LAVA, 2);
+            }
+            if (this.health <= 0) this.die(true);
+        } else if (this._tint === 1 && this.hurtTimer <= 0) {
+            this._setTint(0);
+        }
+    }
+
+    // Skeleton: keeps its distance and shoots arrows.
+    _aiRanged(dt, player, world, toPlayer, dist, hunts) {
+        this.velocity.x = this.velocity.z = 0;
+        if (!hunts || dist > 20) {
+            this._wander(dt, this.speed * 0.5, 0.5);
+            return;
+        }
+        this.yaw = Math.atan2(toPlayer.x, toPlayer.z);
+        const dirX = toPlayer.x / (dist || 1), dirZ = toPlayer.z / (dist || 1);
+        let move = 0;
+        if (dist < 6) move = -1;           // too close: back off
+        else if (dist > 12) move = 1;      // too far: close in
+        this.velocity.x = dirX * this.speed * move;
+        this.velocity.z = dirZ * this.speed * move;
+        if (move) this.walkCycle += dt * 8;
+
+        this.shootTimer -= dt;
+        if (this.shootTimer <= 0 && dist < 18) {
+            this.shootTimer = 1.8 + Math.random() * 0.8;
+            const mgr = this.game.mobManager;
+            if (mgr && this._hasLineOfSight(player, world)) {
+                _vShot.set(player.position.x - this.position.x,
+                    player.position.y + 1.1 - (this.position.y + 1.4),
+                    player.position.z - this.position.z).normalize();
+                mgr.fireballs.push(new MobArrow(this.position.x, this.position.y + 1.4, this.position.z,
+                    _vShot, this.damage, this.scene, this.game));
             }
         }
     }
 
+    _hasLineOfSight(player, world) {
+        const ox = this.position.x, oy = this.position.y + 1.4, oz = this.position.z;
+        const dx = player.position.x - ox, dy = player.position.y + 1.1 - oy, dz = player.position.z - oz;
+        const steps = Math.ceil(Math.hypot(dx, dy, dz) / 0.8);
+        for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const b = world.getBlock(Math.floor(ox + dx * t), Math.floor(oy + dy * t), Math.floor(oz + dz * t));
+            if (b !== BLOCK_TYPES.AIR && b !== BLOCK_TYPES.WATER) return false;
+        }
+        return true;
+    }
+
+    // Slime: only moves in hops, hurts on contact.
+    _aiSlime(dt, player, toPlayer, dist, hunts) {
+        if (this.onGround) {
+            this.velocity.x = this.velocity.z = 0;
+            this.hopTimer -= dt;
+            if (this.hopTimer <= 0) {
+                this.hopTimer = 0.7 + Math.random() * 0.7;
+                this.velocity.y = 8;
+                this.onGround = false;
+                if (hunts) this.yaw = Math.atan2(toPlayer.x, toPlayer.z);
+                else this.yaw = Math.random() * Math.PI * 2;
+                const s = hunts ? this.speed : this.speed * 0.5;
+                this.velocity.x = Math.sin(this.yaw) * s;
+                this.velocity.z = Math.cos(this.yaw) * s;
+            }
+        }
+        // squash & stretch
+        this.group.scale.y = 1 + Math.max(-0.3, Math.min(0.3, this.velocity.y * 0.03));
+        if (hunts && dist <= this.reach && this.attackCooldown <= 0) this.attackPlayer(player);
+    }
+
     attackPlayer(player) {
         this.attackCooldown = 1.3;
-        let dmg = this.damage;
-        if (this.game.upgrader) {
-            const red = this.game.upgrader.getDamageReduction();
-            dmg = Math.max(1, Math.round(dmg * (1 - red)));
-        }
-
-        player.takeDamage(dmg, `Тебе вбив ${this.getMobDisplayName()}!`);
+        player.takeDamage(_mobDamage(this.game, this.damage), `Тебе вбив ${this.getMobDisplayName()}!`);
         if (this.soundManager) {
-            if (this.type === 'zombie') this.soundManager.playZombieGroan();
+            if (this.def.groan) this.soundManager.playZombieGroan();
             else this.soundManager.playHurt();
         }
     }
@@ -772,11 +976,11 @@ class MobEntity {
         if (this.isDead) return;
         this.health -= amount;
         this.hurtTimer = 0.18;
-        this.setFlashRed(true);
+        this._setTint(1);
 
-        if (this.type === 'enderman') {
-            this.isAngry = true;
-        }
+        const ai = this.def.ai;
+        if (ai === 'enderman' || this.def.neutralByDay) this.isAngry = true;
+        if (ai === 'animal') this.panicTimer = 4;
 
         if (knockbackDir) {
             this.velocity.x = knockbackDir.x * 11;
@@ -787,13 +991,9 @@ class MobEntity {
         if (this.soundManager) this.soundManager.playHurt();
 
         // Enderman teleports away when hurt
-        if (this.type === 'enderman' && Math.random() < 0.75) {
-            this.teleportRandomly(this.position);
-        }
+        if (ai === 'enderman' && Math.random() < 0.75) this.teleportRandomly(this.position);
 
-        if (this.health <= 0) {
-            this.die(true);
-        }
+        if (this.health <= 0) this.die(true);
     }
 
     findSafeTeleportSpot(aroundPos) {
@@ -801,23 +1001,17 @@ class MobEntity {
         if (!world) return null;
 
         const dim = world.dimension || 'overworld';
-        const attempts = 16;
-
-        for (let i = 0; i < attempts; i++) {
+        for (let i = 0; i < 16; i++) {
             const angle = Math.random() * Math.PI * 2;
             const radius = 6 + Math.random() * 12;
             const tx = Math.floor(aroundPos.x + Math.cos(angle) * radius);
             const tz = Math.floor(aroundPos.z + Math.sin(angle) * radius);
 
             // Chunk must be present and generated!
-            const cx = Math.floor(tx / 16);
-            const cz = Math.floor(tz / 16);
-            const chunk = world.getChunk(cx, cz);
+            const chunk = world.getChunk(Math.floor(tx / 16), Math.floor(tz / 16));
             if (!chunk || !chunk.isGenerated) continue;
 
-            let startY = 28;
-            let minY = 2;
-
+            let startY, minY;
             if (dim === 'nether') {
                 startY = Math.min(20, Math.floor(aroundPos.y) + 6);
                 minY = 5;
@@ -831,20 +1025,14 @@ class MobEntity {
 
             for (let y = startY; y >= minY; y--) {
                 const floorBlock = world.getBlock(tx, y, tz);
-                if (floorBlock === BLOCK_TYPES.AIR || floorBlock === BLOCK_TYPES.WATER || floorBlock === BLOCK_TYPES.LAVA) {
-                    continue;
-                }
+                if (floorBlock === BLOCK_TYPES.AIR || floorBlock === BLOCK_TYPES.WATER || floorBlock === BLOCK_TYPES.LAVA) continue;
 
                 // Headroom check: 3 blocks of AIR required for Enderman!
-                const b1 = world.getBlock(tx, y + 1, tz);
-                const b2 = world.getBlock(tx, y + 2, tz);
-                const b3 = world.getBlock(tx, y + 3, tz);
-
-                if (b1 === BLOCK_TYPES.AIR && b2 === BLOCK_TYPES.AIR && b3 === BLOCK_TYPES.AIR) {
+                if (world.getBlock(tx, y + 1, tz) === BLOCK_TYPES.AIR &&
+                    world.getBlock(tx, y + 2, tz) === BLOCK_TYPES.AIR &&
+                    world.getBlock(tx, y + 3, tz) === BLOCK_TYPES.AIR) {
                     const candidatePos = new THREE.Vector3(tx + 0.5, y + 1.0, tz + 0.5);
-                    if (!this.checkCollision(candidatePos, world)) {
-                        return candidatePos;
-                    }
+                    if (!this.checkCollision(candidatePos, world)) return candidatePos;
                 }
             }
         }
@@ -855,23 +1043,16 @@ class MobEntity {
         const spot = this.findSafeTeleportSpot(aroundPos || this.position);
         if (!spot) return false;
 
-        // Old position portal particles
-        if (this.game.particleSystem) {
-            this.game.particleSystem.spawnBlockBreakParticles(this.position.x, this.position.y + 1, this.position.z, BLOCK_TYPES.PORTAL_END, 8);
-        }
+        const ps = this.game.particleSystem;
+        if (ps) ps.spawnBlockBreakParticles(this.position.x, this.position.y + 1, this.position.z, BLOCK_TYPES.PORTAL_END, 8);
 
         this.position.copy(spot);
         this.velocity.set(0, 0, 0);
         this.group.position.copy(this.position);
         this.teleportCooldown = 0;
 
-        // New position portal particles & sound
-        if (this.game.particleSystem) {
-            this.game.particleSystem.spawnBlockBreakParticles(spot.x, spot.y + 1, spot.z, BLOCK_TYPES.PORTAL_END, 12);
-        }
-        if (this.soundManager) {
-            this.soundManager.playPortalWarp();
-        }
+        if (ps) ps.spawnBlockBreakParticles(spot.x, spot.y + 1, spot.z, BLOCK_TYPES.PORTAL_END, 12);
+        if (this.soundManager) this.soundManager.playPortalWarp();
         return true;
     }
 
@@ -885,15 +1066,11 @@ class MobEntity {
         for (let dx = -r; dx <= r; dx++) {
             for (let dy = -r; dy <= r; dy++) {
                 for (let dz = -r; dz <= r; dz++) {
-                    if (dx*dx + dy*dy + dz*dz <= r*r + 1) {
-                        const bx = cx + dx;
-                        const by = cy + dy;
-                        const bz = cz + dz;
+                    if (dx * dx + dy * dy + dz * dz <= r * r + 1) {
+                        const bx = cx + dx, by = cy + dy, bz = cz + dz;
                         const b = world.getBlock(bx, by, bz);
                         if (b !== BLOCK_TYPES.BEDROCK && b !== BLOCK_TYPES.AIR && b !== BLOCK_TYPES.WATER) {
-                            if (window.modManager && !window.modManager.canExplodeBlock(bx, by, bz, b)) {
-                                continue;
-                            }
+                            if (window.modManager && !window.modManager.canExplodeBlock(bx, by, bz, b)) continue;
                             world.setBlock(bx, by, bz, BLOCK_TYPES.AIR);
                         }
                     }
@@ -909,9 +1086,7 @@ class MobEntity {
             player.takeDamage(dmg, "Підірвався на Кріпері-Єблані!");
         }
 
-        if (this.game.particleSystem) {
-            this.game.particleSystem.spawnExplosionParticles(this.position.x, this.position.y, this.position.z, 50);
-        }
+        if (this.game.particleSystem) this.game.particleSystem.spawnExplosionParticles(this.position.x, this.position.y, this.position.z, 50);
         if (this.soundManager) this.soundManager.playExplosion();
 
         this.die(false);
@@ -927,47 +1102,20 @@ class MobEntity {
 
         if (dropLoot && !this.isScriptBot && this.game.mobManager) {
             this.dropMobLoot();
-            if (this.game.player) {
-                this.game.player.iq += this.expReward;
-            }
+            if (this.def.onDeath) this.def.onDeath(this, this.game.mobManager);
+            if (this.game.player) this.game.player.iq += this.expReward;
         }
 
         if (this.group) {
             this.scene.remove(this.group);
+            // geometries are shared (cached); only the per-mob materials are released
+            this.group.traverse((c) => { if (c.isMesh && c.material) c.material.dispose(); });
             this.group = null;
         }
     }
 
     dropMobLoot() {
-        const mgr = this.game.mobManager;
-        const x = this.position.x;
-        const y = this.position.y + 0.5;
-        const z = this.position.z;
-
-        // Drops per mob type
-        switch (this.type) {
-            case 'zombie':
-                mgr.spawnItemDrop(x, y, z, ITEM_TYPES.ROTTEN_FLESH, Math.floor(Math.random() * 2) + 1);
-                if (Math.random() < 0.35) mgr.spawnItemDrop(x, y, z, ITEM_TYPES.IRON_INGOT, 1);
-                if (Math.random() < 0.4) mgr.spawnItemDrop(x, y, z, JUNK_ITEMS_POOL[Math.floor(Math.random() * JUNK_ITEMS_POOL.length)], 1);
-                break;
-            case 'creeper':
-                mgr.spawnItemDrop(x, y, z, ITEM_TYPES.GUNPOWDER, Math.floor(Math.random() * 3) + 1);
-                if (Math.random() < 0.25) mgr.spawnItemDrop(x, y, z, ITEM_TYPES.TNT, 1);
-                break;
-            case 'piglin':
-                mgr.spawnItemDrop(x, y, z, ITEM_TYPES.GOLD_INGOT, Math.floor(Math.random() * 2) + 1);
-                if (Math.random() < 0.4) mgr.spawnItemDrop(x, y, z, ITEM_TYPES.BLAZE_ROD, 1);
-                break;
-            case 'enderman':
-                mgr.spawnItemDrop(x, y, z, ITEM_TYPES.ENDER_EYE, Math.floor(Math.random() * 2) + 1);
-                if (Math.random() < 0.5) mgr.spawnItemDrop(x, y, z, ITEM_TYPES.END_STONE, 2);
-                break;
-            case 'villager':
-                mgr.spawnItemDrop(x, y, z, ITEM_TYPES.EMERALD, Math.floor(Math.random() * 2) + 1);
-                mgr.spawnItemDrop(x, y, z, ITEM_TYPES.APPLE, 2);
-                break;
-        }
+        if (this.def.loot) this.def.loot(this.game.mobManager, this.position.x, this.position.y + 0.5, this.position.z);
     }
 
     interact(player) {
@@ -982,37 +1130,13 @@ class MobEntity {
         }
     }
 
-    setFlashRed(flash) {
-        if (!this.group) return;
-        this.group.traverse(child => {
-            if (child.isMesh && child.material) {
-                child.material.color.set(flash ? 0xff3333 : child.userData.origColor || 0xffffff);
-            }
-        });
-    }
-
-    setFlashWhite(flash) {
-        if (!this.group) return;
-        this.group.traverse(child => {
-            if (child.isMesh && child.material) {
-                child.material.color.set(flash ? 0xffffff : child.userData.origColor || 0xffffff);
-            }
-        });
-    }
-
-    resetColor() {
-        this.setFlashRed(false);
-    }
+    // Kept for mods / older callers
+    setFlashRed(flash) { this._setTint(flash ? 1 : 0); }
+    setFlashWhite(flash) { this._setTint(flash ? 2 : 0); }
+    resetColor() { if (this._tint === 1) this._setTint(0); }
 
     getMobDisplayName() {
-        switch (this.type) {
-            case 'zombie': return "Зомбі-Єблан";
-            case 'creeper': return "Кріпер-Єблан";
-            case 'piglin': return "Незерський Піглін";
-            case 'enderman': return "Ендер-Єблан";
-            case 'villager': return "Житель села (Торгівець)";
-            default: return "Моб";
-        }
+        return this.def.name || 'Моб';
     }
 }
 
@@ -1494,7 +1618,7 @@ class MobManager {
         const disabled = this.applyCreativeMobSetting(player);
         // Spawn mobs periodically based on dimension (controlled mob cap)
         if (!disabled) this.spawnTimer += dt;
-        if (!disabled && this.spawnTimer > 13 && this.mobs.length < 5) {
+        if (!disabled && this.spawnTimer > 9) {
             this.spawnTimer = 0;
             this.handlePeriodicSpawns(player, world);
         }
@@ -1606,30 +1730,47 @@ class MobManager {
 
         if (sy === -1) return; // No safe floor found! Do not spawn inside stone or void!
 
+        // Separate caps: scripted bots / villagers never block natural spawns
+        let hostile = 0, animals = 0;
+        for (let i = 0; i < this.mobs.length; i++) {
+            const m = this.mobs[i];
+            if (m.isScriptBot || m.isDead) continue;
+            if (m.def.hostile) hostile++;
+            else if (m.def.animal) animals++;
+        }
+        const pick = (table) => {
+            let r = Math.random() * table.reduce((a, e) => a + e[1], 0);
+            for (const [type, w] of table) { if ((r -= w) <= 0) return type; }
+            return table[0][0];
+        };
+
         if (dim === 'overworld') {
             const isNight = (this.game.timeOfDay > 0.6 || this.game.timeOfDay < 0.15);
-            // In daytime: NEVER spawn mobs on the surface! Peaceful day!
             if (!isNight) {
-                // Rare cave mob only deep below y < 10
-                if (sy < 10 && Math.random() < 0.15 && this.mobs.length < 3) {
-                    this.spawnMob('zombie', sx + 0.5, sy, sz + 0.5);
+                // Peaceful day: animals graze on the grass, only rare cave mobs below the surface
+                if (sy >= 10) {
+                    if (animals < 8 && world.getBlock(sx, sy - 1, sz) === BLOCK_TYPES.GRASS && Math.random() < 0.7) {
+                        const type = pick([['pig', 3], ['cow', 3], ['sheep', 3], ['chicken', 2]]);
+                        const n = type === 'chicken' ? 3 : 2;
+                        for (let k = 0; k < n && animals + k < 8; k++) {
+                            this.spawnMob(type, sx + 0.5 + (Math.random() - 0.5) * 3, sy, sz + 0.5 + (Math.random() - 0.5) * 3);
+                        }
+                    }
+                } else if (hostile < 3 && Math.random() < 0.3) {
+                    this.spawnMob(pick([['zombie', 4], ['skeleton', 3], ['spider', 3], ['slime', 2]]), sx + 0.5, sy, sz + 0.5);
                 }
                 return;
             }
 
-            // Nighttime: moderate, non-overwhelming spawn
-            if (this.mobs.length < 5 && Math.random() < 0.6) {
-                const mobType = Math.random() < 0.65 ? 'zombie' : (Math.random() < 0.85 ? 'creeper' : 'enderman');
-                this.spawnMob(mobType, sx + 0.5, sy, sz + 0.5);
+            // Night: a bit more variety, still capped
+            if (hostile < 6 && Math.random() < 0.7) {
+                this.spawnMob(pick([['zombie', 35], ['skeleton', 22], ['spider', 20], ['creeper', 13], ['slime', 6], ['enderman', 4]]),
+                    sx + 0.5, sy, sz + 0.5);
             }
         } else if (dim === 'nether') {
-            if (this.mobs.length < 5 && Math.random() < 0.5) {
-                this.spawnMob('piglin', sx + 0.5, sy, sz + 0.5);
-            }
+            if (hostile < 6 && Math.random() < 0.6) this.spawnMob('piglin', sx + 0.5, sy, sz + 0.5);
         } else if (dim === 'the_end') {
-            if (this.mobs.length < 5 && Math.random() < 0.4) {
-                this.spawnMob('enderman', sx + 0.5, sy, sz + 0.5);
-            }
+            if (hostile < 6 && Math.random() < 0.5) this.spawnMob('enderman', sx + 0.5, sy, sz + 0.5);
         }
     }
 }
