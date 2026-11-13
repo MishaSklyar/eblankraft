@@ -385,7 +385,10 @@ class TextureManager {
             img.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
             img.data[i + 3] = 255;
         };
-        const strength = 3.0, coatStrength = 0.6;
+        // Calm organic blocks (grass, dirt, leaves, trees) get much shallower relief than rock/ore/metal.
+        const calm = /^(grass_top|grass_side|dirt|sand|snow|clay|leaves|birch_leaves|jungle_leaves|spruce_leaves|wood_side|wood_top|birch_wood_side|birch_wood_top|jungle_wood_side|jungle_wood_top|spruce_wood_side|spruce_wood_top|planks|birch_planks|spruce_planks|cactus_side|cactus_top)$/.test(k);
+        const strength = calm ? 0.8 : 3.0, coatStrength = 0.6;
+        const aoAmt = calm ? 1.2 : 3.5;
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 const dx = (at(depth, x + 1, y - 1) + 2 * at(depth, x + 1, y) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x - 1, y) + at(depth, x - 1, y + 1));
@@ -396,7 +399,7 @@ class TextureManager {
                 const l = lum[p];
                 // aoMap: pixels darker than their surroundings are crevices -> occluded.
                 const avg = (at(depth, x - 1, y) + at(depth, x + 1, y) + at(depth, x, y - 1) + at(depth, x, y + 1)) / 4;
-                const ao = Math.max(0.35, Math.min(1, 1 - (avg - depth[p]) * 3.5));
+                const ao = Math.max(0.35, Math.min(1, 1 - (avg - depth[p]) * aoAmt));
                 // metalnessMap / roughnessMap
                 let m = 0.03 + l * 0.05, r = 0.95 - l * 0.2;
                 if (solid) { m = solid * (0.6 + 0.4 * l); r = 0.22 + (1 - l) * 0.35; }
