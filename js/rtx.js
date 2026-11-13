@@ -310,10 +310,10 @@ class RTXPipeline {
                 void main() {
                     vec3 c = texture2D(tDiffuse, vUv).rgb * exposure;
                     vec3 raw = texture2D(tDiffuse, vUv).rgb;
-                    // the clear colour (sky) was never tone-mapped by the stock renderer either: keep it as authored
+                    // the clear colour (sky) is never tone-mapped/encoded by the stock renderer: keep it exactly as authored
                     float skyMask = 1.0 - smoothstep(0.004, 0.03, distance(raw, skyColor));
-                    c = mix(aces(max(c, 0.0)), clamp(raw, 0.0, 1.0), skyMask);   // ACES Filmic tone mapping
-                    c = toSRGB(c);                                  // sRGB output
+                    vec3 lit = toSRGB(aces(max(c, 0.0)));           // ACES Filmic tone mapping + sRGB output
+                    c = mix(lit, clamp(raw, 0.0, 1.0), skyMask);
                     // colour grade (LUT-style): vibrance, contrast, cool shadows / warm highlights
                     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
                     float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
