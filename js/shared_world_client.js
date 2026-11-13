@@ -3,6 +3,169 @@
  * Connects to port 8082 for server-authoritative PvP, anti-cheat, anti-one-tap, and room sync.
  */
 
+/**
+ * Shared mobs for co-op rooms. One client per dimension (the "owner", chosen by the server)
+ * simulates the mobs with the normal MobManager AI and streams them ~10x/s; everybody else shows
+ * interpolated "puppets", forwards their hits to the owner, and takes damage the owner reports.
+ */
+class CoopMobs {
+    constructor(client) { this.client = client; this.reset(); }
+
+    reset() {
+        this.known = false;
+        this.ownerId = null;
+        this.nextId = 1;
+        this.syncTimer = 0;
+        this.proxies = new Map();
+        this.dim = null;
+    }
+
+    get game() { return this.client.game; }
+    active() { const c = this.client; return !!(c.engineAuthority && c.currentRoom && c.currentRoom.startsWith('coop_') && !c.loadingRoom); }
+    // 'solo' (no shared room), 'pending' (owner not announced yet), 'owner' or 'puppet'
+    role() {
+        if (!this.active()) return 'solo';
+        if (!this.known) return 'pending';
+        return this.ownerId === this.client.clientId ? 'owner' : 'puppet';
+    }
+
+    clearMobs() {
+        const mgr = this.game.mobManager;
+        if (!mgr) return;
+        for (const m of mgr.mobs) if (!m.isScriptBot) m.die(false);
+        mgr.mobs = mgr.mobs.filter(m => !m.isDead);
+        mgr._lootSink = null;
+    }
+
+    onDimensionChange() { this.reset(); this.clearMobs(); }
+
+    handleOwner(msg) {
+        if (msg.dim !== (this.game.world?.dimension || 'overworld')) return;
+        const wasOwner = this.known && this.ownerId === this.client.clientId;
+        this.known = true;
+        this.ownerId = msg.owner_id;
+        this.dim = msg.dim;
+        const owner = this.ownerId === this.client.clientId;
+        if (owner && wasOwner) return;
+        this.clearMobs();
+        if (!owner) return;
+        // We just became the owner (first in the dimension, or the previous owner left): adopt their mobs.
+        const mgr = this.game.mobManager;
+        for (const e of Array.isArray(msg.mobs) ? msg.mobs : []) {
+            if (typeof MOB_DEFS === 'undefined' || !MOB_DEFS[e.t]) continue;
+            const mob = mgr.spawnMob(e.t, e.x, e.y, e.z);
+            mob.netId = e.id; mob.health = e.hp; mob.yaw = e.yaw;
+            this.nextId = Math.max(this.nextId, e.id + 1);
+        }
+    }
+
+    // ---- owner side ----
+    targets(local) {
+        const list = [];
+        if (local && !local.isDead) list.push(local);
+        const remote = this.game.multiplayer?.remotePlayers;
+        if (remote) for (const [id, rp] of remote) if (rp?.group && rp.health !== 0) list.push(this.proxy(id, rp));
+        return list;
+    }
+    nearestTarget(position, local) {
+        let best = local, bestD = Infinity;
+        for (const t of this.targets(local)) {
+            const d = t.position.distanceToSquared(position);
+            if (d < bestD) { bestD = d; best = t; }
+        }
+        return best;
+    }
+    randomTarget(local) {
+        const list = this.targets(local);
+        return list.length ? list[Math.floor(Math.random() * list.length)] : local;
+    }
+    proxy(id, rp) {
+        let p = this.proxies.get(id);
+        if (!p || p.rp !== rp) {
+            const client = this.client;
+            p = { id, rp, camera: null, isDead: false, iq: 0, game: this.game, addItem: () => 0,
+                takeDamage: (amount, reason) => client.sendRaw({ type: 'mob_attack', target_id: id, amount: Math.min(40, Math.max(1, +amount || 1)), reason }) };
+            Object.defineProperty(p, 'position', { get: () => rp.group.position });
+            this.proxies.set(id, p);
+        }
+        return p;
+    }
+
+    tickOwner(mgr, dt) {
+        this.syncTimer += dt;
+        if (this.syncTimer < 0.1) return;
+        this.syncTimer = 0;
+        const mobs = [];
+        for (const m of mgr.mobs) {
+            if (m.isDead || m.isScriptBot || m.isPuppet || mobs.length >= 64) continue;
+            m.netId ??= this.nextId++;
+            mobs.push({ id: m.netId, t: m.type, x: m.position.x, y: m.position.y, z: m.position.z, yaw: m.yaw || 0,
+                hp: Math.max(0, m.health), wc: m.walkCycle || 0 });
+        }
+        this.client.sendRaw({ type: 'mob_sync', mobs });
+    }
+
+    // A remote player hit one of our mobs.
+    handleHit(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'owner' || !mgr) return;
+        const mob = mgr.mobs.find(m => m.netId === msg.id && !m.isDead && !m.isPuppet);
+        if (!mob) return;
+        const client = this.client;
+        // Loot from a remote kill is dropped for everyone through the server instead of only at our feet.
+        mgr._lootSink = (x, y, z, itemId, count) => client.sendRaw({ type: 'mob_loot', itemId: String(itemId), count, x, y, z });
+        try { mob.takeDamage(msg.damage, { x: msg.kx || 0, z: msg.kz || 0 }); } finally { mgr._lootSink = null; }
+    }
+
+    // ---- puppet side ----
+    handleSync(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'puppet' || !mgr || msg.dim !== (this.game.world?.dimension || 'overworld')) return;
+        const seen = new Set();
+        for (const e of Array.isArray(msg.mobs) ? msg.mobs : []) {
+            if (typeof MOB_DEFS === 'undefined' || !MOB_DEFS[e.t]) continue;
+            seen.add(e.id);
+            let mob = mgr.mobs.find(m => m.isPuppet && m.netId === e.id && !m.isDead);
+            if (!mob) {
+                mob = mgr.spawnMob(e.t, e.x, e.y, e.z);
+                mob.isPuppet = true; mob.netId = e.id; mob.target = { x: e.x, y: e.y, z: e.z, yaw: e.yaw };
+                mob.takeDamage = (amount, kb) => this.puppetHit(mob, amount, kb);
+            }
+            mob.target = { x: e.x, y: e.y, z: e.z, yaw: e.yaw };
+            mob.health = e.hp;
+            mob.walkCycle = e.wc;
+        }
+        for (const m of mgr.mobs) if (m.isPuppet && !m.isDead && !seen.has(m.netId)) m.die(false);
+    }
+    puppetHit(mob, amount, kb) {
+        if (mob.isDead) return;
+        mob.hurtTimer = 0.18; mob._setTint(1);
+        mob.soundManager?.playHurt?.();
+        this.client.sendRaw({ type: 'mob_hit', id: mob.netId, damage: amount, kx: kb?.x || 0, kz: kb?.z || 0 });
+    }
+    updatePuppet(m, dt) {
+        if (m.isDead || !m.group) return;
+        if (m.hurtTimer > 0 && (m.hurtTimer -= dt) <= 0) m.resetColor();
+        const t = m.target;
+        if (t) {
+            const k = 1 - Math.exp(-12 * dt);
+            m.position.x += (t.x - m.position.x) * k;
+            m.position.y += (t.y - m.position.y) * k;
+            m.position.z += (t.z - m.position.z) * k;
+            let dy = t.yaw - m.yaw;
+            dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+            m.yaw += dy * k;
+        }
+        m.group.position.copy(m.position);
+        m.group.rotation.y = m.yaw;
+        if (m.leftLeg && m.rightLeg) {
+            const a = Math.sin(m.walkCycle) * 0.45, axis = m.legRollAxis === 'z' ? 'z' : 'x';
+            m.leftLeg.rotation[axis] = a; m.rightLeg.rotation[axis] = -a;
+            if (m.backLeftLeg) { m.backLeftLeg.rotation[axis] = -a; m.backRightLeg.rotation[axis] = a; }
+        }
+    }
+}
+
 class SharedWorldClient {
     constructor(game) {
         this.game = game;
@@ -18,6 +181,9 @@ class SharedWorldClient {
         this.engineAuthority = false;
         this.explosiveAuthority = false;
         this.authorityChunks = new Map();
+        this.coopMobs = new CoopMobs(this);
+        this.dimensionLoading = null;
+        this.dimSpawn = null;
         this.nextExplosiveId = 0;
         this.ping = 0;
         this.pingInterval = null;
@@ -244,6 +410,10 @@ class SharedWorldClient {
         this.authorityChunks?.clear();
         this.roomPackets = [];
         this.loadingRoom = false;
+        this.dimensionLoading = null;
+        this.dimSpawn = null;
+        this.coopMobs?.reset();
+        this.coopMobs?.clearMobs();
         this.clearRemotePlayers();
         const status = document.getElementById('coop-room-status');
         if (status) status.textContent = 'Ви вийшли з кімнати. Світ тепер локальний.';
@@ -289,6 +459,8 @@ class SharedWorldClient {
             this.game.world.id = 'server:' + msg.room;
             this.engineAuthority = msg.world.authority === 'eblan';
             (this.authorityChunks ||= new Map()).clear();
+            this.coopMobs.reset();
+            this.dimSpawn = null;
             if (this.engineAuthority && msg.spawn) {
                 player.position.set(msg.spawn.x, msg.spawn.y, msg.spawn.z);
                 player.velocity.set(0, 0, 0);
@@ -382,6 +554,57 @@ class SharedWorldClient {
             target_id: targetId,
             is_crit: !!isCrit
         });
+    }
+
+    // True when `dim` can be visited without leaving the shared room.
+    supportsDimension(dim) {
+        return !!(this.engineAuthority && this.currentRoom?.startsWith('coop_') && ['overworld', 'nether', 'the_end'].includes(dim));
+    }
+
+    // Called by VoxelWorld.switchDimension: tell the server, forget the old dimension's players and
+    // mobs, and hold back packets for the new dimension until its terrain exists.
+    beginDimensionChange(dim, loading) {
+        this.dimSpawn = null;
+        this.authorityChunks?.clear();
+        this.clearRemotePlayers();
+        this.coopMobs.onDimensionChange();
+        this.dimensionLoading = Promise.resolve(loading).catch(() => {});
+        this.sendRaw({ type: 'dimension_change', dim });
+    }
+
+    applyDimensionSpawn() {
+        const spawn = this.dimSpawn, player = this.game.player;
+        if (!spawn || !player) return;
+        player.position.set(spawn.x, spawn.y, spawn.z);
+        player.velocity.set(0, 0, 0);
+    }
+
+    async enterDimension(msg) {
+        const generation = this.roomGeneration;
+        this.loadingRoom = true;                      // queue everything for the new dimension until it is built
+        try { await this.dimensionLoading; } catch (e) { /* the switch handles its own errors */ }
+        if (generation !== this.roomGeneration) return;
+        const world = this.game.world;
+        if (world && (world.dimension || 'overworld') === msg.dim) {
+            this.dimSpawn = { x: msg.x, y: msg.y, z: msg.z };
+            this.applyDimensionSpawn();
+            for (const block of msg.blocks || []) world.setBlock(block.x, block.y, block.z, block.block_type, block.design);
+            world.updateMeshes();
+            const mp = this.game.multiplayer;
+            if (mp) for (const p of msg.players || []) {
+                if (!mp.remotePlayers.has(p.id)) mp.addRemotePlayer(p.id, p.name);
+                const rp = mp.remotePlayers.get(p.id);
+                if (!rp) continue;
+                rp.targetPosition.set(p.x, p.y, p.z);
+                rp.group.position.set(p.x, p.y, p.z);
+                if (p.skin) rp.setSkin(p.skin);
+                rp.updateHeldItem(this.resolveHeldItem(p.held_item));
+            }
+        }
+        this.loadingRoom = false;
+        const queued = this.roomPackets;
+        this.roomPackets = [];
+        for (const raw of queued) this.handleMessage(raw);
     }
 
     requestRespawn() {
@@ -500,6 +723,20 @@ class SharedWorldClient {
                 break;
             }
 
+            case 'dimension_state': {
+                this.enterDimension(msg);
+                break;
+            }
+
+            case 'mob_owner': this.coopMobs.handleOwner(msg); break;
+            case 'mob_sync': this.coopMobs.handleSync(msg); break;
+            case 'mob_hit': this.coopMobs.handleHit(msg); break;
+            case 'mob_damage': {
+                const player = this.game.player;
+                if (player && Number.isFinite(msg.amount)) player.takeDamage(msg.amount, msg.reason || 'Тебе вбив моб!');
+                break;
+            }
+
             case 'chunk_state': {
                 if (!this.engineAuthority || typeof msg.voxels !== 'string') break;
                 const raw = atob(msg.voxels);
@@ -575,7 +812,7 @@ class SharedWorldClient {
                         if (p.skin) rp.setSkin(p.skin);
                         rp.updateHeldItem(this.resolveHeldItem(p.held_item));
                     }
-                    if (mp.showToast) mp.showToast(`👋 Гравець [${p.name}] приєднався до сервера!`);
+                    if (mp.showToast && !msg.moved) mp.showToast(`👋 Гравець [${p.name}] приєднався до сервера!`);
                 }
                 break;
             }
@@ -696,7 +933,7 @@ class SharedWorldClient {
             case 'player_left': {
                 if (mp) {
                     mp.removeRemotePlayer(msg.id);
-                    if (mp.showToast) mp.showToast(`👋 Гравець [${msg.name}] покинув арену.`);
+                    if (mp.showToast && !msg.moved) mp.showToast(`👋 Гравець [${msg.name}] покинув арену.`);
                 }
                 break;
             }

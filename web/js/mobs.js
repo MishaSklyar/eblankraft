@@ -1061,8 +1061,8 @@ class MobEntity {
         const cy = Math.floor(this.position.y);
         const cz = Math.floor(this.position.z);
 
-        // Break blocks around creeper
-        const r = 2;
+        // Break blocks around creeper (not in a shared room: the server would never hear about it)
+        const r = this.game.serverClient?.engineAuthority ? -1 : 2;
         for (let dx = -r; dx <= r; dx++) {
             for (let dy = -r; dy <= r; dy++) {
                 for (let dz = -r; dz <= r; dz++) {
@@ -1468,6 +1468,8 @@ class MobManager {
 
     spawnItemDrop(x, y, z, itemId, count = 1, pickupDelay = 0.35, velocity = null) {
         if (!itemId || count <= 0) return null;
+        // Co-op: loot from a mob killed by another player is dropped for the whole room via the server.
+        if (this._lootSink && this._lootSink(x, y, z, itemId, count)) return null;
 
         // Try merging with existing nearby drop of same item (eliminates mesh clutter and lag)
         const maxStack = (window.ITEM_REGISTRY && window.ITEM_REGISTRY[itemId] && window.ITEM_REGISTRY[itemId].maxStack) || 64;
@@ -1594,6 +1596,7 @@ class MobManager {
 
     spawnDragon() {
         if (this.dragon && this.dragon.mesh) return;
+        if (this.game.serverClient?.engineAuthority) return; // the boss is not synced between players yet
         this.dragon = new EblanDragonBoss(this.scene, this.textureManager, this.soundManager, this.game);
     }
 
@@ -1616,11 +1619,15 @@ class MobManager {
 
     update(dt, player, world) {
         const disabled = this.applyCreativeMobSetting(player);
+        // Co-op rooms share mobs: one client per dimension simulates them, the rest show puppets.
+        const net = this.game.serverClient?.coopMobs;
+        const role = net ? net.role() : 'solo';
         // Spawn mobs periodically based on dimension (controlled mob cap)
-        if (!disabled) this.spawnTimer += dt;
-        if (!disabled && this.spawnTimer > 9) {
+        const canSpawn = !disabled && role !== 'puppet' && role !== 'pending';
+        if (canSpawn) this.spawnTimer += dt;
+        if (canSpawn && this.spawnTimer > 9) {
             this.spawnTimer = 0;
-            this.handlePeriodicSpawns(player, world);
+            this.handlePeriodicSpawns(role === 'owner' ? net.randomTarget(player) : player, world);
         }
 
         // Update mobs with distance throttling (Optimization)
@@ -1629,6 +1636,12 @@ class MobManager {
 
         for (let i = this.mobs.length - 1; !disabled && i >= 0; i--) {
             const m = this.mobs[i];
+            let target = player;
+            if (role !== 'solo' && !m.isScriptBot) {
+                if (role === 'owner' && !m.isPuppet) target = net.nearestTarget(m.position, player);
+                else if (role === 'puppet' && m.isPuppet) { net.updatePuppet(m, dt); if (m.isDead) this.mobs.splice(i, 1); continue; }
+                else { m.die(false); this.mobs.splice(i, 1); continue; } // stray local mob: the owner's copy is the real one
+            }
             const distSq = (m.position.x - px) ** 2 + (m.position.z - pz) ** 2;
             if (distSq > 3600) { // > 60 blocks away
                 m.tickCounter = (m.tickCounter || 0) + 1;
@@ -1637,11 +1650,12 @@ class MobManager {
                 m.tickCounter = (m.tickCounter || 0) + 1;
                 if (m.tickCounter % 2 !== 0) continue;
             }
-            m.update(dt, player, world);
+            m.update(dt, target, world);
             if (m.isDead) {
                 this.mobs.splice(i, 1);
             }
         }
+        if (role === 'owner' && !disabled) net.tickOwner(this, dt);
 
         // Update item drops with distance throttling
         for (let i = this.itemDrops.length - 1; i >= 0; i--) {

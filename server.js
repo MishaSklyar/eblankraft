@@ -31,8 +31,14 @@ let nextId = 1000;
 const ACTION_LIMITS = {
     blocks: { player: [8, 12], room: [32, 80] },
     explosives: { player: [8, 2], room: [16, 4] },
-    chunks: { player: [8, 20], room: [32, 100] }
+    chunks: { player: [8, 20], room: [32, 100] },
+    mobHits: { player: [10, 10], room: [40, 40] },
+    mobAttacks: { player: [6, 4], room: [24, 12] },
+    mobLoot: { player: [10, 10], room: [40, 40] }
 };
+const DIMENSIONS = ['overworld', 'nether', 'the_end'];
+const dimOf = c => c.dim || 'overworld';
+const blockKey = (dim, x, y, z) => dim === 'overworld' ? `${x},${y},${z}` : `${dim}|${x},${y},${z}`;
 const MAX_CHAIN_EXPLOSIVES = 16;
 const MAX_BLASTS_PER_TICK = 8;
 
@@ -47,12 +53,28 @@ class GameRoom {
         this.tnt = new Map();
         this.actionBuckets = new Map();
         this.lastActive = Date.now();
-        this.engine = null;
+        this.engine = null;               // overworld engine (kept for callers that predate dimensions)
+        this.engines = new Map();
+        this.mobOwners = new Map();       // dimension -> client id simulating that dimension's mobs
+        this.mobSnapshots = new Map();    // dimension -> last mob list, so mobs persist while nobody is there
     }
-    world() { return this.engine ||= new AuthorityWorld(this.seed, this.cooperative ? {} : { arenaMap: { floorY: 5, min: -48, max: 48, wallHeight: 0, obstacles: [] } }); }
+    world(dim = 'overworld') {
+        if (!this.cooperative) dim = 'overworld';
+        let engine = this.engines.get(dim);
+        if (!engine) {
+            engine = new AuthorityWorld(this.seed, this.cooperative ? { dimension: dim } : { arenaMap: { floorY: 5, min: -48, max: 48, wallHeight: 0, obstacles: [] } });
+            this.engines.set(dim, engine);
+            if (dim === 'overworld') this.engine = engine;
+        }
+        return engine;
+    }
     remove_client(id) { const c = this.clients.get(id); this.clients.delete(id); this.lastActive = Date.now(); return c; }
-    broadcast(message, exclude) {
-        for (const c of this.clients.values()) if (c.id !== exclude) c.send_json({ ...message, room: this.name });
+    // With `dim`, only clients currently in that dimension receive the message.
+    broadcast(message, exclude, dim) {
+        for (const c of this.clients.values()) {
+            if (c.id === exclude || (dim !== undefined && dimOf(c) !== dim)) continue;
+            c.send_json({ ...message, room: this.name });
+        }
     }
 }
 
@@ -60,7 +82,7 @@ class WSClient {
     constructor(socket, server) {
         this.socket = socket;
         this.server = server;
-        Object.assign(this, { id: `p_${++nextId}`, room: null, name: 'Боєць', skin: 'classic',
+        Object.assign(this, { id: `p_${++nextId}`, room: null, dim: 'overworld', name: 'Боєць', skin: 'classic',
             x: 0, y: 32, z: 0, yaw: 0, pitch: 0, health: 100, max_health: 100,
             is_alive: true, is_closed: false, invulnerable_until: 0, last_attack_time: 0,
             held_item: null, inventory: Array(27).fill(null), selected_slot: 0,
@@ -131,7 +153,8 @@ class AuthoritativeGameServer {
             if (other) this.finish_duel(room, other, client, `${client.name} покинув арену.`);
         }
         room.remove_client(client.id);
-        room.broadcast({ type: 'player_left', id: client.id, name: client.name });
+        room.broadcast({ type: 'player_left', id: client.id, name: client.name }, undefined, room.cooperative ? dimOf(client) : undefined);
+        if (room.cooperative) this.refreshMobOwner(room, dimOf(client));
         if (room.name.startsWith('duel_') && !room.clients.size) this.rooms.delete(room.name);
         client.room = null;
         client.arena_mode = false;
@@ -139,6 +162,35 @@ class AuthoritativeGameServer {
     player(client) {
         const keys = ['id', 'name', 'skin', 'x', 'y', 'z', 'yaw', 'pitch', 'health', 'held_item', 'is_alive'];
         return Object.fromEntries(keys.map(k => [k, client[k]]));
+    }
+    // The first client in a dimension simulates its mobs and streams them to the rest.
+    // Returns true when ownership changed and everyone in that dimension was told.
+    refreshMobOwner(room, dim) {
+        const owner = [...room.clients.values()].find(c => !c.is_closed && dimOf(c) === dim);
+        const id = owner?.id ?? null;
+        if (room.mobOwners.get(dim) === id) return false;
+        room.mobOwners.set(dim, id);
+        if (id) room.broadcast({ type: 'mob_owner', dim, owner_id: id, mobs: room.mobSnapshots.get(dim) || [] }, undefined, dim);
+        return !!id;
+    }
+    sendMobOwner(room, client) {
+        const dim = dimOf(client), id = room.mobOwners.get(dim) ?? null;
+        client.send_json({ type: 'mob_owner', room: room.name, dim, owner_id: id, mobs: id === client.id ? room.mobSnapshots.get(dim) || [] : [] });
+    }
+    dimensionBlocks(room, dim) { return [...room.blocks.values()].filter(b => (b.dim || 'overworld') === dim); }
+    changeDimension(room, client, target) {
+        const now = this.clock(), old = dimOf(client);
+        room.broadcast({ type: 'player_left', id: client.id, name: client.name, moved: true }, client.id, old);
+        client.dim = target;
+        Object.assign(client, room.world(target).spawn());
+        client.last_move_time = now; client.explosionImpulse = null; client.movementCredit = Math.min(.5, client.movementCredit);
+        client.invulnerable_until = now + 1.5;
+        client.send_json({ type: 'dimension_state', room: room.name, dim: target, x: client.x, y: client.y, z: client.z,
+            blocks: this.dimensionBlocks(room, target),
+            players: [...room.clients.values()].filter(p => p !== client && dimOf(p) === target).map(p => this.player(p)) });
+        room.broadcast({ type: 'player_joined', player: this.player(client), moved: true }, client.id, target);
+        this.refreshMobOwner(room, old);
+        if (!this.refreshMobOwner(room, target)) this.sendMobOwner(room, client);
     }
     enqueue_duel(client, nick, kit) {
         if (!Object.hasOwn(DUEL_KITS, kit) || client.room?.name !== 'pvp_arena') {
@@ -201,8 +253,9 @@ class AuthoritativeGameServer {
     explode(room, source, tnt) {
         if (!room.tnt.delete(tnt.id)) return;
         const radius = tnt.kind === 'c4' ? 5.5 : 3.8;
+        const dim = room.cooperative ? (tnt.dim || dimOf(source)) : 'overworld';
         if (room.cooperative) {
-            const world = room.world();
+            const world = room.world(dim);
             const cx = Math.floor(tnt.x), cy = Math.floor(tnt.y + .5), cz = Math.floor(tnt.z);
             const r = Math.ceil(radius), chain = [];
             for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
@@ -210,7 +263,7 @@ class AuthoritativeGameServer {
                 const x = cx + dx, y = cy + dy, z = cz + dz, block = world.getBlock(x, y, z);
                 if (!block || block === world.blocks.BEDROCK) continue;
                 world.setBlock(x, y, z, 0);
-                room.blocks.set(`${x},${y},${z}`, { x, y, z, block_type: 0 });
+                room.blocks.set(blockKey(dim, x, y, z), { x, y, z, block_type: 0, ...(dim !== 'overworld' ? { dim } : {}) });
                 if (block === world.blocks.TNT) chain.push({ x: x + .5, y, z: z + .5 });
             }
             for (const position of chain) {
@@ -219,9 +272,9 @@ class AuthoritativeGameServer {
                 this.spawnExplosive(room, source, { ...position, vx: 0, vy: 3, vz: 0, fuse: .3, kind: 'tnt', chain: tnt.chain });
             }
         }
-        room.broadcast({ type: 'tnt_exploded', tnt_id: tnt.id, x: tnt.x, y: tnt.y, z: tnt.z, radius, source_id: source.id });
+        room.broadcast({ type: 'tnt_exploded', tnt_id: tnt.id, x: tnt.x, y: tnt.y, z: tnt.z, radius, source_id: source.id }, undefined, room.cooperative ? dim : undefined);
         for (const p of room.clients.values()) {
-            if (!p.is_alive || (room.cooperative && p !== source)) continue;
+            if (!p.is_alive || (room.cooperative && (p !== source || dimOf(p) !== dim))) continue;
             const d = distance(p, tnt);
             if (d >= 8) continue;
             const force = (1 - d / 8) * 22;
@@ -238,14 +291,45 @@ class AuthoritativeGameServer {
         }
     }
     spawnExplosive(room, source, state) {
-        const tnt = room.world().tnt({ id: crypto.randomUUID(), chain: { remaining: MAX_CHAIN_EXPLOSIVES - 1 }, ...state,
-            owner_id: source.id }, t => this.queueExplosion(room, source, t));
+        const dim = room.cooperative ? dimOf(source) : 'overworld';
+        const tnt = room.world(dim).tnt({ id: crypto.randomUUID(), chain: { remaining: MAX_CHAIN_EXPLOSIVES - 1 }, ...state,
+            owner_id: source.id, dim }, t => this.queueExplosion(room, source, t));
         if (state.kind === 'c4') tnt.update = () => {};
         room.tnt.set(tnt.id, tnt);
         room.broadcast({ type: 'tnt_spawned', tnt_id: tnt.id, request_id: state.request_id, kind: state.kind,
             spawner_id: source.id, x: tnt.x - .5, y: tnt.y, z: tnt.z - .5,
-            vx: tnt.vx, vy: tnt.vy, vz: tnt.vz, fuse: state.kind === 'c4' ? null : tnt.fuse });
+            vx: tnt.vx, vy: tnt.vy, vz: tnt.vz, fuse: state.kind === 'c4' ? null : tnt.fuse }, undefined, room.cooperative ? dim : undefined);
         return tnt;
+    }
+    // Mobs are simulated by one client per dimension (the "owner"); the server validates and relays.
+    process_mob_message(room, client, dim, msg) {
+        const type = msg.type, owner = room.clients.get(room.mobOwners.get(dim));
+        const isOwner = owner === client;
+        if (type === 'mob_sync') {
+            if (!isOwner || !Array.isArray(msg.mobs) || msg.mobs.length > 64) return;
+            const mobs = [];
+            for (const m of msg.mobs) {
+                if (!m || !Number.isInteger(m.id) || typeof m.t !== 'string' || !/^[a-z_]{1,24}$/.test(m.t) ||
+                    ![m.x, m.y, m.z, m.yaw, m.hp, m.wc].every(finite) || Math.abs(m.x) > 4095 || Math.abs(m.z) > 4095 || m.y < -64 || m.y > 256) return;
+                mobs.push({ id: m.id, t: m.t, x: round(m.x, 2), y: round(m.y, 2), z: round(m.z, 2), yaw: round(m.yaw, 2), hp: round(m.hp, 1), wc: round(m.wc, 2) });
+            }
+            room.mobSnapshots.set(dim, mobs);
+            room.broadcast({ type: 'mob_sync', dim, mobs }, client.id, dim);
+        } else if (type === 'mob_hit') {
+            if (!owner || isOwner || !Number.isInteger(msg.id) || !finite(msg.damage) || msg.damage <= 0 || msg.damage > 100 ||
+                ![msg.kx ?? 0, msg.kz ?? 0].every(finite) || !this.allowAction(client, room, 'mobHits')) return;
+            owner.send_json({ type: 'mob_hit', room: room.name, id: msg.id, damage: msg.damage, kx: msg.kx ?? 0, kz: msg.kz ?? 0, from: client.id });
+        } else if (type === 'mob_attack') {
+            const target = room.clients.get(msg.target_id);
+            if (!isOwner || !target || target === client || !target.is_alive || dimOf(target) !== dim || !finite(msg.amount) ||
+                msg.amount <= 0 || msg.amount > 40 || !this.allowAction(client, room, 'mobAttacks')) return;
+            target.send_json({ type: 'mob_damage', room: room.name, amount: msg.amount, reason: clean(msg.reason, 80, 'Моб') });
+        } else if (type === 'mob_loot') {
+            const item = clean(msg.itemId, 32), count = msg.count ?? 1;
+            if (!isOwner || !item || !Number.isInteger(count) || count < 1 || count > 64 || ![msg.x, msg.y, msg.z].every(finite) ||
+                !this.allowAction(client, room, 'mobLoot')) return;
+            room.broadcast({ type: 'item_drop', player_id: client.id, itemId: item, count, x: msg.x, y: msg.y, z: msg.z, vx: 0, vy: 2, vz: 0 }, undefined, dim);
+        }
     }
     process_message(client, msg) {
         if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
@@ -262,6 +346,7 @@ class AuthoritativeGameServer {
             const switching = client.room !== room;
             if (switching) {
                 this.leave(client);
+                client.dim = 'overworld';
                 Object.assign(client, room.cooperative ? room.world().spawn() : { x: 0, y: name === 'pvp_arena' ? 5.05 : 32, z: 0 });
             }
             Object.assign(client, { room, name: clean(msg.name, 24, 'Боєць'), skin: clean(msg.skin, 32, 'classic') });
@@ -271,10 +356,13 @@ class AuthoritativeGameServer {
             }
             room.clients.set(client.id, client);
             client.send_json({ type: 'welcome', id: client.id, room: name,
-                players: [...room.clients.values()].filter(p => p !== client).map(p => this.player(p)),
-                blocks: [...room.blocks.values()], world: room.cooperative ? { seed: room.seed, mode: room.mode, type: 'normal', authority: 'eblan' } : null,
+                players: [...room.clients.values()].filter(p => p !== client && dimOf(p) === dimOf(client)).map(p => this.player(p)),
+                blocks: this.dimensionBlocks(room, dimOf(client)), world: room.cooperative ? { seed: room.seed, mode: room.mode, type: 'normal', authority: 'eblan' } : null,
                 pvp: !room.cooperative, explosives: 'server', health: client.health, spawn: { x: client.x, y: client.y, z: client.z } });
-            if (switching) room.broadcast({ type: 'player_joined', player: this.player(client) }, client.id);
+            if (switching) {
+                room.broadcast({ type: 'player_joined', player: this.player(client) }, client.id, room.cooperative ? dimOf(client) : undefined);
+                if (room.cooperative && !this.refreshMobOwner(room, dimOf(client))) this.sendMobOwner(room, client);
+            }
             return;
         }
         const room = client.room;
@@ -284,6 +372,8 @@ class AuthoritativeGameServer {
             return client.send_json({ type: 'server_error', message: 'Hosting expired. Renew in Addons → Hosting.' });
         }
         const duel = room.name.startsWith('duel_');
+        const dim = room.cooperative ? dimOf(client) : 'overworld';
+        const scope = room.cooperative ? dim : undefined;
         if (type === 'duel_ready' && duel && room.duel_phase === 'loading') {
             room.duel_ready.add(client.id);
             if (room.duel_ready.size === 2) { room.duel_phase = 'countdown'; this.countdown_duel(room); }
@@ -308,7 +398,7 @@ class AuthoritativeGameServer {
             const external = Math.min(impulse?.credit ?? 0, projection);
             const cost = Math.hypot(delta.x - external * direction.x, delta.y - external * direction.y, delta.z - external * direction.z);
             if (cost > client.movementCredit + 1e-6 || Math.abs(msg.x) > 4095 || Math.abs(msg.z) > 4095 || msg.y < -64 || msg.y > 256 ||
-                (room.cooperative && !room.world().pathClear(client, msg))) {
+                (room.cooperative && !room.world(dim).pathClear(client, msg))) {
                 client.send_json({ type: 'position_correction', room: room.name, x: client.x, y: client.y, z: client.z });
                 return;
             }
@@ -317,7 +407,7 @@ class AuthoritativeGameServer {
             for (const k of ['x', 'y', 'z', 'yaw', 'pitch']) client[k] = msg[k];
             client.held_item = clean(msg.held_item, 32) || null;
             client.duel_blocking = !!msg.is_blocking && ['shield', 'diamond_sword'].includes(client.held_item);
-            room.broadcast({ type: 'player_moved', ...this.player(client), is_walking: !!msg.is_walking, is_sprinting: !!msg.is_sprinting }, client.id);
+            room.broadcast({ type: 'player_moved', ...this.player(client), is_walking: !!msg.is_walking, is_sprinting: !!msg.is_sprinting }, client.id, scope);
             return;
         }
         if (type === 'chunk_request' && room.cooperative) {
@@ -325,7 +415,7 @@ class AuthoritativeGameServer {
             if (![cx, cz].every(Number.isInteger) || Math.abs(cx) > 256 || Math.abs(cz) > 256 ||
                 Math.abs(cx - Math.floor(client.x / 16)) > 5 || Math.abs(cz - Math.floor(client.z / 16)) > 5) return;
             if (!this.allowAction(client, room, 'chunks')) return client.send_json({ type: 'chunk_rejected', room: room.name, cx, cz });
-            client.send_json({ type: 'chunk_state', room: room.name, cx, cz, voxels: Buffer.from(room.world().chunk(cx, cz)).toString('base64') });
+            client.send_json({ type: 'chunk_state', room: room.name, cx, cz, voxels: Buffer.from(room.world(dim).chunk(cx, cz)).toString('base64') });
             return;
         }
         if (type === 'attack') {
@@ -351,7 +441,7 @@ class AuthoritativeGameServer {
                 !Number.isInteger(s.count) || s.count < 1 || s.count > 9999))) return;
             const designs = [];
             try {
-                for (const slot of slots) designs.push(slot?.design && room.mode === 'creative' ? room.world().context.normalizeBlockDesign(slot.design) : null);
+                for (const slot of slots) designs.push(slot?.design && room.mode === 'creative' ? room.world(dim).context.normalizeBlockDesign(slot.design) : null);
             } catch { return; }
             client.inventory = slots.map((s, i) => s === null ? null : { itemId: s.itemId, count: s.count, name: clean(s.name, 64), ...(designs[i] ? { design: designs[i] } : {}) });
             while (client.inventory.length < 27) client.inventory.push(null);
@@ -368,10 +458,10 @@ class AuthoritativeGameServer {
             let design = null;
             if (msg.design != null) {
                 if (room.mode !== 'creative' || msg.action !== 'place') return;
-                try { design = room.world().context.normalizeBlockDesign(msg.design); } catch { return; }
+                try { design = room.world(dim).context.normalizeBlockDesign(msg.design); } catch { return; }
             }
             if (room.cooperative) {
-                const world = room.world();
+                const world = room.world(dim);
                 const previous = world.getBlock(msg.x, msg.y, msg.z);
                 const reject = () => client.send_json({ type: 'block_update', action: previous ? 'place' : 'break',
                     x: msg.x, y: msg.y, z: msg.z, block_type: previous, design: world.getBlockDesign(msg.x, msg.y, msg.z) });
@@ -387,7 +477,7 @@ class AuthoritativeGameServer {
                     (nextBase === previousBase || (nextBase >= world.blocks.WHITE_CONCRETE && nextBase <= world.blocks.BLACK_CONCRETE))));
                 const occupied = msg.action === 'place' && world.solid(previous) && !validEdit;
                 const boxes = world.context.blockDesignBoxes(block, design);
-                const trapsPlayer = msg.action === 'place' && (design ? design.solid : world.solid(block)) && [...room.clients.values()].some(p => p.is_alive && boxes.some(bounds =>
+                const trapsPlayer = msg.action === 'place' && (design ? design.solid : world.solid(block)) && [...room.clients.values()].some(p => p.is_alive && dimOf(p) === dim && boxes.some(bounds =>
                     p.x + .3 > msg.x + bounds[0] && p.x - .3 < msg.x + bounds[3] &&
                     p.y + 1.8 > msg.y + bounds[1] && p.y < msg.y + bounds[4] &&
                     p.z + .3 > msg.z + bounds[2] && p.z - .3 < msg.z + bounds[5]));
@@ -398,20 +488,30 @@ class AuthoritativeGameServer {
                 }
                 world.setBlock(msg.x, msg.y, msg.z, block, design);
             } else if (!this.allowAction(client, room, 'blocks')) return;
-            room.blocks.set(`${msg.x},${msg.y},${msg.z}`, { x: msg.x, y: msg.y, z: msg.z, block_type: block, ...(design ? { design } : {}) });
-            room.broadcast({ type: 'block_update', action: msg.action, x: msg.x, y: msg.y, z: msg.z, block_type: block, player_id: client.id, ...(design ? { design } : {}) });
+            room.blocks.set(blockKey(dim, msg.x, msg.y, msg.z), { x: msg.x, y: msg.y, z: msg.z, block_type: block, ...(dim !== 'overworld' ? { dim } : {}), ...(design ? { design } : {}) });
+            room.broadcast({ type: 'block_update', action: msg.action, x: msg.x, y: msg.y, z: msg.z, block_type: block, player_id: client.id, ...(design ? { design } : {}) }, undefined, scope);
             return;
         }
         // A client can die locally (void, lava, hunger) without the server knowing, so an alive client may
         // also request a respawn, rate-limited so it cannot be used as a free heal mid-fight.
-        if (type === 'respawn' && !duel && (!client.is_alive || now - (client.last_respawn_time ?? -Infinity) > 5)) {
+        // Co-op has no PvP, so there it is never rate-limited: a second death inside 5s must still revive.
+        if (type === 'respawn' && !duel && (room.cooperative || !client.is_alive || now - (client.last_respawn_time ?? -Infinity) > 5)) {
             client.last_respawn_time = now;
-            Object.assign(client, room.cooperative ? room.world().spawn() : { x: 0, y: 32, z: 0 });
+            Object.assign(client, room.cooperative ? room.world(dim).spawn() : { x: 0, y: 32, z: 0 });
             client.health = 100; client.is_alive = true; client.invulnerable_until = now + 1.5; client.last_move_time = now;
             client.explosionImpulse = null;
             client.movementCredit = Math.min(.5, client.movementCredit);
-            room.broadcast({ type: 'player_respawned', id: client.id, health: 100, x: client.x, y: client.y, z: client.z });
+            room.broadcast({ type: 'player_respawned', id: client.id, health: 100, x: client.x, y: client.y, z: client.z }, undefined, scope);
             return;
+        }
+        if (type === 'dimension_change' && room.cooperative && !duel) {
+            if (!DIMENSIONS.includes(msg.dim) || msg.dim === dim || !client.is_alive ||
+                now - (client.last_dimension_time ?? -Infinity) < 1) return;
+            client.last_dimension_time = now;
+            return this.changeDimension(room, client, msg.dim);
+        }
+        if (room.cooperative && (type === 'mob_sync' || type === 'mob_hit' || type === 'mob_attack' || type === 'mob_loot')) {
+            return this.process_mob_message(room, client, dim, msg);
         }
         if (type === 'join_duel_queue') return this.enqueue_duel(client, clean(msg.player_name ?? msg.name, 24, client.name), clean(msg.kit, 24, 'classic'));
         if (type === 'leave_duel_queue') return this.remove_from_duel_queue(client);
@@ -425,7 +525,7 @@ class AuthoritativeGameServer {
             if (!item || !Number.isInteger(count) || count < 1 || count > 9999 ||
                 ![msg.x, msg.y, msg.z, msg.vx ?? 0, msg.vy ?? 2, msg.vz ?? 0].every(finite) || distance(client, msg) > 9) return;
             room.broadcast({ type: 'item_drop', player_id: client.id, itemId: item, count, x: msg.x, y: msg.y, z: msg.z,
-                vx: msg.vx ?? 0, vy: msg.vy ?? 2, vz: msg.vz ?? 0 }, client.id);
+                vx: msg.vx ?? 0, vy: msg.vy ?? 2, vz: msg.vz ?? 0 }, client.id, scope);
         }
         if (type === 'tnt_spawn' && !duel && client.is_alive) {
             const reject = () => client.send_json({ type: 'tnt_rejected', room: room.name, request_id: msg.request_id });
@@ -435,14 +535,14 @@ class AuthoritativeGameServer {
                 (msg.request_id !== undefined && (typeof msg.request_id !== 'string' || msg.request_id.length > 64))) return reject();
             if (msg.request_id && [...room.tnt.values()].some(t => t.owner_id === client.id && t.request_id === msg.request_id)) return;
             if (!this.allowAction(client, room, 'explosives')) return reject();
-            const world = room.world(), bx = Math.floor(msg.x), by = Math.floor(msg.y), bz = Math.floor(msg.z);
+            const world = room.world(dim), bx = Math.floor(msg.x), by = Math.floor(msg.y), bz = Math.floor(msg.z);
             const originBlock = world.getBlock(bx, by, bz);
             if (room.cooperative && ((world.solid(originBlock) && originBlock !== world.blocks.TNT) ||
                 !world.visible({ x: client.x, y: client.y + 1.62, z: client.z }, { x: msg.x, y: msg.y + .5, z: msg.z }))) return reject();
             if (room.cooperative && world.getBlock(bx, by, bz) === world.blocks.TNT) {
                 world.setBlock(bx, by, bz, 0);
-                room.blocks.set(`${bx},${by},${bz}`, { x: bx, y: by, z: bz, block_type: 0 });
-                room.broadcast({ type: 'block_update', action: 'break', x: bx, y: by, z: bz, block_type: 0 });
+                room.blocks.set(blockKey(dim, bx, by, bz), { x: bx, y: by, z: bz, block_type: 0, ...(dim !== 'overworld' ? { dim } : {}) });
+                room.broadcast({ type: 'block_update', action: 'break', x: bx, y: by, z: bz, block_type: 0 }, undefined, scope);
             }
             const kind = msg.kind === 'c4' ? 'c4' : 'tnt';
             this.spawnExplosive(room, client, { x: msg.x, y: msg.y, z: msg.z, request_id: msg.request_id, kind,
@@ -458,14 +558,18 @@ class AuthoritativeGameServer {
         this.arena.tick();
         for (const [name, room] of this.rooms) {
             for (const tnt of [...room.tnt.values()]) tnt.update(.05);
-            if (room.engine && room.clients.size) {
-                room.engine.world.updateWaterPhysics(.05);
-                for (const [key, block] of room.engine.world.modifiedBlocks) {
-                    const design = room.engine.world.blockDesigns.get(key) || null;
-                    if (room.blocks.get(key)?.block_type === block && JSON.stringify(room.blocks.get(key)?.design || null) === JSON.stringify(design)) continue;
-                    const [x, y, z] = key.split(',').map(Number);
-                    room.blocks.set(key, { x, y, z, block_type: block, ...(design ? { design } : {}) });
-                    room.broadcast({ type: 'block_update', action: block ? 'place' : 'break', x, y, z, block_type: block, ...(design ? { design } : {}) });
+            if (room.engines.size && room.clients.size) {
+                for (const [dim, engine] of room.engines) {
+                    if (![...room.clients.values()].some(c => dimOf(c) === dim)) continue;
+                    engine.world.updateWaterPhysics(.05);
+                    for (const [key, block] of engine.world.modifiedBlocks) {
+                        const design = engine.world.blockDesigns.get(key) || null;
+                        const stored = room.blocks.get(blockKey(dim, ...key.split(',')));
+                        if (stored?.block_type === block && JSON.stringify(stored?.design || null) === JSON.stringify(design)) continue;
+                        const [x, y, z] = key.split(',').map(Number);
+                        room.blocks.set(blockKey(dim, x, y, z), { x, y, z, block_type: block, ...(dim !== 'overworld' ? { dim } : {}), ...(design ? { design } : {}) });
+                        room.broadcast({ type: 'block_update', action: block ? 'place' : 'break', x, y, z, block_type: block, ...(design ? { design } : {}) }, undefined, room.cooperative ? dim : undefined);
+                    }
                 }
             }
             if (!room.clients.size && !room.tnt.size && Date.now() - room.lastActive > 30 * 60 * 1000) this.rooms.delete(name);

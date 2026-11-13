@@ -1117,7 +1117,7 @@ class VoxelWorld {
         this.textureManager = textureManager;
         this.game = options.game || window.game || null;
         this.chunkRadius = options.chunkRadius || 2; // e.g. 2 means 5x5 chunks (-2 to +2)
-        this.dimension = 'overworld';
+        this.dimension = options.dimension || 'overworld';
         this.dimensionStates = new Map();
         this.arenaMap = options.arenaMap || null;
         this.worldType = options.worldType || 'normal'; // 'normal', 'flat', 'mountains', 'tnt_paradise'
@@ -3056,9 +3056,14 @@ class VoxelWorld {
 
     switchDimension(newDimension) {
         const sc = this.game && this.game.serverClient;
-        if (sc && sc.currentRoom && sc.currentRoom.startsWith('coop_') && newDimension !== 'overworld') {
-            sc.leaveRoom();
-            if (this.game.ui) this.game.ui.showToast('Вихід зі спільної кімнати для подорожі в інший вимір.');
+        // Shared rooms host the overworld, nether and end; anything else (race tracks...) is local only.
+        let sharedDimension = false;
+        if (sc && sc.currentRoom && sc.currentRoom.startsWith('coop_')) {
+            if (sc.supportsDimension(newDimension)) sharedDimension = true;
+            else if (newDimension !== 'overworld' || (this.dimension || 'overworld') !== 'overworld') {
+                sc.leaveRoom();
+                if (this.game.ui) this.game.ui.showToast('Вихід зі спільної кімнати для подорожі в інший вимір.');
+            }
         }
         if (this.arenaMap) return Promise.resolve();
         if ((this.dimension || 'overworld') === newDimension) return Promise.resolve();
@@ -3181,6 +3186,8 @@ class VoxelWorld {
                                      newDimension === 'highway_city' ? "🏙️ ШОСЕ ТА МІСТО" :
                                      "🌲 ПЕРЕХІД У ВЕРХНІЙ СВІТ");
         }
+        // Shared room: the server owns the per-dimension world, players and mobs.
+        if (sharedDimension && sc.currentRoom) sc.beginDimensionChange(newDimension, loading);
         return loading;
     }
 
