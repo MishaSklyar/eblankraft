@@ -245,7 +245,9 @@ class RTXPipeline {
         const up = g.upscaler && g.upscaler.active ? g.upscaler : null;
         this.composer.renderToScreen = !up;     // with the upscaler the stack ends in a texture, not the canvas
         if (this.smaa) this.smaa.enabled = !up; // the upscaler does its own edge reconstruction
+        const hidden = this.updateSky(dtMs);
         this.composer.render();
+        for (const [o, v] of hidden) o.visible = v;
         if (up) up.present(this.composer.readBuffer.texture);
 
         // adaptive quality: drop the heaviest effects when the frame time is bad, restore when it recovers
@@ -255,9 +257,40 @@ class RTXPipeline {
         return true;
     }
 
+    // RTX sky + clouds (rtx_sky.js): feed the final pass the view/sun/moon state and hide the legacy sky objects while it is on.
+    // Returns [object, previousVisibility] pairs to restore after the frame is drawn.
+    updateSky(dtMs) {
+        const g = this.game, u = this.final && this.final.uniforms;
+        if (!u || !window.RTX_SKY_GLSL) return [];
+        const dim = (g.world && g.world.dimension) || 'overworld';
+        const on = dim !== 'nether' && dim !== 'the_end' && !(g.player && g.player.isSubmerged) && !!(g.scene.background && g.scene.background.isColor);
+        u.skyOn.value = on ? 1 : 0;
+        this.godrays.enabled = on || this.godrays.enabled;   // the god-ray pass also writes the sky mask the final pass reads
+        if (!on) return [];
+        const cam = g.camera;
+        cam.updateMatrixWorld();
+        u.skyInvProj.value.copy(cam.projectionMatrixInverse);
+        u.skyCamWorld.value.copy(cam.matrixWorld);
+        u.skyCamPos.value.setFromMatrixPosition(cam.matrixWorld);
+        const a = (g.timeOfDay || 0) * Math.PI * 2;
+        const aim = (sprite, x, y, z, out) => {
+            if (sprite) out.copy(sprite.position).sub(u.skyCamPos.value); else out.set(x, y, z);
+            if (out.lengthSq() < 1e-6) out.set(0, 1, 0);
+            out.normalize();
+        };
+        aim(g.sunSprite, Math.cos(a), Math.sin(a), 0.3, u.skySun.value);
+        aim(g.moonSprite, -Math.cos(a), -Math.sin(a), -0.3, u.skyMoon.value);
+        u.skyTime.value += (dtMs || 16) / 1000;
+        u.skyClouds.value = g.cloudsEnabled === false ? 0 : 1;
+        const hidden = [];
+        for (const o of [g.sunSprite, g.moonSprite, g.starfield, g.cloudMesh]) if (o) { hidden.push([o, o.visible]); o.visible = false; }
+        return hidden;
+    }
+
     updateGodRays() {
         const g = this.game, u = this.godrays.uniforms;
         const sun = g.sunSprite;
+        if (g.scene.background && g.scene.background.isColor) u.skyColor.value.copy(g.scene.background);   // also feeds the sky mask
         let on = 0;
         if (sun && g.sunLight && g.sunLight.intensity > 0.3 && g.scene.background && g.scene.background.isColor && !(g.player && g.player.isSubmerged)) {
             this._sunNdc.copy(sun.position).project(g.camera);
@@ -288,28 +321,39 @@ class RTXPipeline {
                 float sky(vec3 c) { float d = distance(c, skyColor); return 1.0 - smoothstep(0.015, 0.09, d); }
                 void main() {
                     vec4 base = texture2D(tDiffuse, vUv);
-                    vec2 delta = (vUv - sunPos) / 40.0 * 0.85;
-                    vec2 uv = vUv;
-                    float illum = 1.0, acc = 0.0;
-                    for (int i = 0; i < 40; i++) {
-                        uv -= delta;
-                        acc += sky(texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).rgb) * illum;
-                        illum *= 0.955;
+                    vec3 shaft = vec3(0.0);
+                    if (strength > 0.001) {
+                        vec2 delta = (vUv - sunPos) / 40.0 * 0.85;
+                        vec2 uv = vUv;
+                        float illum = 1.0, acc = 0.0;
+                        for (int i = 0; i < 40; i++) {
+                            uv -= delta;
+                            acc += sky(texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).rgb) * illum;
+                            illum *= 0.955;
+                        }
+                        float fall = smoothstep(1.4, 0.0, distance(vUv, sunPos));
+                        shaft = vec3(1.0, 0.78, 0.5) * acc / 40.0 * fall * strength * 2.2;
                     }
-                    float fall = smoothstep(1.4, 0.0, distance(vUv, sunPos));
-                    vec3 shaft = vec3(1.0, 0.78, 0.5) * acc / 40.0 * fall * strength * 2.2;
-                    gl_FragColor = vec4(base.rgb + shaft, base.a);
+                    // alpha = sky mask, read by the final pass (RTX sky replaces exactly these pixels)
+                    gl_FragColor = vec4(base.rgb + shaft, sky(base.rgb));
                 }`
         };
     }
 
     static FinalShader() {
         return {
-            uniforms: { tDiffuse: { value: null }, skyColor: { value: new THREE.Color(0.5, 0.7, 1) }, exposure: { value: 1.05 }, contrast: { value: 1.08 }, vibrance: { value: 0.22 } },
+            defines: window.RTX_SKY_GLSL ? { RTX_SKY: '' } : {},
+            uniforms: {
+                tDiffuse: { value: null }, skyColor: { value: new THREE.Color(0.5, 0.7, 1) }, exposure: { value: 1.05 }, contrast: { value: 1.08 }, vibrance: { value: 0.22 },
+                skyInvProj: { value: new THREE.Matrix4() }, skyCamWorld: { value: new THREE.Matrix4() }, skyCamPos: { value: new THREE.Vector3() },
+                skySun: { value: new THREE.Vector3(0, 1, 0) }, skyMoon: { value: new THREE.Vector3(0, -1, 0) },
+                skyTime: { value: 0 }, skyOn: { value: 0 }, skyClouds: { value: 1 }
+            },
             vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
             fragmentShader: `
                 uniform sampler2D tDiffuse; uniform vec3 skyColor; uniform float exposure, contrast, vibrance;
                 varying vec2 vUv;
+                ${window.RTX_SKY_GLSL || 'uniform float skyOn;'}
                 // three.js' own ACES Filmic curve (identical look to renderer.toneMapping = ACESFilmicToneMapping)
                 vec3 RRTAndODTFit(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
                 vec3 aces(vec3 color) {
@@ -326,7 +370,19 @@ class RTXPipeline {
                     // the clear colour (sky) is never tone-mapped/encoded by the stock renderer: keep it exactly as authored
                     float skyMask = 1.0 - smoothstep(0.004, 0.03, distance(raw, skyColor));
                     vec3 lit = toSRGB(aces(max(c, 0.0)));           // ACES Filmic tone mapping + sRGB output
-                    c = mix(lit, clamp(raw, 0.0, 1.0), skyMask);
+                    vec3 skyOut = clamp(raw, 0.0, 1.0);
+                    #ifdef RTX_SKY
+                    float skyA = texture2D(tDiffuse, vUv).a;      // sky mask from the god-ray pass
+                    if (skyOn > 0.5) {
+                        skyMask = skyA;
+                        if (skyA > 0.002) {
+                            // horizon colour = the fog colour as the terrain shows it (tone-mapped), so far hills blend in
+                            vec3 horizon = toSRGB(aces(max(skyColor, 0.0)));
+                            skyOut = clamp(sk_shade(vUv, horizon) + max(raw - skyColor, 0.0), 0.0, 1.0);
+                        }
+                    }
+                    #endif
+                    c = mix(lit, skyOut, skyMask);
                     // colour grade (LUT-style): vibrance, contrast, cool shadows / warm highlights
                     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
                     float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
