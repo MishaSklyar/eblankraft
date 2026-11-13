@@ -106,7 +106,7 @@ const KNIFE_BLADES = {
     butterfly:{ L: .21, n: 8, th: .009, low: t => -.026 * (1 - .8 * t ** 3), high: t => .016 * (1 - (t > .5 ? ((t - .5) / .5) ** 1.4 : 0)) },
 };
 
-function createVoxelKnifeModel(type) {
+function _buildVoxelKnifeModel(type) {
     const style = KNIFE_STYLES[type] || KNIFE_STYLES.default;
     const root = new THREE.Group(); root.name = 'knife_' + type;
     const inner = new THREE.Group(); inner.position.z = -.085; root.add(inner);   // origin in the middle of the handle
@@ -133,7 +133,7 @@ function createVoxelKnifeModel(type) {
         // curved handle + finger ring
         box('handle', .026, .042, .13, 0, -.002, .075, 'handle');
         for (const z of [.04, .08, .12]) box('grip_band', .028, .044, .012, 0, -.002, z, 'dark');
-        const rr = .036;
+        const rr = .03;
         for (let i = 0; i < 12; i++) {
             const a = i / 12 * Math.PI * 2;
             box('ring', .010, .012, .026, 0, -.012 + Math.sin(a) * rr, .175 + Math.cos(a) * rr, 'guard', a);
@@ -181,110 +181,279 @@ function createVoxelKnifeModel(type) {
     if (type === 'm9' || type === 'gold') box('lanyard_hole', .006, .014, .01, 0, .01, .178, 'guard');
     return root;
 }
+function createVoxelKnifeModel(type) {
+    const root = _buildVoxelKnifeModel(type);
+    const style = KNIFE_STYLES[type] || KNIFE_STYLES.default, bl = KNIFE_BLADES[type] || KNIFE_BLADES.default;
+    // blade tip and a point halfway down the blade (knife space), used by the slash trail
+    if (type === 'karambit') { root.userData.tip = new THREE.Vector3(0, -.112, -.246); root.userData.mid = new THREE.Vector3(0, -.035, -.17); }
+    else { root.userData.tip = new THREE.Vector3(0, -.004, -.085 - bl.L); root.userData.mid = new THREE.Vector3(0, -.004, -.085 - bl.L * .42); }
+    const c = new THREE.Color(style.edge);
+    root.userData.trailColor = [c.r * .6 + .4, c.g * .6 + .4, c.b * .6 + .4];
+    return root;
+}
 window.createVoxelKnifeModel = createVoxelKnifeModel;
 
-// --- Per-knife viewmodel: hold pose, pickup (draw), 3 attacks and inspect ---
-// pose = rest position/rotation/scale of the knife in view. draw(d, o): d = remaining pickup weight (1 -> 0).
-// inspect(p, o): p = progress 0 -> 1. swing[k](s, o, a): s = sin swing envelope, a = raw armSwing (1 -> 0).
-// o collects additive offsets (px/py/pz position, rx/ry/rz arm rotation), a spin of the knife itself
-// (mx/my/mz, around `pivot` in knife space) and balisong handle angles (hA/hB).
+// --- Knife viewmodel v2 ----------------------------------------------------------------------------
+// Rig (all in camera space, under handGroup):
+//   itemPivot (wrist / grip) ─┬─ knifeHand  gloved fist wrapped around the handle
+//                             └─ knife      spins / tosses inside the hand (mx my mz, kx ky kz)
+//   knifeForearm              sleeve + glove cuff, stretched every frame from the wrist to a lagging elbow (2-bone-ish IK)
+//   knifeTrail                additive ribbon behind the blade tip during the strike of an attack
+// Every action (pickup, 3 attacks, inspect) is a keyframed clip sampled with Catmull-Rom splines, layered on top of
+// spring-driven procedural motion (mouse sway, walk figure-8, strafe roll, jump / landing, sprint, block, breathing).
+// Channels: px py pz wrist offset · rx ry rz wrist rotation · mx my mz knife spin · kx ky kz knife toss · hA hB balisong · open fingers
 const TAU = Math.PI * 2;
-const _ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const KNIFE_CHANNELS = ['px', 'py', 'pz', 'rx', 'ry', 'rz', 'mx', 'my', 'mz', 'kx', 'ky', 'kz', 'hA', 'hB', 'open'];
 const _clamp01 = t => Math.max(0, Math.min(1, t));
-const _seg = (p, a, b) => _ease(_clamp01((p - a) / (b - a)));
-function _inspectLift(o, p, k = 1) {   // raise the knife toward the screen centre while it is shown off
-    const l = Math.sin(p * Math.PI) * k;
-    o.px += (.16 - o.bx) * l * .6; o.py += .05 * l; o.pz += .05 * l; o.ry += .35 * l; o.rx += .12 * l;
-    return l;
+const _ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const _wrapPi = a => a - TAU * Math.round(a / TAU);
+
+// keys: [[time in seconds, {channel: value}], ...]. A channel starts and ends at 0 unless a key at 0 / dur says otherwise.
+function knifeClip(dur, keys, extra = {}) {
+    const tracks = {};
+    for (const [t, vals] of keys) for (const ch in vals) (tracks[ch] || (tracks[ch] = [])).push([Math.min(dur, Math.max(0, t)), vals[ch]]);
+    for (const ch in tracks) {
+        const tr = tracks[ch].sort((a, b) => a[0] - b[0]);
+        if (tr[0][0] > 0) tr.unshift([0, 0]);
+        if (tr[tr.length - 1][0] < dur) tr.push([dur, 0]);
+    }
+    return { dur, tracks, ...extra };
 }
-const _DEF_SWINGS = [
-    (s, o) => { o.px -= s * .36; o.py -= s * .08; o.pz -= s * .12; o.ry += s * .95; o.rz -= s * .6; o.rx += s * .1; },
-    (s, o) => { o.px -= s * .1; o.py += s * .14; o.pz -= s * .10; o.ry -= s * .55; o.rz += s * .95; o.rx -= s * .22; },
-    (s, o) => { o.pz -= s * .38; o.py += s * .05; o.px -= s * .08; o.rx -= s * .18; o.ry -= o.by * s * .55; },
-];
-const KNIFE_ANIMS = {
-    default: {
-        pose: { px: .22, py: -.215, pz: -.43, rx: .34, ry: .52, rz: -.34, scale: 1.12 },
-        drawTime: .35, inspectTime: 1.9,
-        draw(d, o) { o.py -= d * .42; o.px += d * .12; o.rx -= d * 1.2; o.rz += d * .9; },
-        inspect(p, o) { const l = _inspectLift(o, p); o.mz = _ease(p) * TAU; o.my = l * .2; },
-    },
-    bayonet: {   // heavy combat knife: held forward and upright, hacking swings
-        pose: { px: .20, py: -.20, pz: -.47, rx: .22, ry: .40, rz: -.16, scale: 1.16 },
-        drawTime: .5, inspectTime: 1.9,
-        draw(d, o) { o.py -= d * .4; o.px += d * .2; o.ry -= d * .8; o.mz = -d * 1.6; o.pz += d * .1; },
-        inspect(p, o) { const l = _inspectLift(o, p, 1.2); o.ry += Math.sin(p * Math.PI) * .7; o.mx = -l * .7; o.mz = Math.sin(p * TAU) * .5 + _ease(p) * Math.PI; o.my = Math.sin(p * Math.PI) * .6; },
-        swing: [
-            (s, o) => { o.px -= s * .30; o.py += s * .14; o.pz -= s * .18; o.ry += s * 1.1; o.rz -= s * .8; o.rx += s * .45; },   // overhead chop
-            (s, o) => { o.px += s * .05; o.py -= s * .06; o.pz -= s * .16; o.ry -= s * .8; o.rz += s * .7; o.rx -= s * .1; },
-            (s, o) => { o.pz -= s * .46; o.py += s * .02; o.rx -= s * .3; o.ry -= o.by * s * .7; },
-        ],
-    },
-    huntsman: {   // low, tilted hunting grip with quick hooking cuts
-        pose: { px: .24, py: -.23, pz: -.41, rx: .52, ry: .62, rz: -.52, scale: 1.12 },
-        drawTime: .6, inspectTime: 2,
-        draw(d, o) { o.py -= d * .4; o.px += d * .08; o.mx = -d * TAU; },
-        inspect(p, o) { const l = _inspectLift(o, p); o.mx = -_ease(p) * TAU; o.mz = l * .35; },
-        swing: [
-            (s, o) => { o.px -= s * .26; o.py -= s * .12; o.ry += s * .8; o.rz -= s * 1.0; o.mz = s * .6; },
-            (s, o) => { o.px -= s * .06; o.py += s * .16; o.ry -= s * .7; o.rz += s * 1.1; o.mz = -s * .6; },
-            (s, o) => { o.pz -= s * .34; o.py += s * .08; o.rx -= s * .35; o.ry -= o.by * s * .5; },
-        ],
-    },
-    m9: {   // big bayonet blade: wide sweeping arcs
-        pose: { px: .21, py: -.20, pz: -.45, rx: .28, ry: .46, rz: -.30, scale: 1.2 },
-        drawTime: .6, inspectTime: 2.2,
-        draw(d, o) { o.py -= d * .42; o.px += d * .1; o.rx -= d * .8; o.mz = d * TAU; },
-        inspect(p, o) { const l = _inspectLift(o, p, 1.1); o.mz = _ease(p) * TAU; o.mx = Math.sin(p * TAU) * .45; o.my = l * .3; },
-        swing: [
-            (s, o) => { o.px -= s * .46; o.py -= s * .06; o.pz -= s * .14; o.ry += s * 1.2; o.rz -= s * .75; o.mz = s * .5; },
-            (s, o) => { o.px -= s * .16; o.py += s * .18; o.pz -= s * .12; o.ry -= s * .7; o.rz += s * 1.1; o.rx -= s * .25; o.mz = -s * .5; },
-            (s, o) => { o.pz -= s * .42; o.py += s * .04; o.rx -= s * .2; o.ry -= o.by * s * .6; },
-        ],
-    },
-    butterfly: {   // balisong: spinning handles, fans open/closed, flips mid-swing
-        pose: { px: .19, py: -.19, pz: -.40, rx: .46, ry: .40, rz: -.26, scale: 1.3 },
-        drawTime: .95, inspectTime: 3.2,
-        draw(d, o) {   // flicked open from closed: handles whip around the blade while the knife double-flips in
-            o.py -= d * .36; o.px += d * .1; o.mx = d * TAU * 2; o.mz = d * .6;
-            o.hA = Math.PI * _clamp01(d * 1.6); o.hB = Math.PI * _clamp01(d * 1.6 - .25);
-        },
-        inspect(p, o) {   // close handles -> double flip closed -> fan open -> roll
-            const l = _inspectLift(o, p, 1.15);
-            const close = a => _seg(p, a, a + .22) - _seg(p, .58 + (a - .08), .8 + (a - .08));
-            o.hA = Math.PI * close(.08); o.hB = Math.PI * close(.13);
-            o.mx = _seg(p, .3, .58) * TAU * 2; o.mz = _seg(p, .78, 1) * TAU; o.my = l * .25;
-        },
-        swing: [
-            (s, o, a) => { o.px -= s * .34; o.py -= s * .08; o.pz -= s * .12; o.ry += s * 1.0; o.rz -= s * .7; o.mx = (1 - a) * TAU; o.hA = s * .7; o.hB = s * .35; },   // flip-slash
-            (s, o, a) => { o.px -= s * .12; o.py += s * .16; o.ry -= s * .6; o.rz += s * 1.0; o.mz = -(1 - a) * TAU; o.hB = s * .7; o.hA = s * .35; },
-            (s, o, a) => { o.pz -= s * .4; o.py += s * .05; o.rx -= s * .2; o.ry -= o.by * s * .6; o.mx = -(1 - a) * TAU; },
-        ],
-    },
-    karambit: {   // reverse grip, finger through the ring: twirls on the ring, wrist-roll slashes
-        pose: { px: .19, py: -.20, pz: -.38, rx: .14, ry: .36, rz: -.62, scale: 1.34 },
-        pivot: [0, -.012, .09],   // the finger ring
-        drawTime: .85, inspectTime: 3,
-        draw(d, o) { o.py -= d * .38; o.px += d * .15; o.rz += d * .5; o.mx = -d * TAU * 1.5; o.mz = d * .5; },
-        inspect(p, o) {   // two fast ring spins, a hold to show the curve, a reverse flick and a final spin
-            const l = _inspectLift(o, p, 1.3);
-            o.mx = -(_seg(p, .05, .35) * TAU * 2 + _seg(p, .62, .9) * TAU);
-            o.my = Math.sin(p * TAU) * .3 + _seg(p, .38, .52) * .5 * (1 - _seg(p, .52, .62)); o.mz = l * .45;
-        },
-        swing: [
-            (s, o, a) => { o.px -= s * .34; o.py -= s * .1; o.pz -= s * .14; o.ry += s * 1.0; o.rz -= s * .9; o.mx = -(1 - a) * TAU; },   // twirl-slash
-            (s, o) => { o.px -= s * .08; o.py += s * .18; o.pz -= s * .1; o.ry -= s * .6; o.rz += s * 1.2; o.rx -= s * .3; o.mz = -s * .9; },
-            (s, o, a) => { o.pz -= s * .4; o.py += s * .04; o.rx -= s * .22; o.ry -= o.by * s * .6; o.mx = -(1 - a) * TAU * 2; },
-        ],
-    },
-    gold: {   // slow, showy rotation so the shine catches the light
-        pose: { px: .22, py: -.21, pz: -.44, rx: .30, ry: .50, rz: -.30, scale: 1.2 },
-        drawTime: .7, inspectTime: 2.7,
-        draw(d, o) { o.py -= d * .45; o.px += d * .1; o.rx -= d * .7; o.my = d * TAU; o.mz = d * .5; },
-        inspect(p, o) { const l = _inspectLift(o, p, 1.5); o.my = _ease(p) * TAU; o.mz = l * .55; o.mx = -l * .3; },
-    },
+function sampleKnifeTrack(tr, t) {   // cubic Hermite with Catmull-Rom tangents (flat at both ends)
+    const n = tr.length;
+    if (t <= tr[0][0]) return tr[0][1];
+    if (t >= tr[n - 1][0]) return tr[n - 1][1];
+    let i = 0; while (i < n - 2 && t > tr[i + 1][0]) i++;
+    const [t0, v0] = tr[i], [t1, v1] = tr[i + 1], h = t1 - t0;
+    if (h <= 1e-9) return v1;
+    const tan = j => (j <= 0 || j >= n - 1) ? 0 : (tr[j + 1][1] - tr[j - 1][1]) / (tr[j + 1][0] - tr[j - 1][0]);
+    const s = (t - t0) / h, s2 = s * s, s3 = s2 * s;
+    return (2 * s3 - 3 * s2 + 1) * v0 + (s3 - 2 * s2 + s) * tan(i) * h + (3 * s2 - 2 * s3) * v1 + (s3 - s2) * tan(i + 1) * h;
+}
+function applyKnifeClip(clip, t, o, w = 1) {
+    for (const ch in clip.tracks) o[ch] += sampleKnifeTrack(clip.tracks[ch], t) * w;
+}
+function _kSpring(s, target, dt, w = 14, z = .55) {   // damped spring, s = {x, v}
+    const a = w * w * (target - s.x) - 2 * z * w * s.v;
+    s.v += a * dt; s.x += s.v * dt;
+    return s.x;
+}
+// bring the knife up toward the centre of the screen, blade turned to the camera (used by every inspect)
+const _lift = (pose, k, add = {}) => {
+    const o = { px: (.11 - pose.px) * k, py: .075 * k, pz: .06 * k, rx: .16 * k, ry: .42 * k, rz: 0 };
+    for (const c in add) o[c] = (o[c] || 0) + add[c];
+    return o;
 };
+// attack builders: u = normalised time. s overrides / extends the keys (wind = anticipation, mid = through the centre,
+// end = follow-through, hang = recovery start), s.keys adds extra channel keys (flips, rolls).
+const _atk = (d, keys, s, hit, trail) => knifeClip(d, keys.concat((s.keys || []).map(([u, v]) => [u, v])).map(([u, v]) => [u * d, v]), { hit, trail, swish: s.swish || 1 });
+function _slash(pose, s = {}) {      // forehand: right -> left, slightly downward
+    const a = s.amp || 1;
+    return _atk(s.dur || .46, [
+        [.15, { px: .07 * a, py: .065, pz: .035, rx: .28, ry: -.55, rz: -.22, open: .15, ...s.wind }],
+        [.29, { px: -.08 * a, py: .0, pz: -.13, rx: -.04, ry: .25 * a, rz: .2, open: 0, ...s.mid }],
+        [.41, { px: -.27 * a, py: -.09, pz: -.06, rx: -.36, ry: .85 * a, rz: .42, ...s.end }],
+        [.6, { px: -.23 * a, py: -.09, pz: -.03, rx: -.28, ry: .7 * a, rz: .32, ...s.hang }],
+    ], s, .26, [.19, .46]);
+}
+function _backslash(pose, s = {}) {  // backhand: left -> right, rising
+    const a = s.amp || 1;
+    return _atk(s.dur || .46, [
+        [.15, { px: -.12 * a, py: -.06, pz: .03, rx: -.3, ry: .6, rz: .32, open: .15, ...s.wind }],
+        [.29, { px: -.01, py: .04, pz: -.14, rx: .0, ry: -.05, rz: -.1, open: 0, ...s.mid }],
+        [.41, { px: .10 * a, py: .13, pz: -.07, rx: .32, ry: -.6 * a, rz: -.45, ...s.end }],
+        [.6, { px: .08 * a, py: .10, pz: -.04, rx: .25, ry: -.48 * a, rz: -.36, ...s.hang }],
+    ], s, .26, [.19, .46]);
+}
+function _knifeAim(pose) {   // camera-space yaw / pitch that turn the blade from its rest direction toward the crosshair
+    const d = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(pose.rx, pose.ry, pose.rz));
+    const yaw = Math.atan2(-d.x, -d.z), pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
+    return { y: Math.atan2(pose.px - .08, 1) - yaw, p: Math.atan2(-pose.py + .02, 1) - pitch };
+}
+function _stab(pose, s = {}) {       // pull back, thrust at the crosshair, twist, pull out
+    const aim = _knifeAim(pose), reach = s.reach || 1;
+    return _atk(s.dur || .5, [
+        [.18, { px: .04, py: -.035, pz: .10, rx: -.12, ry: -.1, rz: .12, ...s.wind }],
+        [.31, { px: -.08, py: .04, pz: -.28 * reach, rx: aim.p * .95, ry: aim.y * .95, rz: -.1, ...s.mid }],
+        [.39, { px: -.1, py: .045, pz: -.35 * reach, rx: aim.p, ry: aim.y, rz: -.35, ...s.end }],
+        [.58, { px: -.08, py: .03, pz: -.27 * reach, rx: aim.p * .85, ry: aim.y * .85, rz: -.3, ...s.hang }],
+    ], s, .29, [.24, .42]);
+}
+
+const KNIFE_ANIMS = {};
+const _defKnife = (name, def) => {
+    const p = def.pose;
+    def.attacks = def.attacks(p);
+    def.inspect = def.inspect(p);
+    def.drawTime = def.draw.dur; def.inspectTime = def.inspect.dur;
+    def.forearm = def.forearm || [.62, -.5, .6];
+    def.wrist = def.wrist || [.022, -.012, .06];
+    KNIFE_ANIMS[name] = def;
+};
+
+_defKnife('default', {   // classic CT knife: relaxed forward grip, clean swipes, flat roll to show both sides
+    pose: { px: .18, py: -.18, pz: -.36, rx: .5, ry: .65, rz: -.9, scale: 1.1 },
+    draw: knifeClip(.6, [[0, { py: -.34, px: .12, pz: .08, rx: -1.0, ry: -.35, rz: .85, open: .4 }], [.28, { py: .025, px: -.01, rx: .14, rz: -.1 }], [.42, { py: -.008, rx: -.03 }]]),
+    attacks: p => [_slash(p), _backslash(p), _stab(p)],
+    inspect: p => knifeClip(2.3, [
+        [.38, _lift(p, 1, { rz: .1 })],
+        [.85, _lift(p, 1, { rz: -1.15, ry: .15, mz: .15 })],
+        [1.3, _lift(p, 1.02, { rz: -1.05, ry: .1, mz: Math.PI })],
+        [1.75, _lift(p, .9, { rz: -.3, mz: TAU })],
+        [2.3, { mz: TAU }],
+    ]),
+});
+
+_defKnife('bayonet', {   // heavy combat knife: upright, hacking chops, flipped and caught by the handle
+    pose: { px: .18, py: -.175, pz: -.38, rx: .4, ry: .55, rz: -.7, scale: 1.12 },
+    draw: knifeClip(.8, [[0, { py: -.38, px: .2, pz: .1, ry: -.9, mz: -1.6, open: .5 }], [.36, { py: .03, ry: .1, mz: .12, open: 0 }], [.52, { py: -.012, ry: -.02, mz: -.03 }]]),
+    attacks: p => [
+        _slash(p, { dur: .54, wind: { py: .14, rx: .6, ry: -.25, rz: -.15 }, mid: { py: .02, rx: -.1 }, end: { py: -.15, rx: -.62, px: -.18, ry: .45, rz: .35 }, hang: { py: -.12, rx: -.5, px: -.16, ry: .38, rz: .28 }, swish: .8 }),
+        _backslash(p, { dur: .5, amp: 1.05, swish: .85 }),
+        _stab(p, { dur: .56, reach: 1.15, swish: .8 }),
+    ],
+    inspect: p => knifeClip(2.4, [
+        [.35, _lift(p, 1.1, { rz: .25 })],
+        [.62, _lift(p, 1.15, { ky: .07, mx: -Math.PI * .6, open: 1, ry: .2 })],
+        [.9, _lift(p, 1.1, { ky: .02, mx: -TAU, open: .3, ry: .3 })],
+        [1.05, _lift(p, 1.1, { mx: -TAU, ry: .35, rz: -.2 })],
+        [1.55, _lift(p, 1.05, { mx: -TAU, ry: .75, rz: -.75, my: .3 })],
+        [1.95, _lift(p, .8, { mx: -TAU, rz: -.2 })],
+        [2.4, { mx: -TAU }],
+    ]),
+});
+
+_defKnife('huntsman', {   // low, tilted hunting grip: hooking cuts that roll the blade through the target
+    pose: { px: .19, py: -.19, pz: -.35, rx: .6, ry: .75, rz: -1.05, scale: 1.08 },
+    draw: knifeClip(.75, [[0, { py: -.38, px: .1, mx: -TAU, ky: 0, open: .8 }], [.18, { py: -.12, ky: .08, mx: -TAU * .6 }], [.42, { py: .025, ky: .0, mx: .1, open: 0 }], [.56, { py: -.01, mx: -.02 }]]),
+    attacks: p => [
+        _slash(p, { dur: .48, keys: [[.36, { mz: .55 }], [.62, { mz: .35 }]] }),
+        _backslash(p, { dur: .48, keys: [[.36, { mz: -.6 }], [.62, { mz: -.3 }]] }),
+        _stab(p, { wind: { rz: .3 }, end: { rz: -.6 } }),
+    ],
+    inspect: p => knifeClip(2.4, [
+        [.35, _lift(p, 1, { rz: .2 })],
+        [.8, _lift(p, 1, { rz: -.9, mz: .1 })],
+        [1.0, _lift(p, 1.05, { rz: -.9, ky: .06, mx: -Math.PI, open: 1 })],
+        [1.22, _lift(p, 1, { rz: -.8, ky: 0, mx: -TAU, open: 0 })],
+        [1.7, _lift(p, 1, { rz: -.25, ry: .3, mx: -TAU, my: .35 })],
+        [2.4, { mx: -TAU }],
+    ]),
+});
+
+_defKnife('m9', {   // big bayonet blade: wide sweeping arcs, spun in from the holster, slow admiring roll
+    pose: { px: .18, py: -.18, pz: -.37, rx: .48, ry: .62, rz: -.85, scale: 1.14 },
+    draw: knifeClip(.72, [[0, { py: -.4, px: .12, rx: -.8, mz: TAU, open: .4 }], [.36, { py: .03, rx: .1, mz: -.1, open: 0 }], [.52, { py: -.01, rx: -.02, mz: .02 }]]),
+    attacks: p => [
+        _slash(p, { dur: .5, amp: 1.3, keys: [[.4, { mz: .4 }]], swish: .9 }),
+        _backslash(p, { dur: .5, amp: 1.25, keys: [[.4, { mz: -.45 }]], swish: .9 }),
+        _stab(p, { dur: .52, reach: 1.1, swish: .9 }),
+    ],
+    inspect: p => knifeClip(2.6, [
+        [.4, _lift(p, 1.05)],
+        [1.0, _lift(p, 1.1, { rz: -1.0, mz: .2, ry: .15 })],
+        [1.45, _lift(p, 1.1, { rz: -1.0, mz: Math.PI, mx: .35 })],
+        [1.95, _lift(p, 1, { rz: -.4, mz: TAU, mx: -.2 })],
+        [2.6, { mz: TAU }],
+    ]),
+});
+
+_defKnife('butterfly', {   // balisong: handles flick open, flips mid-swing, full fan routine on inspect
+    pose: { px: .175, py: -.175, pz: -.35, rx: .55, ry: .6, rz: -.8, scale: 1.2 },
+    draw: knifeClip(1.05, [
+        [0, { py: -.36, px: .1, mx: TAU * 2, mz: .6, hA: Math.PI, hB: Math.PI, open: .6 }],
+        [.3, { py: -.04, hA: Math.PI * .65, hB: Math.PI }],
+        [.5, { py: .03, hA: -.25, hB: Math.PI * .5 }],
+        [.7, { hA: .06, hB: -.2, open: 0 }],
+        [.82, { py: -.008, hB: .05 }],
+    ]),
+    attacks: p => [
+        _slash(p, { dur: .42, keys: [[.12, { mx: 0, ky: 0 }], [.3, { mx: Math.PI, ky: .035, hA: .9, hB: .45 }], [.48, { mx: TAU, ky: 0, hA: 0, hB: 0 }], [1, { mx: TAU }]] }),
+        _backslash(p, { dur: .42, keys: [[.12, { mz: 0 }], [.45, { mz: -TAU, hB: .8, hA: .35 }], [.6, { hA: 0, hB: 0 }], [1, { mz: -TAU }]] }),
+        _stab(p, { dur: .46, keys: [[.15, { mx: 0 }], [.32, { mx: -TAU }], [1, { mx: -TAU }]] }),
+    ],
+    inspect: p => knifeClip(3.4, [
+        [.3, _lift(p, 1.1)],
+        [.6, _lift(p, 1.15, { hA: Math.PI, hB: .3, open: .6 })],                       // first handle swings around the blade
+        [.85, _lift(p, 1.15, { hA: Math.PI, hB: Math.PI, mx: 0 })],                      // fully closed
+        [1.35, _lift(p, 1.2, { hA: Math.PI, hB: Math.PI, mx: TAU, ky: .04 })],           // double flip closed
+        [1.8, _lift(p, 1.2, { hA: Math.PI, hB: Math.PI, mx: TAU * 2, ky: 0 })],
+        [2.15, _lift(p, 1.15, { hA: .0, hB: Math.PI * .8, mx: TAU * 2 })],               // fan open again
+        [2.45, _lift(p, 1.1, { hA: 0, hB: 0, mx: TAU * 2, rz: -.6, open: 0 })],
+        [2.9, _lift(p, 1, { mx: TAU * 2, mz: TAU, rz: -.3 })],
+        [3.4, { mx: TAU * 2, mz: TAU }],
+    ]),
+});
+
+_defKnife('karambit', {   // reverse grip, finger through the ring: twirls on the ring, wrist-roll slashes
+    pose: { px: .2, py: -.07, pz: -.4, rx: 1.75, ry: -.4, rz: -.6, scale: 1.25 },
+    pivot: [0, -.012, .09],   // the finger ring
+    mount: { rot: [0, Math.PI, 0], pos: [0, 0, .03] },   // reverse grip: ring at the index finger, blade out of the pinky side
+    forearm: [.85, -.3, .45], wrist: [.03, .0, .03],
+    draw: knifeClip(.95, [[0, { py: -.38, px: .15, rz: .5, mx: -TAU * 2, mz: .5, open: .3 }], [.45, { py: .03, rz: -.06, mx: -.15, open: 0 }], [.65, { py: -.01, mx: .03 }]]),
+    attacks: p => [
+        _slash(p, { dur: .46, keys: [[.12, { mx: 0 }], [.5, { mx: -TAU }], [1, { mx: -TAU }]] }),
+        _backslash(p, { dur: .46, end: { rz: -.75, ry: -.5 }, keys: [[.4, { mz: -.85 }]] }),
+        _stab(p, { dur: .5, keys: [[.15, { mx: 0 }], [.55, { mx: -TAU * 2 }], [1, { mx: -TAU * 2 }]] }),
+    ],
+    inspect: p => knifeClip(3.1, [
+        [.3, _lift(p, 1.25)],
+        [.95, _lift(p, 1.3, { mx: -TAU * 2, mz: .3 })],                // two fast ring spins
+        [1.3, _lift(p, 1.3, { mx: -TAU * 2, my: .55, mz: .4 })],       // hold to show the curve
+        [1.6, _lift(p, 1.3, { mx: -TAU * 2 + .9, my: .5, mz: .4 })],   // reverse flick
+        [2.15, _lift(p, 1.2, { mx: -TAU * 3, my: 0, mz: .2 })],        // final spin
+        [2.55, _lift(p, .7, { mx: -TAU * 3 })],
+        [3.1, { mx: -TAU * 3 }],
+    ]),
+});
+
+_defKnife('gold', {   // slow, showy rotations so the shine catches the light
+    pose: { px: .18, py: -.18, pz: -.37, rx: .5, ry: .68, rz: -.95, scale: 1.14 },
+    draw: knifeClip(.85, [[0, { py: -.44, px: .1, rx: -.7, my: TAU, mz: .5, open: .4 }], [.42, { py: .03, rx: .1, my: -.12, open: 0 }], [.6, { py: -.01, my: .03 }]]),
+    attacks: p => [
+        _slash(p, { dur: .5, amp: 1.25, keys: [[.42, { my: .3 }]] }),
+        _backslash(p, { dur: .5, amp: 1.2, keys: [[.42, { my: -.3 }]] }),
+        _stab(p, { dur: .52, keys: [[.45, { mz: -.8 }]] }),
+    ],
+    inspect: p => knifeClip(2.9, [
+        [.45, _lift(p, 1.25, { rz: .2 })],
+        [1.25, _lift(p, 1.35, { my: Math.PI, mz: .5, mx: -.3 })],
+        [2.0, _lift(p, 1.3, { my: TAU, mz: .2, rz: -.7 })],
+        [2.4, _lift(p, .8, { my: TAU, rz: -.2 })],
+        [2.9, { my: TAU }],
+    ]),
+});
 window.KNIFE_ANIMS = KNIFE_ANIMS;
+window.knifeClip = knifeClip; window.sampleKnifeTrack = sampleKnifeTrack;
+
+// Gloved fist wrapped around a knife handle (knife-root units: handle along Z, blade toward -Z, edge down).
+const KNIFE_GLOVE = { glove: 0x30343a, dark: 0x1d2024, pad: 0x4b525b, tip: 0x3a3f46, skin: 0xd2a27c };
+function createKnifeHandModel(type) {
+    const root = new THREE.Group(); root.name = 'knife_hand';
+    const fingers = new THREE.Group(); fingers.name = 'knife_fingers'; root.add(fingers);
+    const thumb = new THREE.Group(); thumb.name = 'knife_thumb'; root.add(thumb);
+    const mats = {};
+    const mat = k => mats[k] || (mats[k] = new THREE.MeshLambertMaterial({ color: KNIFE_GLOVE[k] }));
+    const box = (parent, w, h, d, x, y, z, k) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(k)); m.position.set(x, y, z); parent.add(m); return m; };
+    const zc = .022;   // fist centre along the handle
+    box(root, .02, .058, .092, .027, -.002, zc, 'glove');           // back of the hand
+    box(root, .006, .03, .06, .038, .004, zc + .006, 'dark');       // strap
+    box(root, .03, .02, .05, .02, -.022, zc + .055, 'glove');       // heel of the palm
+    fingers.position.set(.03, -.034, 0);                            // fingers curl around this hinge (knuckle line)
+    for (let i = 0; i < 4; i++) {
+        const z = zc - .033 + i * .0225, len = i === 3 ? .017 : .0205;
+        box(fingers, .054, .016, len, -.028, 0, z, 'glove');                  // under the handle
+        box(fingers, .016, .042, len, -.055, .019, z, 'glove');               // up the far side
+        box(fingers, .013, .013, len * .9, -.05, .043, z, 'tip');            // fingertip
+        box(fingers, .016, .016, len, .0, -.002, z, 'pad');                  // knuckle pad
+    }
+    thumb.position.set(.03, .026, zc - .03);
+    box(thumb, .05, .017, .022, -.022, 0, 0, 'glove');
+    box(thumb, .016, .015, .02, -.052, -.002, -.002, 'skin');
+    root.userData.fingers = fingers; root.userData.thumb = thumb;
+    return root;
+}
+window.createKnifeHandModel = createKnifeHandModel;
 function disposeHeldModel(model) {
     if (!model) return;
     const materials = new Set();
@@ -874,6 +1043,7 @@ class Player {
         this.setAiming(false);
         disposeHeldModel(this.heldGunMesh); this.heldGunMesh = null;
         disposeHeldModel(this.heldKnifeMesh); this.heldKnifeMesh = null;
+        this.disposeKnifeRig();
         if (this.gunReload && this.gunReload.item !== it) this.gunReload = null;
         if (this.isScoped && ITEM_REGISTRY[it?.itemId]?.gunType !== 'awp') {
             this.isScoped = false;
@@ -921,15 +1091,11 @@ class Player {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
             this._knifeType = String(reg.icon).replace('knife_', '');
             this.heldKnifeMesh = createVoxelKnifeModel(this._knifeType);
-            const kp = (KNIFE_ANIMS[this._knifeType] || KNIFE_ANIMS.default).pose;
-            this.heldKnifeMesh.scale.setScalar(kp.scale);
+            this.heldKnifeMesh.scale.setScalar((KNIFE_ANIMS[this._knifeType] || KNIFE_ANIMS.default).pose.scale);
             this.itemPivot.add(this.heldKnifeMesh);
-            // the hand sits on the grip; the forearm points down-right/back, in camera space (base rotation cancelled)
-            const qBase = new THREE.Quaternion().setFromEuler(new THREE.Euler(kp.rx, kp.ry, kp.rz)).invert();
-            const forearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(.38, -.78, .5).normalize());
-            this.armMesh.quaternion.copy(qBase).multiply(forearm);
-            this.armMesh.position.set(.0, -.035, .02).applyQuaternion(qBase);
-            if (this._knifeKey !== it) { this._knifeKey = it; this.knifeDraw = 1; this.knifeInspect = 0; }   // draw animation only when the knife is (re)selected
+            this.armMesh.visible = false;   // the knife has its own gloved hand and forearm
+            this.buildKnifeRig(this._knifeType);
+            if (this._knifeKey !== it) { this._knifeKey = it; this.knifeDraw = 1; this.knifeInspect = 0; this._kv = null; }   // draw animation only when the knife is (re)selected
         } else if (reg?.isGun) {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
             this.heldGunMesh = createVoxelGunModel(reg.gunType, reg.skin);
@@ -2686,12 +2852,12 @@ class Player {
                     -.31 * (1 - aim) - aimHeight * aim + bobY * (1 - aim) - (reloading ? .14 : 0),
                     -.48 - aim * .06 + kick * .10);
                 this.itemPivot.rotation.set(kick * .16, -.045 * (1 - aim), reloading ? -.45 : -kick * .035);
+            } else if (heldKnife) {
+                this.updateKnifeView(dt, bobX, bobY, swingOffset);
             } else if (this.isBlocking) {
                 // Minecraft-style Shield / Sword blocking pose (raised in front of chest)
                 this.itemPivot.position.set(0.12, -0.22, -0.44);
                 this.itemPivot.rotation.set(-0.35, 0.45, -0.65);
-            } else if (heldKnife) {
-                this.updateKnifeView(dt, bobX, bobY, swingOffset);
             } else {
                 this.itemPivot.position.set(
                     (held ? .50 : .35) + bobX - swingOffset * .16,
@@ -2911,57 +3077,230 @@ class Player {
     }
 
 
-    // --- Knife viewmodel: pose, breathing, per-knife pickup, 3 alternating attacks, per-knife inspect (key X) ---
+    // --- Knife viewmodel: gloved hand + IK forearm, per-knife pickup / 3-hit combo / inspect clips, springy sway ---
     inspectKnife() {
         const held = this.getSelectedItem();
         if (!held || !ITEM_REGISTRY[held.itemId]?.isKnife || this.isDead || this.isThirdPerson) return false;
-        if (this.knifeInspect > 0 || this.armSwing > 0 || this.knifeDraw > 0.2) return false;
+        if (this.knifeInspect > 0 || this.knifeDraw > 0.2 || this._kv?.atk) return false;
+        this._knifeCrossfade();
         this.knifeInspect = 1;
         this.soundManager?.playClick?.();
         return true;
     }
 
-    updateKnifeView(dt, bobX, bobY, swing) {
-        // a fresh swing starts when armSwing jumps back up: rotate slash / back-slash / stab
-        if (this.armSwing > (this._knifePrevSwing || 0) + 0.4) {
-            this.knifeSwingIdx = ((this.knifeSwingIdx || 0) + 1) % 3;
-            this.knifeInspect = 0;
-        }
-        this._knifePrevSwing = this.armSwing;
+    _knifeCrossfade(time = .1) {   // freeze the current pose and blend out of it, so cancelled clips never pop
+        const st = this._kv;
+        if (!st?.last) return;
+        st.from = { ...st.last };
+        for (const c of ['mx', 'my', 'mz']) st.from[c] = _wrapPi(st.from[c]);
+        st.blend = 1; st.blendTime = time;
+    }
+
+    buildKnifeRig(type) {   // gloved fist on the handle + forearm sleeve with the player's skin
+        const anim = KNIFE_ANIMS[type] || KNIFE_ANIMS.default, s = anim.pose.scale;
+        this.knifeHand = createKnifeHandModel(type);
+        this.knifeHand.scale.setScalar(s);
+        this.itemPivot.add(this.knifeHand);
+        if (!this.handGroup || typeof createMinecraftBoxGeometry !== 'function') return;
+        const fa = new THREE.Group(); fa.name = 'knife_forearm';
+        const geo = createMinecraftBoxGeometry(0.25, 0.75, 0.25, 40, 16, 4, 12, 4);
+        geo.translate(0, .375, 0);
+        const sleeve = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: this.armMat?.map || null, color: 0xffffff }));
+        sleeve.scale.set(.38, 1, .38);
+        fa.add(sleeve);
+        const cuff = new THREE.Mesh(new THREE.BoxGeometry(.1, .06, .1), new THREE.MeshLambertMaterial({ color: KNIFE_GLOVE.dark }));
+        cuff.position.y = .03;
+        fa.add(cuff);
+        fa.userData.sleeve = sleeve;
+        this.handGroup.add(fa);
+        this.knifeForearm = fa;
+        if (!this._knifeTrail) this._knifeTrail = this.buildKnifeTrail();
+    }
+
+    buildKnifeTrail() {
+        const N = 18, geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 2 * 3), 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 2 * 3), 3));
+        const idx = [];
+        for (let i = 0; i < N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        geo.setIndex(idx);
+        const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+        mesh.frustumCulled = false; mesh.visible = false; mesh.renderOrder = 10; mesh.name = 'knife_trail';
+        mesh.userData = { N, pts: [], tip: new THREE.Vector3(), mid: new THREE.Vector3() };
+        this.handGroup?.add(mesh);
+        return mesh;
+    }
+
+    disposeKnifeRig() {
+        disposeHeldModel(this.knifeHand); this.knifeHand = null;
+        disposeHeldModel(this.knifeForearm); this.knifeForearm = null;
+        if (this._knifeTrail) { this._knifeTrail.userData.pts.length = 0; this._knifeTrail.visible = false; }
+    }
+
+    updateKnifeView(dt) {
+        dt = Math.min(Math.max(+dt || 0, 0), .05);
         const anim = KNIFE_ANIMS[this._knifeType] || KNIFE_ANIMS.default, base = anim.pose;
+        const st = this._kv || (this._kv = {
+            prevSwing: 0, atk: null, combo: 0, sinceAtk: 9, blend: 0, from: null, last: null, time: 0,
+            swX: { x: 0, v: 0 }, swY: { x: 0, v: 0 }, swR: { x: 0, v: 0 }, vy: { x: 0, v: 0 }, land: { x: 0, v: 0 },
+            sprint: 0, block: 0, move: 0, lastYaw: this.yaw || 0, lastPitch: this.pitch || 0, wasGround: true, airVy: 0, drawSfx: false,
+        });
+        st.time += dt; st.sinceAtk += dt;
+
+        // --- triggers: a fresh attack starts whenever armSwing jumps back up ---
+        const sw = this.armSwing || 0;
+        if (sw > st.prevSwing + .25) {
+            if (st.atk || this.knifeInspect > 0) this._knifeCrossfade(st.atk ? .07 : .12);
+            st.combo = st.sinceAtk > .75 ? 0 : (st.combo + 1) % anim.attacks.length;
+            st.atk = { clip: anim.attacks[st.combo], t: 0, sfx: false };
+            st.sinceAtk = 0;
+            this.knifeSwingIdx = st.combo;
+            this.knifeInspect = 0;
+            if (this._knifeTrail) this._knifeTrail.userData.pts.length = 0;
+        }
+        st.prevSwing = sw;
+        if (this.knifeDraw >= 1 && !st.drawSfx) { st.drawSfx = true; this.soundManager?.playKnifeDeploy?.(); }
         this.knifeDraw = Math.max(0, (this.knifeDraw || 0) - dt / anim.drawTime);
+        if (this.knifeDraw <= 0) st.drawSfx = false;
         if (this.knifeInspect > 0) this.knifeInspect = Math.max(0, this.knifeInspect - dt / anim.inspectTime);
 
-        const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
-        let px = base.px + bobX, py = base.py + bobY + Math.sin(t * 1.6) * .004, pz = base.pz;
-        let rx = base.rx, ry = base.ry, rz = base.rz + Math.sin(t * 1.3) * .012;
+        // --- keyframed layers ---
+        const o = {}; for (const c of KNIFE_CHANNELS) o[c] = 0;
+        if (this.knifeDraw > 0) applyKnifeClip(anim.draw, (1 - this.knifeDraw) * anim.draw.dur, o);
+        if (this.knifeInspect > 0) applyKnifeClip(anim.inspect, (1 - this.knifeInspect) * anim.inspect.dur, o);
+        let trailOn = false;
+        if (st.atk) {
+            const a = st.atk, c = a.clip;
+            a.t += dt;
+            if (!a.sfx && a.t >= c.hit * c.dur) { a.sfx = true; this.soundManager?.playKnifeSwish?.(c.swish * (.94 + Math.random() * .12)); }
+            trailOn = a.t >= c.trail[0] * c.dur && a.t <= c.trail[1] * c.dur;
+            if (a.t >= c.dur) st.atk = null; else applyKnifeClip(c, a.t, o);
+        }
+        if (st.blend > 0) {
+            st.blend = Math.max(0, st.blend - dt / st.blendTime);
+            const w = _ease(st.blend);
+            for (const c of KNIFE_CHANNELS) o[c] += (st.from[c] - o[c]) * w;
+        }
+        st.last = { ...o };
 
-        if (this.isSprinting && this.onGround && !this.isAiming) { py -= .05; px += .03; rx -= .28; rz -= .12; }
+        // --- procedural layers (springs) ---
+        const busy = Math.max(this.knifeInspect > 0 ? 1 : 0, this.knifeDraw > 0 ? this.knifeDraw : 0);
+        const dYaw = _wrapPi((this.yaw || 0) - st.lastYaw), dPitch = (this.pitch || 0) - st.lastPitch;
+        st.lastYaw = this.yaw || 0; st.lastPitch = this.pitch || 0;
+        const inv = dt > 0 ? 1 / dt : 0;
+        const yawRate = Math.max(-9, Math.min(9, dYaw * inv)), pitchRate = Math.max(-9, Math.min(9, dPitch * inv));
+        const sx = _kSpring(st.swX, yawRate * .009, dt, 13, .5), sy = _kSpring(st.swY, -pitchRate * .008, dt, 13, .5);
+        const sr = _kSpring(st.swR, yawRate * .035, dt, 10, .45);
 
-        // additive offsets: swing, pickup, inspect (+ spin of the knife itself and balisong handle angles)
-        const o = { bx: px, by: ry, px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0, mx: 0, my: 0, mz: 0, hA: 0, hB: 0 };
-        if (swing > 0) (anim.swing || _DEF_SWINGS)[this.knifeSwingIdx || 0](swing, o, this.armSwing);
-        const d = (this.knifeDraw || 0) ** 2;
-        if (d > 0) anim.draw(d, o);
-        const ins = this.knifeInspect || 0;
-        if (ins > 0) anim.inspect(1 - ins, o);
-        px += o.px; py += o.py; pz += o.pz; rx += o.rx; ry += o.ry; rz += o.rz;
+        const v = this.velocity || { x: 0, y: 0, z: 0 };
+        const yaw = this.yaw || 0, fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // camera forward / right on the ground plane
+        const side = v.x * -fz + v.z * fx;
+        const speed = Math.hypot(v.x, v.z);
+        st.move += (Math.min(1.3, this.onGround ? speed / 4.3 : 0) - st.move) * (1 - Math.exp(-8 * dt));
+        const sprinting = this.isSprinting && this.onGround && !this.isAiming && !st.atk && !busy;
+        st.sprint += ((sprinting ? 1 : 0) - st.sprint) * (1 - Math.exp(-9 * dt));
+        st.block += ((this.isBlocking ? 1 : 0) - st.block) * (1 - Math.exp(-14 * dt));
 
-        const m = this.heldKnifeMesh;
-        if (m) {
-            m.rotation.set(o.mx, o.my, o.mz);
-            m.position.set(0, 0, 0);
-            if (anim.pivot && (o.mx || o.my || o.mz)) {   // spin around a point (e.g. the karambit ring) instead of the handle
-                const c = new THREE.Vector3(...anim.pivot);
-                const r = c.clone().applyEuler(m.rotation);
-                m.position.copy(c).sub(r).multiplyScalar(m.scale.x);
-            }
-            const h = m.userData.halves;
-            if (h) { h[0].rotation.x = o.hA; h[1].rotation.x = o.hB; }
+        // jump / landing
+        if (!this.onGround) st.airVy = v.y || 0;
+        if (this.onGround && !st.wasGround) st.land.v -= Math.min(1.6, Math.max(0, -st.airVy) * .09);
+        st.wasGround = !!this.onGround;
+        const land = _kSpring(st.land, 0, dt, 16, .42);
+        const air = _kSpring(st.vy, this.onGround ? 0 : Math.max(-.04, Math.min(.03, -(v.y || 0) * .004)), dt, 9, .7);
+
+        const th = (this.walkCycle || 0) * .5, m = st.move * (1 - busy * .7), sp = st.sprint;
+        const bobAmp = 1 + sp * .8;
+        let px = base.px + o.px + sx + Math.sin(th) * .017 * m * bobAmp + sp * .045 - side * .004;
+        let py = base.py + o.py + sy + (Math.cos(2 * th) - 1) * .009 * m * bobAmp + Math.sin(st.time * 1.7) * .0035 + air + land * .06 - sp * .06;
+        let pz = base.pz + o.pz + sp * .03 + land * .02;
+        let rx = base.rx + o.rx + sy * 2.2 + Math.sin(st.time * 1.7 + 1) * .008 - sp * .42 + land * .35 - air * 2;
+        let ry = base.ry + o.ry + sx * 2.5 + sp * .25;
+        let rz = base.rz + o.rz + sr + Math.sin(th) * .045 * m + Math.sin(st.time * 1.1) * .01 - side * .025 - sp * .2;
+        if (st.block > .001) {   // guard: blade across the body
+            const b = _ease(st.block);
+            px += -.08 * b; py += .05 * b; pz += .03 * b; rx += .1 * b; ry += .55 * b; rz += 1.05 * b;
         }
 
+        // --- apply ---
+        const km = this.heldKnifeMesh;
+        if (km) {
+            km.rotation.set(o.mx, o.my, o.mz);
+            const off = new THREE.Vector3();
+            if (anim.pivot && (o.mx || o.my || o.mz)) {   // spin around a point (e.g. the karambit ring) instead of the handle
+                const c = new THREE.Vector3(...anim.pivot);
+                off.copy(c).sub(c.clone().applyEuler(km.rotation)).multiplyScalar(km.scale.x);
+            }
+            if (anim.mount) {   // how the knife sits in the fist (e.g. reverse grip), applied outside the spin
+                const mq = anim._mountQ || (anim._mountQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(...anim.mount.rot)));
+                km.quaternion.premultiply(mq);
+                off.applyQuaternion(mq).add(new THREE.Vector3(...anim.mount.pos).multiplyScalar(km.scale.x));
+            }
+            km.position.set(o.kx, o.ky, o.kz).add(off);
+            const h = km.userData.halves;
+            if (h) { h[0].rotation.x = o.hA; h[1].rotation.x = o.hB; }
+        }
+        const hand = this.knifeHand;
+        if (hand) {
+            const op = _clamp01(o.open);
+            hand.userData.fingers.rotation.z = op * .95;
+            hand.userData.thumb.rotation.z = -op * .7;
+        }
+        // rotation offsets are camera-space (pitch, yaw, roll) layered on top of the knife's rest orientation
+        const bq = anim._baseQ || (anim._baseQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(base.rx, base.ry, base.rz)));
+        const tq = st.tq || (st.tq = { e: new THREE.Euler(0, 0, 0, 'XYZ'), q: new THREE.Quaternion() });
+        tq.e.set(rx - base.rx, ry - base.ry, rz - base.rz);
         this.itemPivot.position.set(px, py, pz);
-        this.itemPivot.rotation.set(rx, ry, rz);
+        this.itemPivot.quaternion.setFromEuler(tq.e).multiply(bq);
+        this.updateKnifeForearm(anim, base);
+        this.updateKnifeTrail(trailOn, dt);
+    }
+
+    updateKnifeForearm(anim, base) {
+        const fa = this.knifeForearm;
+        if (!fa) return;
+        const st = this._kv, s = base.scale;
+        if (!st.rest || st.rest.type !== anim) {   // rest wrist / elbow for this knife's hold pose
+            const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(base.rx, base.ry, base.rz));
+            const wrist = new THREE.Vector3(...anim.wrist).multiplyScalar(s).applyQuaternion(q).add(new THREE.Vector3(base.px, base.py, base.pz));
+            st.rest = { type: anim, wrist, elbow: wrist.clone().add(new THREE.Vector3(...anim.forearm).normalize().multiplyScalar(.5)) };
+            st.tmp = { w: new THREE.Vector3(), e: new THREE.Vector3(), d: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) };
+        }
+        const t = st.tmp;
+        this.itemPivot.updateMatrix();
+        t.w.set(...anim.wrist).multiplyScalar(s).applyMatrix4(this.itemPivot.matrix);
+        t.e.copy(t.w).sub(st.rest.wrist).multiplyScalar(.45).add(st.rest.elbow);   // the elbow follows the hand only partly
+        t.d.copy(t.e).sub(t.w);
+        const len = Math.max(.2, t.d.length());
+        fa.position.copy(t.w);
+        fa.quaternion.setFromUnitVectors(t.up, t.d.normalize());
+        fa.userData.sleeve.scale.y = len * 1.8 / .75;   // runs past the elbow and off the screen
+    }
+
+    updateKnifeTrail(on, dt) {
+        const tr = this._knifeTrail, km = this.heldKnifeMesh;
+        if (!tr || !km || !this.handGroup) return;
+        const u = tr.userData, pts = u.pts;
+        for (const p of pts) p.age += dt;
+        while (pts.length && pts[0].age > .11) pts.shift();
+        if (on && km.userData.tip) {
+            this.handGroup.updateMatrixWorld(true);
+            const toHand = this.handGroup.matrixWorld.clone().invert();
+            const a = km.localToWorld(u.tip.copy(km.userData.tip)).applyMatrix4(toHand);
+            const b = km.localToWorld(u.mid.copy(km.userData.mid)).applyMatrix4(toHand);
+            pts.push({ a: a.clone(), b: b.clone(), age: 0 });
+            while (pts.length > u.N) pts.shift();
+        }
+        tr.visible = pts.length > 1;
+        if (!tr.visible) return;
+        const pos = tr.geometry.attributes.position, col = tr.geometry.attributes.color;
+        const c = km.userData.trailColor || [1, 1, 1];
+        for (let i = 0; i < u.N; i++) {
+            const p = pts[Math.min(i, pts.length - 1)];
+            const k = i < pts.length ? Math.max(0, 1 - p.age / .11) * (i + 1) / pts.length : 0;
+            pos.setXYZ(i * 2, p.a.x, p.a.y, p.a.z); pos.setXYZ(i * 2 + 1, p.b.x, p.b.y, p.b.z);
+            col.setXYZ(i * 2, c[0] * k * .55, c[1] * k * .55, c[2] * k * .55); col.setXYZ(i * 2 + 1, 0, 0, 0);
+        }
+        pos.needsUpdate = col.needsUpdate = true;
     }
 
     toggleScope() { this.setAiming(!this.isAiming); }
