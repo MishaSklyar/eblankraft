@@ -31,6 +31,9 @@ class Game {
         this.isA02Mode = false;
         this.isUL20FT = false;
         const storedScale = parseFloat(localStorage.getItem('eblankraft_render_scale'));
+        // Player view settings: FOV and (stretched) aspect ratio
+        try { const f = parseFloat(localStorage.getItem('eblankraft_fov')); this.fovSetting = Number.isFinite(f) ? Math.max(50, Math.min(120, f)) : 72; } catch (e) { this.fovSetting = 72; }
+        try { this.aspectSetting = localStorage.getItem('eblankraft_aspect') || 'native'; } catch (e) { this.aspectSetting = 'native'; }
         this.renderScale = Number.isFinite(storedScale) ? Math.max(0.25, Math.min(1.5, storedScale)) : preset.scale;
         const setting = (key, fallback) => {
             const value = localStorage.getItem(key);
@@ -90,7 +93,7 @@ class Game {
         const width = window.innerWidth;
         const height = window.innerHeight;
 
-        this.camera = new THREE.PerspectiveCamera(72, width / height, 0.1, 500);
+        this.camera = new THREE.PerspectiveCamera(this.fovSetting || 72, width / height, 0.1, 500);
         this.scene.add(this.camera);
 
         const isPotato = this.isA02Mode || this.turboFPS || this.isUL20FT || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
@@ -125,16 +128,44 @@ class Game {
         }
         this.container.appendChild(this.renderer.domElement);
 
-        window.addEventListener('resize', () => {
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-            this.camera.aspect = w / h;
+        this.applyViewport();
+        window.addEventListener('resize', () => this.applyViewport());
+    }
+
+    // Target aspect ratio: 'native' follows the window, otherwise 'W:H' (e.g. 4:3) is rendered
+    // at that ratio and stretched by CSS over the whole screen (CS-style stretched resolution).
+    getTargetAspect() {
+        const w = window.innerWidth, h = window.innerHeight;
+        const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(this.aspectSetting || '');
+        return m ? parseFloat(m[1]) / parseFloat(m[2]) : w / h;
+    }
+
+    applyViewport() {
+        if (!this.renderer) return;
+        const h = window.innerHeight;
+        const aspect = this.getTargetAspect();
+        if (this.camera) {
+            this.camera.aspect = aspect;
             this.camera.updateProjectionMatrix();
-            this.renderer.setSize(w, h);
-            this.renderer.setPixelRatio(this.getEffectivePixelRatio());
-            if (this.upscaler) this.upscaler.resize();
-            if (this.rtx) this.rtx.setSize();
-        });
+        }
+        this.renderer.setPixelRatio(this.getEffectivePixelRatio());
+        this.renderer.setSize(Math.max(2, Math.round(h * aspect)), h);   // CSS stretches the canvas to 100% x 100%
+        if (this.upscaler) this.upscaler.resize();
+        if (this.rtx) this.rtx.setSize();
+    }
+
+    setAspect(value) {
+        this.aspectSetting = value || 'native';
+        try { localStorage.setItem('eblankraft_aspect', this.aspectSetting); } catch (e) {}
+        this.applyViewport();
+    }
+
+    setBaseFov(fov) {
+        this.fovSetting = Math.max(50, Math.min(120, parseFloat(fov) || 72));
+        try { localStorage.setItem('eblankraft_fov', String(this.fovSetting)); } catch (e) {}
+        const p = this.player;
+        if (p && p.aimBaseFov) p.aimBaseFov = this.fovSetting;   // while aiming, the zoom is relative to this
+        else if (this.camera) { this.camera.fov = this.fovSetting; this.camera.updateProjectionMatrix(); }
     }
 
     initLights() {
@@ -356,12 +387,7 @@ class Game {
         this.renderScale = Math.max(0.25, Math.min(1.5, parseFloat(scale) || 1.0));
         try { localStorage.setItem('eblankraft_render_scale', this.renderScale.toString()); } catch (e) {}
         if (this.renderer) {
-            this.renderer.setPixelRatio(this.getEffectivePixelRatio());
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-            this.renderer.setSize(w, h);
-            if (this.upscaler) this.upscaler.resize();
-            if (this.rtx) this.rtx.setSize();
+            this.applyViewport();
             if (this.renderer.domElement) {
                 this.renderer.domElement.style.imageRendering = (this.renderScale < 1.0) ? 'pixelated' : 'auto';
             }

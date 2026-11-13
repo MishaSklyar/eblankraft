@@ -771,7 +771,7 @@ class Player {
         if (this.gunReload && this.gunReload.item !== it) this.gunReload = null;
         if (this.isScoped && ITEM_REGISTRY[it?.itemId]?.gunType !== 'awp') {
             this.isScoped = false;
-            this.setFOV(72);
+            this.setFOV(this.game?.fovSetting || 72);
         }
         if (!this.itemPivot) return;
         if (this.mcModel?.itemContainer) {

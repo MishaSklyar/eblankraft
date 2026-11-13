@@ -1579,10 +1579,41 @@ class UIManager {
         }
 
         if (sliderSens) {
-            sliderSens.oninput = (e) => {
-                const val = parseFloat(e.target.value);
+            const applySens = (val) => {
                 this.game.controls.touchLookSensitivity = 0.002 + val * 0.005;
                 this.game.controls.mouseSensitivity = 0.001 + val * 0.003;
+            };
+            let savedSens = NaN;
+            try { savedSens = parseFloat(localStorage.getItem('eblankraft_sensitivity')); } catch (e) {}
+            if (Number.isFinite(savedSens)) { sliderSens.value = savedSens; applySens(savedSens); }
+            const lblSens = document.getElementById('lbl-sensitivity');
+            if (lblSens) lblSens.textContent = parseFloat(sliderSens.value).toFixed(1);
+            sliderSens.oninput = (e) => {
+                const val = parseFloat(e.target.value);
+                applySens(val);
+                if (lblSens) lblSens.textContent = val.toFixed(1);
+                try { localStorage.setItem('eblankraft_sensitivity', String(val)); } catch (err) {}
+            };
+        }
+
+        // FOV slider + stretched aspect ratio
+        const sliderFov = document.getElementById('slider-fov');
+        if (sliderFov) {
+            const lblFov = document.getElementById('lbl-fov');
+            sliderFov.value = this.game.fovSetting || 72;
+            if (lblFov) lblFov.textContent = sliderFov.value;
+            sliderFov.oninput = (e) => {
+                this.game.setBaseFov(e.target.value);
+                if (lblFov) lblFov.textContent = Math.round(this.game.fovSetting);
+            };
+        }
+        const selectAspect = document.getElementById('select-aspect');
+        if (selectAspect) {
+            selectAspect.value = this.game.aspectSetting || 'native';
+            if (selectAspect.value !== (this.game.aspectSetting || 'native')) selectAspect.value = 'native';
+            selectAspect.onchange = (e) => {
+                this.game.setAspect(e.target.value);
+                this.showToast(`🖼️ Співвідношення: ${e.target.value === 'native' ? 'рідне' : e.target.value}`);
             };
         }
 
@@ -2947,7 +2978,7 @@ class UIManager {
             player.gunTriggerHeld = false;
             player.gunBurst = player.gunRecoilPitch = 0;
             player.isScoped = false;
-            if (player.camera) { player.camera.fov = 72; player.camera.updateProjectionMatrix(); }
+            if (player.camera) { player.camera.fov = game.fovSetting || 72; player.camera.updateProjectionMatrix(); }
             player.name = this.duelNick || game.multiplayer?.playerName || 'Боєць';
             game.timeOfDay = 0.25;
             player.updateHeldBlock();

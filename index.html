@@ -1021,8 +1021,24 @@
                 <section class="menu-panel" data-menu-panel="controls">
                     <div class="menu-card">
                         <div class="menu-row menu-row-stack">
-                            <label for="slider-sensitivity">🖱️ Чутливість</label>
+                            <label for="slider-sensitivity">🖱️ Чутливість <b id="lbl-sensitivity">1.0</b></label>
                             <input id="slider-sensitivity" type="range" min="0.5" max="2.5" step="0.1" value="1.0">
+                        </div>
+                        <div class="menu-row menu-row-stack">
+                            <label for="slider-fov">🎯 Поле зору (FOV) <b id="lbl-fov">72</b></label>
+                            <input id="slider-fov" type="range" min="50" max="120" step="1" value="72">
+                        </div>
+                        <div class="menu-row">
+                            <label for="select-aspect">🖼️ Співвідношення сторін</label>
+                            <select id="select-aspect" class="menu-select">
+                                <option value="native" selected>Рідне (як екран)</option>
+                                <option value="4:3">4:3 (розтягнуте)</option>
+                                <option value="5:4">5:4 (розтягнуте)</option>
+                                <option value="16:10">16:10 (розтягнуте)</option>
+                                <option value="16:9">16:9 (розтягнуте)</option>
+                                <option value="21:9">21:9 (розтягнуте)</option>
+                                <option value="1:1">1:1 (розтягнуте)</option>
+                            </select>
                         </div>
                         <div class="menu-row">
                             <label for="select-pc-hints">⌨️ Підказки [WASD]</label>
