@@ -7092,3 +7092,12 @@ body.hud-shooter #hud-stats-group { background: rgba(24,22,20,0.55); }
 /* PC: ammo panel sits under the regular top buttons, key hints are hidden for a clean shooter HUD */
 body.hud-shooter.is-pc:not(.force-touch) #gun-hud { top: 52px !important; }
 body.hud-shooter #pc-hint-bar { display: none !important; }
+
+/* Shooter: the whole top-left corner is the fire zone (the ring is just its marker). The zone is a child of the
+   button, so every touch inside it fires. It is positioned from the button's centre (26.4% / 40%, 17vh wide). */
+body.hud-shooter #btn-attack::after {
+    content: 'ЗОНА СТРІЛЬБИ'; position: absolute; box-sizing: border-box;
+    left: calc(-26.4vw + 8.5vh); top: calc(-40vh + 8.5vh); width: 50vw; height: 54vh;
+    padding: 1vh 1.5vh; font-size: 1.8vh; letter-spacing: 1px; color: rgba(255,255,255,0.35); text-align: left;
+    background: rgba(255, 255, 255, 0.035); border: 1px dashed rgba(255, 255, 255, 0.16); border-radius: 0 0 2vh 0;
+}
