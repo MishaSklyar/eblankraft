@@ -355,53 +355,99 @@ class TextureManager {
                     + at(lum, x - 1, y - 1) + at(lum, x + 1, y - 1) + at(lum, x - 1, y + 1) + at(lum, x + 1, y + 1)) / 16;
             }
         }
-        // Metallicity by material name: solid metals, ore flecks, glossy non-metals.
+        // Material classes by name: solid metals, ore flecks, glossy/clearcoated non-metals, emissive blocks.
         const k = String(key || '');
-        let solid = 0, fleck = 0, gloss = 0;
+        let solid = 0, fleck = 0, gloss = 0, emit = 0, emitThr = 0;
         if (/^(gold|gold_ingot|iron_ingot|netherite_block|netherite_scrap)$/.test(k)) solid = 0.9;
         else if (/^(iron_ore|coal_ore)$/.test(k)) fleck = 0.8;
         else if (/^(diamond|emerald|nether_quartz|obsidian)$/.test(k)) solid = 0.55;
         else if (/^(glass|ice|packed_ice|redstone_lamp|redstone_lamp_on|glowstone)$/.test(k)) gloss = 0.35;
-        const mk = (cv) => {
+        if (/^(glowstone|redstone_lamp_on|lava)$/.test(k)) emit = 1;
+        else if (/^(redstone_torch|redstone_torch_block|redstone_wire_on|ender_eye|portal_nether|portal_end)$/.test(k)) { emit = 1; emitThr = 0.55; }
+        const clearcoat = (solid >= 0.5 || gloss) ? 1 : (fleck ? 0.6 : 0);
+        const mk = (cv, srgb) => {
             const t = new THREE.CanvasTexture(cv);
             t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
             t.wrapS = t.wrapT = THREE.RepeatWrapping;
+            if (srgb) t.encoding = THREE.sRGBEncoding;
             return t;
         };
-        const nCv = document.createElement('canvas'); nCv.width = w; nCv.height = h;
-        const sCv = document.createElement('canvas'); sCv.width = w; sCv.height = h;
-        const nCtx = nCv.getContext('2d'), sCtx = sCv.getContext('2d');
-        const nImg = nCtx.createImageData(w, h), sImg = sCtx.createImageData(w, h);
-        const strength = 3.0;
+        const mkCv = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); return [c, x, x.createImageData(w, h)]; };
+        const [nCv, nCtx, nImg] = mkCv();   // normalMap
+        const [cnCv, cnCtx, cnImg] = mkCv();// clearcoatNormalMap (much gentler micro-surface)
+        const [oCv, oCtx, oImg] = mkCv();   // packed: R = aoMap, G = roughnessMap, B = metalnessMap
+        const [ccCv, ccCtx, ccImg] = mkCv();// clearcoatMap (R channel)
+        const [eCv, eCtx, eImg] = mkCv();   // emissiveMap
+        const putNormal = (img, i, nx, ny, nz) => {
+            const len = Math.hypot(nx, ny, nz);
+            img.data[i] = (nx / len * 0.5 + 0.5) * 255;
+            img.data[i + 1] = (ny / len * 0.5 + 0.5) * 255;
+            img.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
+            img.data[i + 3] = 255;
+        };
+        const strength = 3.0, coatStrength = 0.6;
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 const dx = (at(depth, x + 1, y - 1) + 2 * at(depth, x + 1, y) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x - 1, y) + at(depth, x - 1, y + 1));
                 const dy = (at(depth, x - 1, y + 1) + 2 * at(depth, x, y + 1) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x, y - 1) + at(depth, x + 1, y - 1));
-                const nx = -dx * strength, ny = dy * strength, nz = 1;
-                const len = Math.hypot(nx, ny, nz);
-                const i = (y * w + x) * 4;
-                nImg.data[i] = (nx / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 1] = (ny / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 3] = 255;
-                const l = lum[y * w + x];
-                let m = 0.05 + l * 0.08;                 // faint sheen on everything
-                if (solid) m = solid * (0.6 + 0.4 * l);  // bright metal, darker in crevices
-                else if (fleck) m = l > 0.5 ? fleck : 0.05;
-                else if (gloss) m = gloss;
-                sImg.data[i] = sImg.data[i + 1] = sImg.data[i + 2] = Math.min(1, m) * 255;
-                sImg.data[i + 3] = 255;
+                const i = (y * w + x) * 4, p = y * w + x;
+                putNormal(nImg, i, -dx * strength, dy * strength, 1);
+                putNormal(cnImg, i, -dx * coatStrength, dy * coatStrength, 1);
+                const l = lum[p];
+                // aoMap: pixels darker than their surroundings are crevices -> occluded.
+                const avg = (at(depth, x - 1, y) + at(depth, x + 1, y) + at(depth, x, y - 1) + at(depth, x, y + 1)) / 4;
+                const ao = Math.max(0.35, Math.min(1, 1 - (avg - depth[p]) * 3.5));
+                // metalnessMap / roughnessMap
+                let m = 0.03 + l * 0.05, r = 0.95 - l * 0.2;
+                if (solid) { m = solid * (0.6 + 0.4 * l); r = 0.22 + (1 - l) * 0.35; }
+                else if (fleck) { const f = l > 0.5; m = f ? fleck : 0.03; r = f ? 0.3 : 0.9; }
+                else if (gloss) { m = 0.05; r = 0.12 + (1 - l) * 0.1; }
+                oImg.data[i] = ao * 255; oImg.data[i + 1] = Math.min(1, r) * 255; oImg.data[i + 2] = Math.min(1, m) * 255; oImg.data[i + 3] = 255;
+                // clearcoatMap: full on polished materials, only bright flecks on ores
+                const cc = fleck ? (l > 0.5 ? 1 : 0) : clearcoat;
+                ccImg.data[i] = ccImg.data[i + 1] = ccImg.data[i + 2] = cc * 255; ccImg.data[i + 3] = 255;
+                // emissiveMap: the texture's own colour where it should glow
+                const on = emit && l >= emitThr;
+                eImg.data[i] = on ? data[i] : 0; eImg.data[i + 1] = on ? data[i + 1] : 0; eImg.data[i + 2] = on ? data[i + 2] : 0; eImg.data[i + 3] = 255;
             }
         }
-        nCtx.putImageData(nImg, 0, 0);
-        sCtx.putImageData(sImg, 0, 0);
+        nCtx.putImageData(nImg, 0, 0); cnCtx.putImageData(cnImg, 0, 0); oCtx.putImageData(oImg, 0, 0);
+        ccCtx.putImageData(ccImg, 0, 0); eCtx.putImageData(eImg, 0, 0);
+        const orm = mk(oCv);
         tex.userData.normalMap = mk(nCv);
-        tex.userData.metalMap = mk(sCv);
-        tex.userData.shininess = solid ? 70 : (gloss ? 50 : 14);
-        // Metals reflect their own colour; non-metals reflect white-ish light.
-        const col = (solid || fleck) ? new THREE.Color(ar / n / 255, ag / n / 255, ab / n / 255).lerp(new THREE.Color(1, 1, 1), 0.25) : new THREE.Color(1, 1, 1);
-        tex.userData.specColor = col;
+        tex.userData.aoMap = orm;
+        tex.userData.roughnessMap = orm;
+        tex.userData.metalnessMap = orm;
+        tex.userData.clearcoat = clearcoat;
+        tex.userData.clearcoatMap = clearcoat ? mk(ccCv) : null;
+        tex.userData.clearcoatNormalMap = clearcoat ? mk(cnCv) : null;
+        tex.userData.emissiveMap = emit ? mk(eCv, true) : null;
         tex.userData.pbrReady = true;
+    }
+
+    // Procedural sky/ground environment (PMREM) so metals and clearcoat have something to reflect.
+    ensureEnvironment() {
+        if (this._envTex) return this._envTex;
+        const g = window.game;
+        if (!g || !g.renderer) return null;
+        try {
+            const sc = new THREE.Scene();
+            const geo = new THREE.SphereGeometry(10, 24, 16);
+            const top = new THREE.Color(0x7fb2ff), hor = new THREE.Color(0xe8f0ff), bot = new THREE.Color(0x4a4036);
+            const cols = [];
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                const t = pos.getY(i) / 10;
+                const c = t >= 0 ? hor.clone().lerp(top, Math.pow(t, 0.6)) : hor.clone().lerp(bot, Math.min(1, -t * 2.5));
+                cols.push(c.r, c.g, c.b);
+            }
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+            sc.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+            const pm = new THREE.PMREMGenerator(g.renderer);
+            this._envTex = pm.fromScene(sc).texture;
+            pm.dispose();
+        } catch (e) { this._envTex = null; }
+        return this._envTex;
     }
 
     // Returns the PBR version of a block material (with normal/roughness maps), if it has one.
@@ -414,12 +460,32 @@ class TextureManager {
         if (tex.image && tex.image.width === 64) {
             this.buildPbrMaps(tex, tex.userData.key);
             if (pbr.normalMap !== tex.userData.normalMap) {
-                pbr.normalMap = tex.userData.normalMap;
-                pbr.specularMap = tex.userData.metalMap;
-                pbr.specular.copy(tex.userData.specColor);
-                pbr.shininess = tex.userData.shininess;
+                const u = tex.userData;
+                pbr.normalMap = u.normalMap;
                 pbr.normalScale = new THREE.Vector2(1, 1);
+                pbr.aoMap = u.aoMap;
+                pbr.aoMapIntensity = 1;
+                pbr.roughnessMap = u.roughnessMap;
+                pbr.metalnessMap = u.metalnessMap;
+                pbr.metalness = 1;   // the maps drive these (multiplied)
+                pbr.roughness = 1;
+                if (u.clearcoat) {
+                    pbr.clearcoat = 1;
+                    pbr.clearcoatRoughness = 0.1;
+                    pbr.clearcoatMap = u.clearcoatMap;
+                    pbr.clearcoatNormalMap = u.clearcoatNormalMap;
+                    pbr.clearcoatNormalScale = new THREE.Vector2(1, 1);
+                }
+                if (u.emissiveMap) {
+                    pbr.emissive = new THREE.Color(0xffffff);
+                    pbr.emissiveMap = u.emissiveMap;
+                    pbr.emissiveIntensity = 1;
+                }
                 pbr.needsUpdate = true;
+            }
+            if (!pbr.envMap) {
+                const env = this.ensureEnvironment();
+                if (env) { pbr.envMap = env; pbr.envMapIntensity = 0.7; pbr.needsUpdate = true; }
             }
         }
         return pbr;
@@ -1969,14 +2035,14 @@ class TextureManager {
             mat.basicCounterpart = basic;
             mat.lambertCounterpart = mat;
             // PBR-style counterpart (used only when Texture x64 is on); maps are attached lazily.
-            // Phong is much cheaper than MeshStandard and, with no env map, shows metals correctly via specular.
-            const pbr = new THREE.MeshPhongMaterial({
+            // MeshPhysicalMaterial: normal, metalness/roughness, ao, clearcoat(+normal) and emissive maps.
+            const pbr = new THREE.MeshPhysicalMaterial({
                 map: tex,
                 transparent: isTrans,
                 opacity: op,
                 alphaTest: at,
-                shininess: 20,
-                specular: 0x222222,
+                metalness: 0,
+                roughness: 0.9,
                 ...opts
             });
             pbr.basicCounterpart = basic;

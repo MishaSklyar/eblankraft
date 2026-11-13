@@ -971,6 +971,7 @@ class Chunk {
             geom.setAttribute('position', new THREE.BufferAttribute(combinedPositions, 3));
             geom.setAttribute('normal', new THREE.BufferAttribute(combinedNormals, 3));
             geom.setAttribute('uv', new THREE.BufferAttribute(combinedUVs, 2));
+            geom.setAttribute('uv2', new THREE.BufferAttribute(combinedUVs, 2)); // aoMap (x64 PBR)
             // Directional face tint: top 1.0, sides 0.82/0.9, bottom 0.6 (cheap fake AO / depth)
             const faceColors = new Float32Array(combinedNormals.length);
             for (let i = 0; i < combinedNormals.length; i += 3) {
