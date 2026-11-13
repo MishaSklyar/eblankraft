@@ -330,8 +330,42 @@ class TextureManager {
             tex.needsUpdate = true;
         }
         if (this.iconDataUrlCache) this.iconDataUrlCache.clear();
+        if (enabled) this.loadBakedPbr();
         this.swapChunkMaterials();
         if (window.game && window.game.rtx) window.game.rtx.setEnabled(!!enabled);
+    }
+
+    // Neural normal + height maps baked offline by tools/bake_pbr.py (DeepBump); one atlas, loaded the first time RTX is on.
+    // Until it arrives (or if it fails) buildPbrMaps falls back to the luminance-derived relief.
+    loadBakedPbr() {
+        if (this._bakedRequested || typeof Image === 'undefined' || typeof fetch === 'undefined') return;
+        this._bakedRequested = true;
+        fetch('textures/baked_pbr.json').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(meta => new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve([meta, img]);
+                img.onerror = () => reject(new Error('baked_pbr.png failed to load'));
+                img.src = 'textures/baked_pbr.png';
+            }))
+            .then(([meta, img]) => {
+                const cv = document.createElement('canvas');
+                cv.width = img.width; cv.height = img.height;
+                const ctx = cv.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(img, 0, 0);
+                const index = {};
+                meta.keys.forEach((k, i) => { index[k] = i; });
+                this.bakedPbr = { size: meta.size, cols: meta.cols, index, width: img.width, data: ctx.getImageData(0, 0, img.width, img.height).data };
+                // textures that already got procedural maps are rebuilt from the baked ones
+                const names = ['normalMap', 'aoMap', 'clearcoatMap', 'clearcoatNormalMap', 'emissiveMap', 'heightMap'];
+                for (const k in this.threeTextures) {
+                    const u = this.threeTextures[k] && this.threeTextures[k].userData;
+                    if (!u || !u.pbrReady) continue;
+                    for (const n of names) if (u[n] && u[n].dispose) u[n].dispose();
+                    u.pbrReady = false;
+                }
+                if (this.textureX64) this.swapChunkMaterials();
+            })
+            .catch(e => console.warn('[RTX] baked normal maps unavailable, using luminance relief:', e.message));
     }
 
     // Builds 64x64 depth (height) -> normal map, plus a metallic/specular map, from a texture's colours.
@@ -356,6 +390,32 @@ class TextureManager {
                 depth[y * w + x] = (4 * at(lum, x, y) + 2 * (at(lum, x - 1, y) + at(lum, x + 1, y) + at(lum, x, y - 1) + at(lum, x, y + 1))
                     + at(lum, x - 1, y - 1) + at(lum, x + 1, y - 1) + at(lum, x - 1, y + 1) + at(lum, x + 1, y + 1)) / 16;
             }
+        }
+        // Baked neural relief (tools/bake_pbr.py): per-pixel slopes in the same convention/strength as the Sobel path below,
+        // and a height field whose amplitude is matched to the old depth so the AO / parallax tuning still holds.
+        const bk = this.bakedPbr;
+        const bi = bk && w === bk.size && h === bk.size ? bk.index[String(key || '')] : undefined;
+        let bakedSlope = null;
+        if (bi !== undefined) {
+            const x0 = (bi % bk.cols) * bk.size * 2, y0 = ((bi / bk.cols) | 0) * bk.size;
+            const hb = new Float32Array(n);
+            bakedSlope = new Float32Array(n * 2);
+            let mb = 0, md = 0;
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const p = y * w + x, a = ((y0 + y) * bk.width + x0 + x) * 4, c = ((y0 + y) * bk.width + x0 + bk.size + x) * 4;
+                    const nz = Math.max(0.2, bk.data[a + 2] / 127.5 - 1);
+                    bakedSlope[p * 2] = (bk.data[a] / 127.5 - 1) / nz;
+                    bakedSlope[p * 2 + 1] = (bk.data[a + 1] / 127.5 - 1) / nz;
+                    hb[p] = bk.data[c] / 255;
+                    mb += hb[p]; md += depth[p];
+                }
+            }
+            mb /= n; md /= n;
+            let vb = 0, vd = 0;
+            for (let p = 0; p < n; p++) { vb += (hb[p] - mb) * (hb[p] - mb); vd += (depth[p] - md) * (depth[p] - md); }
+            const amp = Math.sqrt((vd + 1e-9) / (vb + 1e-9));
+            for (let p = 0; p < n; p++) depth[p] = Math.min(1, Math.max(0, md + (hb[p] - mb) * amp));
         }
         // Material classes by name: solid metals, ore flecks, glossy/clearcoated non-metals, emissive blocks.
         const k = String(key || '');
@@ -394,11 +454,17 @@ class TextureManager {
         const aoAmt = calm ? 1.2 : 3.5;
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
-                const dx = (at(depth, x + 1, y - 1) + 2 * at(depth, x + 1, y) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x - 1, y) + at(depth, x - 1, y + 1));
-                const dy = (at(depth, x - 1, y + 1) + 2 * at(depth, x, y + 1) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x, y - 1) + at(depth, x + 1, y - 1));
                 const i = (y * w + x) * 4, p = y * w + x;
-                putNormal(nImg, i, -dx * strength, dy * strength, 1);
-                putNormal(cnImg, i, -dx * coatStrength, dy * coatStrength, 1);
+                if (bakedSlope) {
+                    // baked slopes already carry the old strength = 3.0 relief; calm blocks / the coat just scale it down
+                    putNormal(nImg, i, bakedSlope[p * 2] * strength / 3, bakedSlope[p * 2 + 1] * strength / 3, 1);
+                    putNormal(cnImg, i, bakedSlope[p * 2] * coatStrength / 3, bakedSlope[p * 2 + 1] * coatStrength / 3, 1);
+                } else {
+                    const dx = (at(depth, x + 1, y - 1) + 2 * at(depth, x + 1, y) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x - 1, y) + at(depth, x - 1, y + 1));
+                    const dy = (at(depth, x - 1, y + 1) + 2 * at(depth, x, y + 1) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x, y - 1) + at(depth, x + 1, y - 1));
+                    putNormal(nImg, i, -dx * strength, dy * strength, 1);
+                    putNormal(cnImg, i, -dx * coatStrength, dy * coatStrength, 1);
+                }
                 const l = lum[p];
                 // aoMap: pixels darker than their surroundings are crevices -> occluded.
                 const avg = (at(depth, x - 1, y) + at(depth, x + 1, y) + at(depth, x, y - 1) + at(depth, x, y + 1)) / 4;
