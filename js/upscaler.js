@@ -19,11 +19,20 @@ class FSRUpscaler {
         this.quad = null;
         this.cam = null;
         this.scene = null;
+        this.nn = false;      // neural (CNN) path active
     }
 
-    static get MODES() { return { off: 1, quality: 0.77, balanced: 0.67, performance: 0.5, ultra: 0.4 }; }
+    // 'neural' = Anime4K CNN x2 (js/upscaler_nn.js): render at 50%, the network doubles it back to full size.
+    static get MODES() { return { off: 1, quality: 0.77, balanced: 0.67, performance: 0.5, ultra: 0.4, neural: 0.5 }; }
 
     supported() { return !!(this.game && this.game.renderer); }
+
+    // The CNN needs float render targets (signed activations) -> WebGL2 + EXT_color_buffer_float, and its shader file.
+    nnSupported() {
+        const r = this.game && this.game.renderer;
+        if (!r || !FSRUpscaler.NN_CONV || !r.capabilities.isWebGL2) return false;
+        try { return !!(r.extensions.get('EXT_color_buffer_float') || r.extensions.get('EXT_color_buffer_half_float')); } catch (e) { return false; }
+    }
 
     setMode(mode) {
         if (!(mode in FSRUpscaler.MODES)) mode = 'off';
@@ -67,6 +76,8 @@ class FSRUpscaler {
         if (!this.rt) this.rt = new THREE.WebGLRenderTarget(i.x, i.y, opts);
         this.rt.texture.encoding = THREE.sRGBEncoding;   // renderer writes tone-mapped sRGB values, like the canvas would
         this.mid = new THREE.WebGLRenderTarget(o.x, o.y, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false });
+        this.nn = this.mode === 'neural' && this.nnSupported();
+        if (this.nn) this.buildNN(i);
 
         const vs = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
         this.easu = new THREE.ShaderMaterial({
@@ -84,9 +95,47 @@ class FSRUpscaler {
         this.scene.add(this.quad);
     }
 
+    // Neural path: 4 float conv targets at the internal size, 1 depth-to-space target at 2x.
+    buildNN(i) {
+        const fl = (w, h, type, filter) => new THREE.WebGLRenderTarget(w, h, { minFilter: filter, magFilter: filter, format: THREE.RGBAFormat, type, depthBuffer: false });
+        const vs = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+        const mk = (frag, uniforms) => new THREE.ShaderMaterial({ uniforms, vertexShader: vs, fragmentShader: frag, depthTest: false, depthWrite: false });
+        const size = () => ({ value: new THREE.Vector2(i.x, i.y) });
+        this.nnTargets = FSRUpscaler.NN_CONV.map(() => fl(i.x, i.y, THREE.HalfFloatType, THREE.NearestFilter));
+        this.nnConv = FSRUpscaler.NN_CONV.map(p => mk(p.frag, { nnSize: size(), [p.bind]: { value: null } }));
+        this.nnOut = fl(i.x * 2, i.y * 2, THREE.UnsignedByteType, THREE.LinearFilter);
+        this.nnD2S = mk(FSRUpscaler.NN_D2S, { nnSize: size(), tMain: { value: null }, tConv: { value: null } });
+        this.nnBlit = mk(FSRUpscaler.NN_BLIT, { tSrc: { value: null } });
+    }
+
+    // texture = the sRGB image at the internal resolution; result goes to the canvas.
+    presentNN(tex) {
+        const r = this.game.renderer;
+        const passes = FSRUpscaler.NN_CONV;
+        let prev = tex;
+        for (let k = 0; k < passes.length; k++) {
+            this.nnConv[k].uniforms[passes[k].bind].value = prev;
+            this.quad.material = this.nnConv[k];
+            r.setRenderTarget(this.nnTargets[k]);
+            r.render(this.scene, this.cam);
+            prev = this.nnTargets[k].texture;
+        }
+        this.nnD2S.uniforms.tMain.value = tex;
+        this.nnD2S.uniforms.tConv.value = prev;
+        this.quad.material = this.nnD2S;
+        r.setRenderTarget(this.nnOut);
+        r.render(this.scene, this.cam);
+        this.nnBlit.uniforms.tSrc.value = this.nnOut.texture;   // 2x the internal size can differ from the canvas by a pixel
+        this.quad.material = this.nnBlit;
+        r.setRenderTarget(null);
+        r.render(this.scene, this.cam);
+    }
+
     dispose() {
-        for (const k of ['rt', 'mid']) { if (this[k]) { this[k].dispose(); this[k] = null; } }
-        for (const k of ['easu', 'rcas']) { if (this[k]) { this[k].dispose(); this[k] = null; } }
+        for (const k of ['rt', 'mid', 'nnOut']) { if (this[k]) { this[k].dispose(); this[k] = null; } }
+        for (const k of ['easu', 'rcas', 'nnD2S', 'nnBlit']) { if (this[k]) { this[k].dispose(); this[k] = null; } }
+        for (const k of ['nnTargets', 'nnConv']) { if (this[k]) { this[k].forEach(x => x.dispose()); this[k] = null; } }
+        this.nn = false;
         if (this.quad) { this.quad.geometry.dispose(); this.quad = null; }
         this.scene = null; this.cam = null;
     }
@@ -106,6 +155,7 @@ class FSRUpscaler {
     present(tex) {
         const r = this.game.renderer;
         if (!this.quad) this.build();
+        if (this.nn) { this.presentNN(tex); return; }
         const i = this.inSize();
         this.easu.uniforms.tSrc.value = tex;
         this.easu.uniforms.srcSize.value.set(i.x, i.y);
