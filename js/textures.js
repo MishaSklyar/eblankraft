@@ -307,6 +307,7 @@ class TextureManager {
         if (saved) this.setTextureX64(true);
     }
 
+    // RTX ON (formerly Texture x64): upscales every texture to 64x64 + PBR maps + POM; rtx.js adds the post pipeline.
     // Upscales every texture to 64x64 (crisp, nearest-neighbour) or restores the originals.
     setTextureX64(enabled) {
         this.textureX64 = !!enabled;
@@ -330,6 +331,7 @@ class TextureManager {
         }
         if (this.iconDataUrlCache) this.iconDataUrlCache.clear();
         this.swapChunkMaterials();
+        if (window.game && window.game.rtx) window.game.rtx.setEnabled(!!enabled);
     }
 
     // Builds 64x64 depth (height) -> normal map, plus a metallic/specular map, from a texture's colours.
@@ -355,53 +357,181 @@ class TextureManager {
                     + at(lum, x - 1, y - 1) + at(lum, x + 1, y - 1) + at(lum, x - 1, y + 1) + at(lum, x + 1, y + 1)) / 16;
             }
         }
-        // Metallicity by material name: solid metals, ore flecks, glossy non-metals.
+        // Material classes by name: solid metals, ore flecks, glossy/clearcoated non-metals, emissive blocks.
         const k = String(key || '');
-        let solid = 0, fleck = 0, gloss = 0;
+        let solid = 0, fleck = 0, gloss = 0, emit = 0, emitThr = 0;
         if (/^(gold|gold_ingot|iron_ingot|netherite_block|netherite_scrap)$/.test(k)) solid = 0.9;
         else if (/^(iron_ore|coal_ore)$/.test(k)) fleck = 0.8;
         else if (/^(diamond|emerald|nether_quartz|obsidian)$/.test(k)) solid = 0.55;
         else if (/^(glass|ice|packed_ice|redstone_lamp|redstone_lamp_on|glowstone)$/.test(k)) gloss = 0.35;
-        const mk = (cv) => {
+        if (/^(glowstone|redstone_lamp_on|lava)$/.test(k)) emit = 1;
+        else if (/^(redstone_torch|redstone_torch_block|redstone_wire_on|ender_eye|portal_nether|portal_end)$/.test(k)) { emit = 1; emitThr = 0.55; }
+        const clearcoat = (solid >= 0.5 || gloss) ? 1 : (fleck ? 0.6 : 0);
+        const mk = (cv, srgb) => {
             const t = new THREE.CanvasTexture(cv);
             t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
             t.wrapS = t.wrapT = THREE.RepeatWrapping;
+            if (srgb) t.encoding = THREE.sRGBEncoding;
             return t;
         };
-        const nCv = document.createElement('canvas'); nCv.width = w; nCv.height = h;
-        const sCv = document.createElement('canvas'); sCv.width = w; sCv.height = h;
-        const nCtx = nCv.getContext('2d'), sCtx = sCv.getContext('2d');
-        const nImg = nCtx.createImageData(w, h), sImg = sCtx.createImageData(w, h);
-        const strength = 3.0;
+        const mkCv = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); return [c, x, x.createImageData(w, h)]; };
+        const [nCv, nCtx, nImg] = mkCv();   // normalMap
+        const [cnCv, cnCtx, cnImg] = mkCv();// clearcoatNormalMap (much gentler micro-surface)
+        const [oCv, oCtx, oImg] = mkCv();   // packed: R = aoMap, G = roughnessMap, B = metalnessMap
+        const [ccCv, ccCtx, ccImg] = mkCv();// clearcoatMap (R channel)
+        const [eCv, eCtx, eImg] = mkCv();   // emissiveMap
+        const [hCv, hCtx, hImg] = mkCv();   // heightMap for parallax occlusion mapping
+        const putNormal = (img, i, nx, ny, nz) => {
+            const len = Math.hypot(nx, ny, nz);
+            img.data[i] = (nx / len * 0.5 + 0.5) * 255;
+            img.data[i + 1] = (ny / len * 0.5 + 0.5) * 255;
+            img.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
+            img.data[i + 3] = 255;
+        };
+        // Calm organic blocks (grass, dirt, leaves, trees) get much shallower relief than rock/ore/metal.
+        const calm = /^(grass_top|grass_side|dirt|sand|snow|clay|leaves|birch_leaves|jungle_leaves|spruce_leaves|wood_side|wood_top|birch_wood_side|birch_wood_top|jungle_wood_side|jungle_wood_top|spruce_wood_side|spruce_wood_top|planks|birch_planks|spruce_planks|cactus_side|cactus_top)$/.test(k);
+        const strength = calm ? 0.8 : 3.0, coatStrength = 0.6;
+        const aoAmt = calm ? 1.2 : 3.5;
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 const dx = (at(depth, x + 1, y - 1) + 2 * at(depth, x + 1, y) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x - 1, y) + at(depth, x - 1, y + 1));
                 const dy = (at(depth, x - 1, y + 1) + 2 * at(depth, x, y + 1) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x, y - 1) + at(depth, x + 1, y - 1));
-                const nx = -dx * strength, ny = dy * strength, nz = 1;
-                const len = Math.hypot(nx, ny, nz);
-                const i = (y * w + x) * 4;
-                nImg.data[i] = (nx / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 1] = (ny / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 3] = 255;
-                const l = lum[y * w + x];
-                let m = 0.05 + l * 0.08;                 // faint sheen on everything
-                if (solid) m = solid * (0.6 + 0.4 * l);  // bright metal, darker in crevices
-                else if (fleck) m = l > 0.5 ? fleck : 0.05;
-                else if (gloss) m = gloss;
-                sImg.data[i] = sImg.data[i + 1] = sImg.data[i + 2] = Math.min(1, m) * 255;
-                sImg.data[i + 3] = 255;
+                const i = (y * w + x) * 4, p = y * w + x;
+                putNormal(nImg, i, -dx * strength, dy * strength, 1);
+                putNormal(cnImg, i, -dx * coatStrength, dy * coatStrength, 1);
+                const l = lum[p];
+                // aoMap: pixels darker than their surroundings are crevices -> occluded.
+                const avg = (at(depth, x - 1, y) + at(depth, x + 1, y) + at(depth, x, y - 1) + at(depth, x, y + 1)) / 4;
+                const ao = Math.max(0.35, Math.min(1, 1 - (avg - depth[p]) * aoAmt));
+                // metalnessMap / roughnessMap
+                let m = 0.0, r = 1.0 - l * 0.08;   // plain blocks: fully matte
+                if (solid) { m = solid * (0.6 + 0.4 * l); r = 0.22 + (1 - l) * 0.35; }
+                else if (fleck) { const f = l > 0.5; m = f ? fleck : 0.0; r = f ? 0.3 : 1.0; }
+                else if (gloss) { m = 0.05; r = 0.12 + (1 - l) * 0.1; }
+                oImg.data[i] = ao * 255; oImg.data[i + 1] = Math.min(1, r) * 255; oImg.data[i + 2] = Math.min(1, m) * 255; oImg.data[i + 3] = 255;
+                // clearcoatMap: full on polished materials, only bright flecks on ores
+                const cc = fleck ? (l > 0.5 ? 1 : 0) : clearcoat;
+                ccImg.data[i] = ccImg.data[i + 1] = ccImg.data[i + 2] = cc * 255; ccImg.data[i + 3] = 255;
+                const hv = Math.min(1, Math.max(0, (depth[p] - 0.5) * (calm ? 1.4 : 2.2) + 0.5)) * 255;
+                hImg.data[i] = hImg.data[i + 1] = hImg.data[i + 2] = hv; hImg.data[i + 3] = 255;
+                // emissiveMap: the texture's own colour where it should glow
+                const on = emit && l >= emitThr;
+                eImg.data[i] = on ? data[i] : 0; eImg.data[i + 1] = on ? data[i + 1] : 0; eImg.data[i + 2] = on ? data[i + 2] : 0; eImg.data[i + 3] = 255;
             }
         }
-        nCtx.putImageData(nImg, 0, 0);
-        sCtx.putImageData(sImg, 0, 0);
+        nCtx.putImageData(nImg, 0, 0); cnCtx.putImageData(cnImg, 0, 0); oCtx.putImageData(oImg, 0, 0);
+        ccCtx.putImageData(ccImg, 0, 0); eCtx.putImageData(eImg, 0, 0); hCtx.putImageData(hImg, 0, 0);
+        const orm = mk(oCv);
         tex.userData.normalMap = mk(nCv);
-        tex.userData.metalMap = mk(sCv);
-        tex.userData.shininess = solid ? 70 : (gloss ? 50 : 14);
-        // Metals reflect their own colour; non-metals reflect white-ish light.
-        const col = (solid || fleck) ? new THREE.Color(ar / n / 255, ag / n / 255, ab / n / 255).lerp(new THREE.Color(1, 1, 1), 0.25) : new THREE.Color(1, 1, 1);
-        tex.userData.specColor = col;
+        tex.userData.aoMap = orm;
+        tex.userData.roughnessMap = orm;
+        tex.userData.metalnessMap = orm;
+        // Only genuinely shiny materials reflect the environment; everything else stays matte.
+        const shiny = !!(solid || fleck || gloss);
+        tex.userData.envIntensity = solid ? 0.9 : (gloss ? 0.6 : (fleck ? 0.5 : 0.1));
+        tex.userData.reflectivity = shiny ? 0.5 : 0.0;
+        tex.userData.clearcoat = clearcoat;
+        tex.userData.clearcoatMap = clearcoat ? mk(ccCv) : null;
+        tex.userData.clearcoatNormalMap = clearcoat ? mk(cnCv) : null;
+        tex.userData.emissiveMap = emit ? mk(eCv, true) : null;
+        tex.userData.heightMap = mk(hCv);
+        tex.userData.pomScale = calm ? 0.025 : 0.07;
         tex.userData.pbrReady = true;
+    }
+
+    // Parallax Occlusion Mapping: ray-marches the 64px height map in the fragment shader so grooves
+    // really sink into the block. All map lookups (albedo, normal, ORM, clearcoat, emissive) use the shifted UV.
+    makePomHook(tex) {
+        return (shader) => {
+            const u = tex.userData || {};
+            if (!u.heightMap) return;
+            shader.uniforms.pomMap = { value: u.heightMap };
+            shader.uniforms.pomScale = { value: u.pomScale || 0.05 };
+            shader.fragmentShader = shader.fragmentShader
+                .replace('void main() {', `uniform sampler2D pomMap;
+uniform float pomScale;
+void main() {
+    vec2 pomUv = vUv;
+    #if defined( USE_AOMAP )
+    vec2 pomUv2 = vUv2;
+    #endif
+    {
+        vec3 pN = normalize( vNormal );
+        vec3 pP = - vViewPosition;
+        vec3 dp1 = dFdx( pP ), dp2 = dFdy( pP );
+        vec2 du1 = dFdx( vUv ), du2 = dFdy( vUv );
+        vec3 d2p = cross( dp2, pN ), d1p = cross( pN, dp1 );
+        vec3 pT = d2p * du1.x + d1p * du2.x;
+        vec3 pB = d2p * du1.y + d1p * du2.y;
+        float inv = inversesqrt( max( dot( pT, pT ), dot( pB, pB ) ) );
+        pT *= inv; pB *= inv;
+        vec3 pV = normalize( vViewPosition );
+        vec3 vts = vec3( dot( pV, pT ), dot( pV, pB ), dot( pV, pN ) );
+        float fade = 1.0 - smoothstep( 8.0, 20.0, length( vViewPosition ) );
+        if ( vts.z > 0.05 && fade > 0.01 ) {
+            vec2 base = floor( vUv );
+            vec2 P = vts.xy / max( vts.z, 0.3 ) * pomScale * fade;
+            const int LAYERS = 14;
+            vec2 dUV = P / float( LAYERS );
+            float layerD = 1.0 / float( LAYERS );
+            vec2 cur = vUv;
+            float curD = 0.0;
+            float h = 1.0 - texture2D( pomMap, cur ).r;
+            for ( int i = 0; i < LAYERS; i++ ) {
+                if ( curD >= h ) break;
+                cur -= dUV;
+                vec2 l = clamp( cur - base, vec2( 0.001 ), vec2( 0.999 ) );
+                h = 1.0 - texture2D( pomMap, base + l ).r;
+                curD += layerD;
+            }
+            vec2 prev = cur + dUV;
+            float after = h - curD;
+            float before = ( 1.0 - texture2D( pomMap, base + clamp( prev - base, vec2( 0.001 ), vec2( 0.999 ) ) ).r ) - curD + layerD;
+            float w = after / ( after - before - 1e-5 );
+            vec2 fin = mix( cur, prev, clamp( w, 0.0, 1.0 ) );
+            pomUv = base + clamp( fin - base, vec2( 0.001 ), vec2( 0.999 ) );
+            #if defined( USE_AOMAP )
+            pomUv2 = vUv2 + ( pomUv - vUv );
+            #endif
+        }
+    }`);
+            const swap = (name, re, to) => {
+                const chunk = THREE.ShaderChunk[name];
+                if (chunk) shader.fragmentShader = shader.fragmentShader.replace('#include <' + name + '>', chunk.replace(re, to));
+            };
+            for (const n of ['map_fragment', 'emissivemap_fragment', 'normal_fragment_maps', 'roughnessmap_fragment',
+                'metalnessmap_fragment', 'clearcoat_normal_fragment_maps', 'clearcoat_map_fragment']) swap(n, /vUv(?!\d)/g, 'pomUv');
+            swap('aomap_fragment', /vUv2/g, 'pomUv2');
+        };
+    }
+
+    // Procedural sky/ground environment (PMREM) so metals and clearcoat have something to reflect.
+    ensureEnvironment() {
+        if (this._envTex) return this._envTex;
+        const g = window.game;
+        if (!g || !g.renderer) return null;
+        try {
+            const sc = new THREE.Scene();
+            const geo = new THREE.SphereGeometry(10, 24, 16);
+            const top = new THREE.Color(0x7fb2ff), hor = new THREE.Color(0xe8f0ff), bot = new THREE.Color(0x4a4036);
+            const cols = [];
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                const t = pos.getY(i) / 10;
+                const c = t >= 0 ? hor.clone().lerp(top, Math.pow(t, 0.6)) : hor.clone().lerp(bot, Math.min(1, -t * 2.5));
+                cols.push(c.r, c.g, c.b);
+            }
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+            sc.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+            // HDR sun disc (values > 1) so metals get bright sun glints that the bloom pass can pick up.
+            const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(1.1, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(10, 6.5, 3) }));
+            sunDisc.position.set(6.5, 3.2, 4.5);
+            sc.add(sunDisc);
+            const pm = new THREE.PMREMGenerator(g.renderer);
+            this._envTex = pm.fromScene(sc).texture;
+            pm.dispose();
+        } catch (e) { this._envTex = null; }
+        return this._envTex;
     }
 
     // Returns the PBR version of a block material (with normal/roughness maps), if it has one.
@@ -414,11 +544,29 @@ class TextureManager {
         if (tex.image && tex.image.width === 64) {
             this.buildPbrMaps(tex, tex.userData.key);
             if (pbr.normalMap !== tex.userData.normalMap) {
-                pbr.normalMap = tex.userData.normalMap;
-                pbr.specularMap = tex.userData.metalMap;
-                pbr.specular.copy(tex.userData.specColor);
-                pbr.shininess = tex.userData.shininess;
+                const u = tex.userData;
+                pbr.normalMap = u.normalMap;
                 pbr.normalScale = new THREE.Vector2(1, 1);
+                pbr.aoMap = u.aoMap;
+                pbr.aoMapIntensity = 1;
+                pbr.roughnessMap = u.roughnessMap;
+                pbr.metalnessMap = u.metalnessMap;
+                pbr.envMapIntensity = u.envIntensity;
+                pbr.reflectivity = u.reflectivity;
+                pbr.metalness = 1;   // the maps drive these (multiplied)
+                pbr.roughness = 1;
+                if (u.clearcoat) {
+                    pbr.clearcoat = 1;
+                    pbr.clearcoatRoughness = 0.1;
+                    pbr.clearcoatMap = u.clearcoatMap;
+                    pbr.clearcoatNormalMap = u.clearcoatNormalMap;
+                    pbr.clearcoatNormalScale = new THREE.Vector2(1, 1);
+                }
+                if (u.emissiveMap) {
+                    pbr.emissive = new THREE.Color(0xffffff);
+                    pbr.emissiveMap = u.emissiveMap;
+                    pbr.emissiveIntensity = 4;   // > 1 so the HDR bloom pass makes it glow
+                }
                 pbr.needsUpdate = true;
             }
         }
@@ -1969,16 +2117,18 @@ class TextureManager {
             mat.basicCounterpart = basic;
             mat.lambertCounterpart = mat;
             // PBR-style counterpart (used only when Texture x64 is on); maps are attached lazily.
-            // Phong is much cheaper than MeshStandard and, with no env map, shows metals correctly via specular.
-            const pbr = new THREE.MeshPhongMaterial({
+            // MeshPhysicalMaterial: normal, metalness/roughness, ao, clearcoat(+normal) and emissive maps.
+            const pbr = new THREE.MeshPhysicalMaterial({
                 map: tex,
                 transparent: isTrans,
                 opacity: op,
                 alphaTest: at,
-                shininess: 20,
-                specular: 0x222222,
+                metalness: 0,
+                roughness: 0.9,
+                envMapIntensity: 0.4,
                 ...opts
             });
+            pbr.onBeforeCompile = this.makePomHook(tex);
             pbr.basicCounterpart = basic;
             pbr.lambertCounterpart = mat;
             pbr.pbrCounterpart = pbr;
