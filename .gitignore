@@ -16,7 +16,8 @@ android_project/obj/
 android_project/dex/
 android_pro/obj/
 android_pro/dex/
-tools/
+tools/*
+!tools/bake_pbr.py
 .tokensave
 
 # Generated Cloudflare beta deployment
