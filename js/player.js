@@ -2338,9 +2338,9 @@ class Player {
             // CS 1.6 style anti-bhop: touching the ground above the speed limit drops you to run/walk speed
             if (this.bunnyhop && jumpedThisFrame && isGroundedNow && !this.isFlying) {
                 const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-                const limit = (this.bhopSpeedLimit ?? 10.5);
+                const limit = (this.bhopSpeedLimit ?? 8.5);
                 if (hSpeed > limit) {
-                    const cap = baseSpeed / hSpeed;
+                    const cap = (baseSpeed * (this.bhopPenaltySpeedMult ?? 0.92)) / hSpeed;   // a bit under sprint/walk speed
                     this.velocity.x *= cap;
                     this.velocity.z *= cap;
                 }
