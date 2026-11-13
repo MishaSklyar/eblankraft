@@ -510,7 +510,7 @@ class TextureManager {
     makePomHook(tex) {
         return (shader) => {
             const u = tex.userData || {};
-            if (!u.heightMap) return;
+            if (!u.heightMap || !this.rtxPart('pom')) return;
             shader.uniforms.pomMap = { value: u.heightMap };
             shader.uniforms.pomScale = { value: u.pomScale || 0.05 };
             shader.fragmentShader = shader.fragmentShader
@@ -600,9 +600,24 @@ void main() {
         return this._envTex;
     }
 
+    rtxPart(id) {
+        const g = window.game;
+        return !(g && g.rtx && !g.rtx.part(id));
+    }
+
+    // Called when the RTX tab flips a material part (PBR maps / POM): recompile the PBR shaders and rebuild chunk meshes.
+    refreshPbr() {
+        for (const m of (this.materialCache ? this.materialCache.values() : [])) {
+            const p = m && m.pbrCounterpart;
+            if (p) p.needsUpdate = true;
+        }
+        this.swapChunkMaterials();
+    }
+
     // Returns the PBR version of a block material (with normal/roughness maps), if it has one.
     getPbrMaterial(mat) {
         if (!mat || !mat.pbrCounterpart || !mat.map) return mat;
+        if (!this.rtxPart('pbr')) return mat;
         if (mat.isMeshBasicMaterial) return mat;
         const pbr = mat.pbrCounterpart;
         const tex = pbr.map;
@@ -2195,6 +2210,7 @@ void main() {
                 ...opts
             });
             pbr.onBeforeCompile = this.makePomHook(tex);
+            pbr.customProgramCacheKey = () => 'pom' + (this.rtxPart('pom') ? 1 : 0);
             pbr.basicCounterpart = basic;
             pbr.lambertCounterpart = mat;
             pbr.pbrCounterpart = pbr;
