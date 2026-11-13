@@ -281,6 +281,18 @@ function _stab(pose, s = {}) {       // pull back, thrust at the crosshair, twis
 }
 
 const KNIFE_ANIMS = {};
+
+// Gun pickup / draw: the weapon swings up from below the screen, muzzle rising, settles with a small overshoot, then the
+// charging handle is racked (pull back + release). Heavier guns take longer (see GUN_DRAW_TIME). Same clip system as the knives.
+const GUN_DRAW_CLIP = knifeClip(.7, [
+    [0, { py: -.46, pz: .12, px: .12, rx: -1.3, ry: .55, rz: .4 }],
+    [.26, { py: .035, pz: -.035, px: -.015, rx: .17, ry: -.12, rz: -.07 }],
+    [.38, { py: -.018, pz: .0, rx: -.045, ry: .02, rz: .02 }],
+    [.47, { py: -.01, pz: .075, rx: .07, ry: 0, rz: -.03 }],    // rack the charging handle back...
+    [.55, { py: 0, pz: .075, rx: .07 }],
+    [.64, { pz: -.012, rx: -.015 }],                              // ...and let it slam forward
+]);
+const GUN_DRAW_TIME = { default: .7, awp: 1.0, rpg: 1.05, shotgun: .85, ak47: .8, m4a1: .75, mp5: .62, deagle: .6, glock: .5 };
 const _defKnife = (name, def) => {
     const p = def.pose;
     def.attacks = def.attacks(p);
@@ -1072,6 +1084,7 @@ class Player {
 
         const reg = ITEM_REGISTRY[it.itemId];
         if (!reg?.isKnife) this._knifeKey = null;
+        if (!reg?.isGun) { this._gunKey = null; this.gunDraw = 0; }
         if (this.armMesh) {
             this.armMesh.visible = true;
             this.armMesh.rotation.set(2.8, .2, -.2);
@@ -1100,6 +1113,7 @@ class Player {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
             this.heldGunMesh = createVoxelGunModel(reg.gunType, reg.skin);
             this.itemPivot.add(this.heldGunMesh);
+            if (this._gunKey !== it) { this._gunKey = it; this.gunDraw = 1; this._gunDrawSfx = false; }   // pickup animation only when the gun is (re)selected
             this.armMesh.position.set(.025, -.12, .16);
             this.armMesh.rotation.set(2.1, 0, -.10);
         } else {
@@ -2852,6 +2866,15 @@ class Player {
                     -.31 * (1 - aim) - aimHeight * aim + bobY * (1 - aim) - (reloading ? .14 : 0),
                     -.48 - aim * .06 + kick * .10);
                 this.itemPivot.rotation.set(kick * .16, -.045 * (1 - aim), reloading ? -.45 : -kick * .035);
+                if (this.gunDraw > 0) {
+                    const dur = GUN_DRAW_TIME[type] || GUN_DRAW_TIME.default;
+                    if (!this._gunDrawSfx) { this._gunDrawSfx = true; this.soundManager?.playGunDraw?.(type); }
+                    this.gunDraw = Math.max(0, this.gunDraw - dt / dur);
+                    const o = { px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0 };
+                    applyKnifeClip(GUN_DRAW_CLIP, (1 - this.gunDraw) * GUN_DRAW_CLIP.dur, o, 1 - aim * .8);
+                    this.itemPivot.position.x += o.px; this.itemPivot.position.y += o.py; this.itemPivot.position.z += o.pz;
+                    this.itemPivot.rotation.x += o.rx; this.itemPivot.rotation.y += o.ry; this.itemPivot.rotation.z += o.rz;
+                }
             } else if (heldKnife) {
                 this.updateKnifeView(dt, bobX, bobY, swingOffset);
             } else if (this.isBlocking) {

@@ -72,6 +72,7 @@ class Game {
         if (this.upscaler) { let m = 'off'; try { m = localStorage.getItem('eblankraft_upscaler') || 'off'; } catch (e) {} this.upscaler.setMode(m); }
         this.rtx = (typeof RTXPipeline !== 'undefined') ? new RTXPipeline(this) : null;
         if (this.rtx && this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
+        this.rtxGui = (typeof RTXGui !== 'undefined') ? new RTXGui(this) : null;   // Alt+X panel
 
         this.lastTime = performance.now();
         this.animate = this.animate.bind(this);
@@ -839,6 +840,7 @@ class Game {
             if (wMat.userData && wMat.userData.uTime) {
                 wMat.userData.uTime.value = (this.underwaterEffectsEnabled !== false) ? this.waterTime : 0.0;
             }
+            if (wMat.userData && wMat.userData.uSky && this.scene.background && this.scene.background.isColor) wMat.userData.uSky.value.copy(this.scene.background);
             if (wMat.normalMap) {
                 wMat.normalMap.offset.x = (this.waterTime * 0.035) % 1;
                 wMat.normalMap.offset.y = (this.waterTime * 0.022) % 1;
@@ -1025,6 +1027,8 @@ class Game {
             if (this.upscaler && this.upscaler.active) this.upscaler.renderScene();
             else this.renderer.render(this.scene, this.camera);
         }
+        if (this.__onnxSnap) this.__onnxSnap(this.renderer.domElement);
+        if (this.rtxOnnx && this.rtxOnnx.live) this.rtxOnnx.onFrame(this.renderer.domElement);
         const renderedAt = performance.now();
         this.lastRenderSubmitTime = renderedAt - renderStarted;
         this.lastFrameCpuTime = renderedAt - now;

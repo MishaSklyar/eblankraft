@@ -252,6 +252,7 @@ class Chunk {
             }
             return b !== BLOCK_TYPES.AIR &&
                    b !== BLOCK_TYPES.WATER &&
+                   b !== BLOCK_TYPES.LAVA &&
                    b !== BLOCK_TYPES.ICE &&
                    b !== BLOCK_TYPES.GLASS &&
                    b !== BLOCK_TYPES.LEAVES &&
@@ -433,6 +434,30 @@ class Chunk {
                         continue;
                     }
 
+                    if (block === BLOCK_TYPES.LAVA) {
+                        // Lava is a liquid: no faces between lava blocks, surface sits below the block top and waves (see lavaMat shader)
+                        const lm = textureManager.getBlockMaterial(BLOCK_TYPES.LAVA);
+                        const lg = getGroup(Array.isArray(lm) ? lm[0] : lm);
+                        const above = y + 1 < CHUNK_SIZE_Y ? voxels[x + 16 * (y + 1 + 32 * z)] : BLOCK_TYPES.AIR;
+                        const topY = above === BLOCK_TYPES.LAVA ? 1 : 0.86;
+                        for (let f = 0; f < 6; f++) {
+                            if (f === 0 && !hasRight) continue;
+                            if (f === 1 && !hasLeft) continue;
+                            if (f === 4 && !hasFront) continue;
+                            if (f === 5 && !hasBack) continue;
+                            const neighbor = getVoxelNeighbor(x, y, z, f);
+                            if (neighbor === BLOCK_TYPES.LAVA || neighbor === BLOCK_TYPES.WATER) continue;
+                            if (neighbor !== BLOCK_TYPES.AIR && isOpaque(neighbor)) continue;
+                            const face = CHUNK_FACES[f], c = face.corners;
+                            for (let k = 0; k < 6; k++) {
+                                lg.positions.push(wx + c[k][0], wy + (c[k][1] > 0.5 ? topY : 0), wz + c[k][2]);
+                                lg.normals.push(face.normal[0], face.normal[1], face.normal[2]);
+                            }
+                            lg.uvs.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+                        }
+                        continue;
+                    }
+
                     if (isCrossPlant(block)) {
                         const blockMat = textureManager.getBlockMaterial(block);
                         const mat = Array.isArray(blockMat) ? blockMat[0] : blockMat;
@@ -527,7 +552,7 @@ class Chunk {
                         for (let z = 0; z < 16; z++) {
                             const idx = z + rowOffset;
                             const block = voxels[x + 16 * (y + 32 * z)];
-                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
+                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || block === BLOCK_TYPES.LAVA || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
                                 sliceMask[idx] = null;
                                 continue;
                             }
@@ -537,7 +562,7 @@ class Chunk {
                                 shouldRender = false;
                             } else {
                                 const neighbor = getVoxelNeighbor(x, y, z, f);
-                                if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER) {
+                                if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER || neighbor === BLOCK_TYPES.LAVA) {
                                     shouldRender = true;
                                 } else if (!isOpaqueNeighbor(neighbor, x, y, z, f) && (neighbor !== block || nearbyDesigns)) {
                                     shouldRender = true;
@@ -636,13 +661,13 @@ class Chunk {
                         for (let x = 0; x < 16; x++) {
                             const idx = x + zOffset;
                             const block = voxels[x + 16 * (y + 32 * z)];
-                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
+                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || block === BLOCK_TYPES.LAVA || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
                                 sliceMask[idx] = null;
                                 continue;
                             }
                             const neighbor = getVoxelNeighbor(x, y, z, f);
                             let shouldRender = false;
-                            if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER) {
+                            if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER || neighbor === BLOCK_TYPES.LAVA) {
                                 shouldRender = true;
                             } else if (!isOpaqueNeighbor(neighbor, x, y, z, f) && (neighbor !== block || nearbyDesigns)) {
                                 shouldRender = true;
@@ -740,7 +765,7 @@ class Chunk {
                         for (let x = 0; x < 16; x++) {
                             const idx = x + rowOffset;
                             const block = voxels[x + 16 * (y + 32 * z)];
-                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
+                            if (block === BLOCK_TYPES.AIR || block === BLOCK_TYPES.WATER || block === BLOCK_TYPES.LAVA || isCrossPlant(block) || isSlab(block) || (hasDesigns && this.world.getBlockDesign(worldX0 + x, y, worldZ0 + z))) {
                                 sliceMask[idx] = null;
                                 continue;
                             }
@@ -750,7 +775,7 @@ class Chunk {
                                 shouldRender = false;
                             } else {
                                 const neighbor = getVoxelNeighbor(x, y, z, f);
-                                if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER) {
+                                if (neighbor === BLOCK_TYPES.AIR || neighbor === BLOCK_TYPES.WATER || neighbor === BLOCK_TYPES.LAVA) {
                                     shouldRender = true;
                                 } else if (!isOpaqueNeighbor(neighbor, x, y, z, f) && (neighbor !== block || nearbyDesigns)) {
                                     shouldRender = true;
@@ -959,7 +984,11 @@ class Chunk {
             if (!m || m.isShaderMaterial) return m;
             if (!Chunk._shadedMats) Chunk._shadedMats = new WeakMap();
             let c = Chunk._shadedMats.get(m);
-            if (!c) { c = m.clone(); c.onBeforeCompile = m.onBeforeCompile; c.vertexColors = true; c.needsUpdate = true; Chunk._shadedMats.set(m, c); }
+            const epoch = textureManager ? (textureManager.pbrEpoch || 0) : 0;
+            if (!c) { c = m.clone(); c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; c.vertexColors = true; c.needsUpdate = true; c.__epoch = epoch; Chunk._shadedMats.set(m, c); }
+            else if (c.__epoch !== epoch) {   // PBR maps were rebuilt (baked normals loaded / PBR or POM toggled): the clone must follow
+                c.copy(m); c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; c.vertexColors = true; c.needsUpdate = true; c.__epoch = epoch;
+            }
             return c;
         };
         const pbrOn = !isTurboOrA02 && textureManager && textureManager.textureX64;
@@ -1105,6 +1134,7 @@ class VoxelWorld {
         this.blockHistory = new Map(); // key: "x,y,z" -> [prevType1, prevType2, ...]
         this.snapshots = new Map(); // name -> [{x,y,z,type}]
         this.activeWaterBlocks = new Map();
+        this.activeLavaBlocks = new Map();
         this.chunkGenQueue = [];
         this.waterTickTimer = 0;
         this.generatedVillages = new Set();
@@ -1291,12 +1321,15 @@ class VoxelWorld {
                     [wx, wy, wz + 1], [wx, wy, wz - 1]
                 ];
                 for (const [nx, ny, nz] of dirs) {
-                    if (this.getBlock(nx, ny, nz) === BLOCK_TYPES.WATER) {
+                    const nb = this.getBlock(nx, ny, nz);
+                    if (nb === BLOCK_TYPES.WATER) {
                         this.scheduleWaterUpdate(nx, ny, nz, 0);
                         break; // Only wake up 1 neighbor water block to prevent cascading floods
                     }
+                    if (nb === BLOCK_TYPES.LAVA) { this.scheduleLavaUpdate(nx, ny, nz, 0); break; }
                 }
             } else if (type === BLOCK_TYPES.LAVA) {
+                this.scheduleLavaUpdate(wx, wy, wz, 0);
                 // If lava placed next to water -> reaction!
                 if (this.getBlock(wx, wy + 1, wz) === BLOCK_TYPES.WATER) {
                     chunk.setBlock(lx, ly, lz, BLOCK_TYPES.OBSIDIAN);
@@ -1377,6 +1410,40 @@ class VoxelWorld {
         }
         this.updateMeshes();
         return true;
+    }
+
+    scheduleLavaUpdate(wx, wy, wz, depth = 0) {
+        if (this.isGeneratingTerrain) return;
+        if (this.activeLavaBlocks.size > 24) return;
+        const key = `${wx},${wy},${wz}`;
+        if (!this.activeLavaBlocks.has(key)) this.activeLavaBlocks.set(key, { x: wx, y: wy, z: wz, depth });
+    }
+
+    // Lava is slower and thicker than water: flows down first, then spreads at most 2 blocks sideways; water turns it to stone.
+    updateLavaPhysics(dt) {
+        if (!this.activeLavaBlocks || this.activeLavaBlocks.size === 0) return;
+        this.lavaTickTimer = (this.lavaTickTimer || 0) + dt;
+        if (this.lavaTickTimer < 0.9) return;
+        this.lavaTickTimer = 0;
+        let steps = 0;
+        for (const [key, data] of this.activeLavaBlocks) {
+            this.activeLavaBlocks.delete(key);
+            if (steps++ >= 4) break;
+            const { x, y, z, depth } = data;
+            if (this.getBlock(x, y, z) !== BLOCK_TYPES.LAVA) continue;
+            if (y > 0) {
+                const below = this.getBlock(x, y - 1, z);
+                if (below === BLOCK_TYPES.AIR) { this.setBlock(x, y - 1, z, BLOCK_TYPES.LAVA); this.scheduleLavaUpdate(x, y - 1, z, Math.max(depth, 1)); continue; }
+                if (below === BLOCK_TYPES.WATER) { this.setBlock(x, y - 1, z, BLOCK_TYPES.COBBLESTONE); this.triggerSteamReaction(x + 0.5, y - 0.5, z + 0.5); continue; }
+            }
+            if (depth < 2) {
+                for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const nx = x + dx, nz = z + dz, adj = this.getBlock(nx, y, nz);
+                    if (adj === BLOCK_TYPES.AIR) { this.setBlock(nx, y, nz, BLOCK_TYPES.LAVA); this.scheduleLavaUpdate(nx, y, nz, depth + 1); }
+                    else if (adj === BLOCK_TYPES.WATER) { this.setBlock(nx, y, nz, BLOCK_TYPES.OBSIDIAN); this.triggerSteamReaction(nx + 0.5, y + 0.5, nz + 0.5); }
+                }
+            }
+        }
     }
 
     scheduleWaterUpdate(wx, wy, wz, depth = 0) {
@@ -2769,6 +2836,7 @@ class VoxelWorld {
         // A chunk-count limit alone is not a time budget.
         const streamingDeadline = performance.now() + 4;
         this.updateWaterPhysics(dt);
+        this.updateLavaPhysics(dt);
 
         // End terrain is finite, but dirty meshes still need servicing.
 
@@ -2999,7 +3067,7 @@ class VoxelWorld {
         const savedState = this.dimensionStates.get(newDimension);
         this.modifiedBlocks = savedState ? savedState.modifiedBlocks : new ChunkEdits();
         this.blockDesigns = savedState?.blockDesigns || new Map();
-        this.activeWaterBlocks.clear();
+        this.activeWaterBlocks.clear(); if (this.activeLavaBlocks) this.activeLavaBlocks.clear();
         this.blockHistory.clear();
         this.chunkGenQueue = [];
         this.starterVillageBuilt = false;
@@ -3355,7 +3423,7 @@ class VoxelWorld {
             this.modifiedBlocks = new ChunkEdits();
             this.blockDesigns = new Map();
             this.blockHistory.clear();
-            this.activeWaterBlocks.clear();
+            this.activeWaterBlocks.clear(); if (this.activeLavaBlocks) this.activeLavaBlocks.clear();
             this.chunkGenQueue = [];
             this.starterVillageBuilt = false;
             this.worldPreloaded = false;
