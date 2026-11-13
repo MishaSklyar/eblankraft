@@ -39,7 +39,7 @@ class RTXPipeline {
         this.frame = 0;
         this.resScale = 1;         // internal resolution multiplier (dynamic, only when the FSR upscaler is off)
         this.baseScale = 1;        // best scale for this screen (pixel budget); the controller climbs back to it
-        this.minScale = this.cfg.minScale;
+        this.minScale = 1;
         this.ema = 0;              // smoothed frame time (ms)
         this.cool = 0;
         this._shadowTick = 0;
@@ -213,7 +213,7 @@ class RTXPipeline {
         this.composer = composer;
         this.final.uniforms.texel.value.set(1 / w, 1 / h);
         this.quality = 3;
-        this.ema = 0; this.cool = 240; this.resScale = this.baseScale; this.syncSize();   // ignore load-time hitches
+        this.ema = 0; this.cool = 240;   // ignore load-time hitches
         this.applyQuality();
     }
 
@@ -272,28 +272,13 @@ class RTXPipeline {
         try { localStorage.setItem('eblankraft_rtx_cfg', JSON.stringify(this.cfg)); } catch (e) {}
         if (key === 'texFilter' && this.game.textureManager) this.game.textureManager.applyFiltering();
         if (key === 'frameGen') { this.fgPhase = 0; if (!value) this.disposeFG(); }
-        if (key === 'minScale') { this.minScale = value; this.setResScale(this.resScale); }
-        if (key === 'dynRes' && !value) this.setResScale(this.baseScale);
         if (this.active) this.applyQuality();
     }
 
-    // RTX always starts at NATIVE resolution (only >4K screens are capped). The frame-time controller (adapt()) may lower it,
-    // but only after ~1.5 s of frames slower than the target, and it climbs back quickly once frames are fast again.
-    computeBaseScale() {
-        const v = new THREE.Vector2();
-        this.game.renderer.getDrawingBufferSize(v);
-        const px = Math.max(1, v.x * v.y);
-        this.baseScale = Math.max(this.minScale, Math.min(1, Math.sqrt(8.4e6 / px)));   // native up to 4K; only beyond that is it capped
-        if (!(this.resScale > 0) || this.resScale > this.baseScale) this.resScale = this.baseScale;
-    }
-
-    setResScale(s) {
-        s = Math.max(this.minScale, Math.min(this.baseScale, s));
-        if (Math.abs(s - this.resScale) < 0.01) return false;
-        this.resScale = s;
-        this.syncSize();
-        return true;
-    }
+    // RTX always renders at NATIVE resolution. There is no automatic downscaling (the optional FSR / neural upscaler in the panel is
+    // the only thing that changes the internal resolution, and only when the player picks it).
+    computeBaseScale() { this.baseScale = 1; this.resScale = 1; }
+    setResScale() { return false; }
 
     // Internal resolution: the drawing buffer, or the upscaler's lower render size when it is on.
     targetSize() {
@@ -396,7 +381,7 @@ class RTXPipeline {
         if (fg && this.fgPhase === 1 && this.fgCam) {      // generated frame: no scene render at all, just warp the last real one
             this.fgPhase = 0;
             this.presentFG(true);
-            this.adapt(dtMs, !!(g.upscaler && g.upscaler.active));
+            this.adapt(dtMs);
             return true;
         }
         this.adjustLights();
@@ -418,7 +403,7 @@ class RTXPipeline {
         if (fg) { this.fgPhase = 1; this.presentFG(false); }
         else if (up) up.present(this.composer.readBuffer.texture);
 
-        this.adapt(dtMs, !!up);
+        this.adapt(dtMs);
         return true;
     }
 
@@ -507,28 +492,19 @@ class RTXPipeline {
         if (++this._shadowTick >= interval) { this._shadowTick = 0; sm.needsUpdate = true; }
     }
 
-    // Frame-time controller (target >= 30 fps). Order of sacrifice: internal resolution (cheapest to the eye) -> effect tiers.
-    // Recovery runs the other way round, with wide hysteresis (38 ms down / 22 ms up) so it does not oscillate.
-    adapt(dtMs, upscalerOn) {
+    // Optional frame-time controller (cfg.autoTier, OFF by default): drops heavy effects (never resolution) when frames are slower than
+    // the target, and restores them when frames are fast again.
+    adapt(dtMs) {
         const dt = Math.min(dtMs, 250);
         this.ema = this.ema ? this.ema * 0.9 + dt * 0.1 : dt;
+        if (!this.cfg.autoTier) { if (this.quality < 3) { this.quality = 3; this.applyQuality(); } return; }
         if (this.cool > 0) { this.cool--; return; }
-        if (this.cfg.dynRes === false) return;
-        const slowAt = 1150 / this.cfg.targetFps, fastAt = 660 / this.cfg.targetFps;     // 30 fps -> 38 ms / 22 ms
+        const slowAt = 1150 / this.cfg.targetFps, fastAt = 660 / this.cfg.targetFps;
         if (this.ema > slowAt) { this.slowFrames++; this.fastFrames = 0; }
         else if (this.ema < fastAt) { this.fastFrames++; this.slowFrames = 0; }
         else { this.slowFrames = 0; this.fastFrames = 0; }
-        if (this.slowFrames > 90) {
-            this.slowFrames = 0; this.cool = 45;
-            const step = this.ema > 60 ? 0.12 : 0.06;
-            if (upscalerOn || !this.setResScale(this.resScale - step)) {
-                if (this.quality > 0) { this.quality--; this.applyQuality(); }
-            }
-        } else if (this.fastFrames > 90) {
-            this.fastFrames = 0; this.cool = 45;
-            if (this.quality < 3) { this.quality++; this.applyQuality(); }
-            else if (!upscalerOn && this.resScale < this.baseScale - 0.01) this.setResScale(this.resScale + 0.1);
-        }
+        if (this.slowFrames > 90) { this.slowFrames = 0; this.cool = 45; if (this.quality > 0) { this.quality--; this.applyQuality(); } }
+        else if (this.fastFrames > 240) { this.fastFrames = 0; this.cool = 45; if (this.quality < 3) { this.quality++; this.applyQuality(); } }
     }
 
     // RTX sky + clouds (rtx_sky.js): feed the final pass the view/sun/moon state and hide the legacy sky objects while it is on.
@@ -710,7 +686,7 @@ RTXPipeline.CFG_DEFAULTS = {
     bloomStrength: 0.6, bloomRadius: 0.55, bloomThreshold: 2.2,
     godrayStrength: 1, sunElevation: 21, sunIntensity: 1.2, shadowBias: -0.0005,
     aoRadius: 1.1, aoIntensity: 1.25, ssrOpacity: 0.55, ssrDistance: 40, pomDepth: 1,
-    dynRes: true, targetFps: 30, minScale: 0.5, frameGen: false, texFilter: 'sharp', sharpen: 0.35
+    autoTier: false, targetFps: 30, frameGen: false, texFilter: 'sharp', sharpen: 0.35
 };
 RTXPipeline.loadCfg = function () {
     const o = Object.assign({}, RTXPipeline.CFG_DEFAULTS);

@@ -37,7 +37,7 @@ class RTXGui {
         this.stats.frameMs = r && r.ema ? r.ema.toFixed(1) : '-';
         const v = new THREE.Vector2(); g.renderer.getDrawingBufferSize(v);
         const s = r && r.composer ? r.targetSize() : v;
-        this.stats.internal = Math.round(s.x) + 'x' + Math.round(s.y) + (r && r.composer ? ' (' + Math.round(r.resScale * 100) + '%)' : '');
+        this.stats.internal = Math.round(s.x) + 'x' + Math.round(s.y) + ' (native)';
         this.stats.tier = r && r.composer ? ['lights only', 'no SSR/AO', 'no SSR', 'full'][r.quality] : '-';
         this.stats.mode = r && r.composer ? (r.scenePass ? 'depth AO' : 'legacy AO') : 'off';
         if (window.game && window.game.rtxOnnx) this.onnx.status = window.game.rtxOnnx.status;
@@ -104,10 +104,9 @@ class RTXGui {
         img.add(r.cfg, 'texFilter', { 'Sharp (bilinear + 16x aniso)': 'sharp', 'Pixel (crisp texels)': 'pixel' }).name('Texture filter').onChange(v => r.setCfg('texFilter', v));
         cfgCtl(img, 'sharpen', 0, 1, 0.01, 'Sharpen');
 
-        const perf = gui.addFolder('Performance governor');
-        cfgCtl(perf, 'dynRes', undefined, undefined, undefined, 'Dynamic resolution');
-        cfgCtl(perf, 'targetFps', 15, 144, 1, 'Target FPS');
-        cfgCtl(perf, 'minScale', 0.25, 1, 0.05, 'Min resolution scale');
+        const perf = gui.addFolder('Performance');
+        cfgCtl(perf, 'autoTier', undefined, undefined, undefined, 'Auto-reduce effects (never resolution)');
+        cfgCtl(perf, 'targetFps', 15, 144, 1, 'Target FPS for auto-reduce');
 
         // DLSS slot
         const up = g.upscaler;
