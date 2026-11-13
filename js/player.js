@@ -1107,6 +1107,12 @@ class Player {
         this.syncInventoryWithServer();
         const it = this.getSelectedItem();
         this.setAiming(false);
+        const heldReg = it && ITEM_REGISTRY[it.itemId];
+        if (typeof document !== 'undefined' && document.body?.classList) {
+            document.body.classList.toggle('hold-gun', !!heldReg?.isGun);
+            document.body.classList.toggle('hold-knife', !!heldReg?.isKnife);
+            document.getElementById?.('btn-scope')?.classList?.remove('active');
+        }
         disposeHeldModel(this.heldGunMesh); this.heldGunMesh = null;
         disposeHeldModel(this.heldKnifeMesh); this.heldKnifeMesh = null;
         this.disposeKnifeRig();

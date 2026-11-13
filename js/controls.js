@@ -296,6 +296,21 @@ class Controls {
             if (isDown) this.player.placeBlock();
         });
 
+        // Scope: tap to aim down sights / unscope (sticky, so releasing the fire button keeps the zoom)
+        this.bindTouchButton('btn-scope', (isDown) => {
+            if (!isDown) return;
+            const aim = !this.player.isAiming;
+            this.player.setAiming?.(aim);
+            this.touchAimPressed = !!this.player.isAiming;
+            const btn = document.getElementById('btn-scope');
+            if (btn) btn.classList.toggle('active', !!this.player.isAiming);
+        });
+
+        // Inspect the held knife
+        this.bindTouchButton('btn-inspect', (isDown) => {
+            if (isDown) this.player.inspectKnife?.();
+        });
+
         this.bindTouchButton('btn-tnt', (isDown) => {
             if (!isDown) return;
             if (this.player.isCreative) this.openMiddleClickMenu(true);

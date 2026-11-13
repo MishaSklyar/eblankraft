@@ -77,7 +77,7 @@
             });
         }
     </script>
-    <link rel="stylesheet" href="css/style.css?v=4.9-touch">
+    <link rel="stylesheet" href="css/style.css?v=5.1-touch">
     <link rel="stylesheet" href="css/addons.css?v=1">
     <link rel="stylesheet" href="css/ui2.css?v=2">
     <script>
@@ -794,6 +794,8 @@
             <div id="btn-sprint" class="touch-btn btn-sprint">🏃<br><span>Біг</span></div>
             <div id="btn-dodge" class="touch-btn btn-dodge">💨<br><span>Кувирок</span></div>
             <div id="btn-tnt" class="touch-btn btn-tnt">💣<br><span>ТНТ</span></div>
+            <div id="btn-scope" class="touch-btn btn-scope">🔭<br><span>Приціл</span></div>
+            <div id="btn-inspect" class="touch-btn btn-inspect">🔍<br><span>Огляд</span></div>
         </div>
         <div class="action-grid-main">
             <div id="btn-attack" class="touch-btn btn-main-action btn-attack">⚔️<br><span>Атака</span></div>
@@ -1050,88 +1052,6 @@
             <div class="menu-footer">
                 <button id="btn-resume" class="menu-btn btn-resume">▶ Продовжити гру</button>
                 <button id="btn-menu-to-main" class="menu-btn btn-secondary menu-btn-home">🏠 Головне меню</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- On-Screen HUD Layout Customizer Modal -->
-    <div id="layout-modal" class="modal-overlay" style="display:none;">
-        <div class="modal-content layout-modal-box">
-            <div class="modal-header">
-                <span class="modal-title">📐 Розкладка кнопок (HUD)</span>
-                <button id="layout-close" class="btn-close">✖</button>
-            </div>
-
-            <div class="layout-section-label">⚡ Готові пресети:</div>
-            <div class="layout-presets-grid">
-                <button class="layout-preset-btn" data-preset="default">🎮 Стандарт (Права)</button>
-                <button class="layout-preset-btn" data-preset="left_handed">🖐️ Для шульги (Ліва)</button>
-                <button class="layout-preset-btn" data-preset="claw">🦅 4 Пальці (Клешня)</button>
-                <button class="layout-preset-btn" data-preset="compact">📱 Компактна</button>
-                <button class="layout-preset-btn" data-preset="giant">🔍 Великі кнопки</button>
-            </div>
-
-            <div class="layout-section-label">⚙️ Точні налаштування:</div>
-            <div class="layout-control-row">
-                <div class="layout-control-label">
-                    <span>📏 Розмір кнопок дій:</span>
-                    <b id="lbl-btn-scale">100%</b>
-                </div>
-                <input id="slider-btn-scale" type="range" min="60" max="160" step="5" value="100">
-            </div>
-
-            <div class="layout-control-row">
-                <div class="layout-control-label">
-                    <span>🎚️ Прозорість кнопок:</span>
-                    <b id="lbl-btn-opacity">95%</b>
-                </div>
-                <input id="slider-btn-opacity" type="range" min="30" max="100" step="5" value="95">
-            </div>
-
-            <div class="layout-control-row">
-                <div class="layout-control-label">
-                    <span>📐 Розмір хотбару:</span>
-                    <b id="lbl-hotbar-scale">100%</b>
-                </div>
-                <input id="slider-hotbar-scale" type="range" min="70" max="130" step="5" value="100">
-            </div>
-
-            <div class="layout-control-row layout-chk-row">
-                <label class="toggle-item" style="cursor:pointer; display:flex; align-items:center; gap:8px;">
-                    <input id="chk-left-handed" type="checkbox">
-                    <span>🔄 Режим для шульги (джойстик справа, кнопки зліва)</span>
-                </label>
-            </div>
-
-            <div class="layout-control-row layout-chk-row" style="background: rgba(255, 215, 0, 0.1); border-color: rgba(255, 215, 0, 0.3);">
-                <label class="toggle-item" style="cursor:pointer; display:flex; align-items:center; gap:8px; font-weight: bold; color: #ffd700;">
-                    <input id="chk-split-buttons" type="checkbox">
-                    <span>🔀 Розділені кнопки (рухати Атаку, Блок, Стрибок окремо)</span>
-                </label>
-            </div>
-
-            <button id="btn-start-drag-mode" class="menu-btn btn-warning" style="width:100%; margin: 10px 0; padding: 11px; font-size: 14px;">
-                ✏️ Перетягнути кнопки по екрану (Кастомно)
-            </button>
-
-            <div class="layout-actions-grid">
-                <button id="btn-reset-layout" class="menu-btn btn-danger">🔄 Скинути</button>
-                <button id="btn-save-layout" class="menu-btn btn-success">💾 Зберегти</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- HUD Interactive Drag Mode Overlay -->
-    <div id="hud-drag-overlay" style="display:none;">
-        <button id="btn-drag-emergency-exit" class="drag-emergency-btn" title="Вийти з режиму редагування">✖ ВИЙТИ</button>
-        <div class="drag-mode-banner">
-            <div class="drag-mode-text">🖐️ <b>Режим розстановки:</b> перетягніть будь-яку кнопку або хотбар пальцем / мишкою!</div>
-            <div class="drag-mode-extra-row">
-                <button id="btn-drag-toggle-split" class="menu-btn btn-primary" style="padding: 6px 14px; font-size: 12px;">🔀 Розділити / Згрупувати кнопки</button>
-            </div>
-            <div class="drag-mode-buttons">
-                <button id="btn-drag-cancel" class="menu-btn btn-secondary">✖ Скасувати</button>
-                <button id="btn-drag-save" class="menu-btn btn-success">💾 ЗБЕРЕГТИ ПОЗИЦІЇ</button>
             </div>
         </div>
     </div>
@@ -1528,15 +1448,15 @@
     <script src="js/mobs.js?v=4.7"></script>
     <script src="js/de_eblan2.js?v=1"></script>
     <script src="js/world.js?v=4.6"></script>
-    <script src="js/player.js?v=5.0"></script>
-    <script src="js/controls.js?v=4.6"></script>
+    <script src="js/player.js?v=5.1"></script>
+    <script src="js/controls.js?v=4.7"></script>
     <script src="js/block_editor.js?v=2"></script>
     <script src="js/weather.js?v=3.6"></script>
     <script src="js/arena_client.js?v=3"></script>
     <script src="js/shared_world_client.js?v=2"></script>
     <script src="js/multiplayer.js?v=4.5"></script>
     <script src="js/eblan_os.js?v=3.6"></script>
-    <script src="js/ui.js?v=5.1"></script>
+    <script src="js/ui.js?v=5.3"></script>
     <script src="js/addon_package.js?v=1"></script>
     <script src="js/mods.js?v=4.1"></script>
     <script src="js/addons.js?v=1"></script>
@@ -1548,7 +1468,7 @@
     <script src="js/rtx_onnx.js?v=1"></script>
     <script src="js/rtx_gui.js?v=3"></script>
     <script src="js/upscaler_nn.js?v=1"></script>
-    <script src="js/game.js?v=4.9"></script>
+    <script src="js/game.js?v=5.0"></script>
 
     <script>
         function startGame() {

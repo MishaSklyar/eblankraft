@@ -3866,623 +3866,352 @@ class UIManager {
         }
     }
 
-    // --- HUD LAYOUT CUSTOMIZER & DRAG-AND-DROP ---
+    // --- TOUCH HUD LAYOUT (v2): every control is its own freely placed, scalable element ---
     initLayoutCustomizer() {
-        const DEFAULT_HUD_LAYOUT = {
-            preset: 'default',
-            btnScale: 1.0,
-            btnOpacity: 0.95,
-            hotbarScale: 1.0,
-            leftHanded: false,
-            splitButtons: false,
-            buttonsPos: null,
-            buttonPositions: {},
-            hotbarPos: null
-        };
+        this.HUD_BUTTONS = [
+            { id: 'btn-attack',  label: '⚔️ Атака' },
+            { id: 'btn-break',   label: '⛏️ Копати' },
+            { id: 'btn-place',   label: '🧱 Блок / приціл' },
+            { id: 'btn-jump',    label: '🦘 Стрибок' },
+            { id: 'btn-sprint',  label: '🏃 Біг' },
+            { id: 'btn-dodge',   label: '💨 Кувирок' },
+            { id: 'btn-tnt',     label: '💣 ТНТ' },
+            { id: 'btn-scope',   label: '🔭 Приціл' },
+            { id: 'btn-inspect', label: '🔍 Огляд ножа' }
+        ];
+        this.DEFAULT_HUD_LAYOUT = { version: 2, preset: 'default', btnScale: 1, btnOpacity: 0.9, hotbarScale: 1, leftHanded: false, snap: true, hotbar: null, buttons: {} };
 
-        const HUD_LAYOUT_PRESETS = {
-            default: {
-                preset: 'default',
-                btnScale: 1.0,
-                btnOpacity: 0.95,
-                hotbarScale: 1.0,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: null,
-                buttonPositions: {},
-                hotbarPos: null
-            },
-            left_handed: {
-                preset: 'left_handed',
-                btnScale: 1.0,
-                btnOpacity: 0.95,
-                hotbarScale: 1.0,
-                leftHanded: true,
-                splitButtons: false,
-                buttonsPos: { left: '12px', right: 'auto', bottom: '56px', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: null
-            },
-            claw: {
-                preset: 'claw',
-                btnScale: 1.1,
-                btnOpacity: 0.85,
-                hotbarScale: 0.9,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: { right: '16px', bottom: '110px', left: 'auto', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: { bottom: '4px', left: '50%', right: 'auto', top: 'auto' }
-            },
-            compact: {
-                preset: 'compact',
-                btnScale: 0.8,
-                btnOpacity: 0.8,
-                hotbarScale: 0.85,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: { right: '8px', bottom: '45px', left: 'auto', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: { bottom: '4px', left: '50%', right: 'auto', top: 'auto' }
-            },
-            giant: {
-                preset: 'giant',
-                btnScale: 1.35,
-                btnOpacity: 0.98,
-                hotbarScale: 1.15,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: { right: '14px', bottom: '60px', left: 'auto', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: { bottom: '10px', left: '50%', right: 'auto', top: 'auto' }
-            }
+        // A preset only chooses sizes / handedness; button positions are generated from the screen size
+        const mk = (o) => Object.assign({}, this.DEFAULT_HUD_LAYOUT, { buttons: {} }, o);
+        this.HUD_LAYOUT_PRESETS = {
+            default:     mk({ preset: 'default' }),
+            left_handed: mk({ preset: 'left_handed', leftHanded: true }),
+            claw: mk({ preset: 'claw', btnScale: 1.05, btnOpacity: 0.8, buttons: {
+                'btn-attack': { x: 0.94, y: 0.40 }, 'btn-break': { x: 0.06, y: 0.40 }, 'btn-scope': { x: 0.94, y: 0.58 }
+            } }),
+            compact:     mk({ preset: 'compact', btnScale: 0.8, btnOpacity: 0.8, hotbarScale: 0.85 }),
+            giant:       mk({ preset: 'giant', btnScale: 1.35, btnOpacity: 0.95, hotbarScale: 1.15 })
         };
-
-        this.DEFAULT_HUD_LAYOUT = DEFAULT_HUD_LAYOUT;
-        this.HUD_LAYOUT_PRESETS = HUD_LAYOUT_PRESETS;
 
         let parsed = null;
-        try {
-            const saved = localStorage.getItem('eblankraft_hud_layout');
-            if (saved) parsed = JSON.parse(saved);
-        } catch(e) {}
-
-        this.layout = Object.assign({}, DEFAULT_HUD_LAYOUT, parsed || {});
-        if (!this.layout.buttonPositions) this.layout.buttonPositions = {};
-
-        const closeBtn = document.getElementById('layout-close');
-        const btnSave = document.getElementById('btn-save-layout');
-        const btnReset = document.getElementById('btn-reset-layout');
-        const btnStartDrag = document.getElementById('btn-start-drag-mode');
-
-        const sliderBtnScale = document.getElementById('slider-btn-scale');
-        const sliderBtnOpacity = document.getElementById('slider-btn-opacity');
-        const sliderHotbarScale = document.getElementById('slider-hotbar-scale');
-        const chkLeftHanded = document.getElementById('chk-left-handed');
-        const chkSplitButtons = document.getElementById('chk-split-buttons');
-
-        if (closeBtn) closeBtn.onclick = () => this.toggleLayoutModal(false);
-
-        // Preset buttons
-        const presetBtns = document.querySelectorAll('.layout-preset-btn');
-        presetBtns.forEach(btn => {
-            btn.onclick = () => {
-                const presetKey = btn.dataset.preset;
-                if (this.HUD_LAYOUT_PRESETS[presetKey]) {
-                    this.applyLayout(this.HUD_LAYOUT_PRESETS[presetKey]);
-                    this.saveLayout();
-                    this.soundManager.playClick();
-                    this.showToast(`📐 Розкладка: ${btn.textContent.trim()}`);
-                }
-            };
-        });
-
-        // Sliders
-        if (sliderBtnScale) {
-            sliderBtnScale.oninput = (e) => {
-                const val = parseInt(e.target.value, 10) / 100;
-                this.layout.btnScale = val;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-            };
-            sliderBtnScale.onchange = () => this.saveLayout();
+        try { parsed = JSON.parse(localStorage.getItem('eblankraft_hud_layout') || 'null'); } catch (e) {}
+        // Layouts saved by the old editor (no version) only keep their simple settings
+        if (parsed && parsed.version !== 2) {
+            parsed = { btnScale: parsed.btnScale, btnOpacity: parsed.btnOpacity, hotbarScale: parsed.hotbarScale, leftHanded: !!parsed.leftHanded };
         }
+        document.body.classList.add('hud-free');
+        this.applyLayout(this.normalizeLayout(parsed || {}));
 
-        if (sliderBtnOpacity) {
-            sliderBtnOpacity.oninput = (e) => {
-                const val = parseInt(e.target.value, 10) / 100;
-                this.layout.btnOpacity = val;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-            };
-            sliderBtnOpacity.onchange = () => this.saveLayout();
+        let rt = null;
+        window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { this.applyLayout(this.layout); if (this.dragModeOpen) this.refreshHudEditor(); }, 120); });
+    }
+
+    normalizeLayout(l) {
+        const out = Object.assign({}, this.DEFAULT_HUD_LAYOUT, l || {});
+        const num = (v, d, lo, hi) => (typeof v === 'number' && isFinite(v)) ? Math.min(hi, Math.max(lo, v)) : d;
+        out.btnScale = num(out.btnScale, 1, 0.5, 2);
+        out.btnOpacity = num(out.btnOpacity, 0.9, 0.25, 1);
+        out.hotbarScale = num(out.hotbarScale, 1, 0.5, 1.6);
+        out.leftHanded = !!out.leftHanded;
+        out.snap = out.snap !== false;
+        const src = (l && l.buttons) || {};
+        out.buttons = {};
+        for (const b of this.HUD_BUTTONS) {
+            const c = src[b.id];
+            if (c && typeof c === 'object') {
+                const e = {};
+                if (typeof c.x === 'number' && typeof c.y === 'number') { e.x = num(c.x, 0.5, 0, 1); e.y = num(c.y, 0.5, 0, 1); }
+                if (typeof c.s === 'number') e.s = num(c.s, 1, 0.5, 2);
+                if (c.hidden) e.hidden = true;
+                if (Object.keys(e).length) out.buttons[b.id] = e;
+            }
         }
+        const h = out.hotbar;
+        out.hotbar = (h && typeof h.x === 'number' && typeof h.y === 'number') ? { x: num(h.x, 0.5, 0, 1), y: num(h.y, 0.9, 0, 1) } : null;
+        return out;
+    }
 
-        if (sliderHotbarScale) {
-            sliderHotbarScale.oninput = (e) => {
-                const val = parseInt(e.target.value, 10) / 100;
-                this.layout.hotbarScale = val;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-            };
-            sliderHotbarScale.onchange = () => this.saveLayout();
-        }
+    // Default centre (in pixels) of every control for the current screen, right-handed grid in the bottom corner
+    hudDefaultPositions(leftHanded) {
+        const W = window.innerWidth, H = window.innerHeight;
+        const m = 12, r = 32, pitch = 70;
+        const cx = [W - m - r - 4, W - m - r - 4 - pitch, W - m - r - 4 - 2 * pitch];
+        const bottom = H <= 520 ? 10 : 56;
+        const cy = [H - bottom - r, H - bottom - r - pitch, H - bottom - r - 2 * pitch];
+        const p = {
+            'btn-jump': [cx[0], cy[0]], 'btn-place': [cx[1], cy[0]], 'btn-sprint': [cx[2], cy[0]],
+            'btn-attack': [cx[0], cy[1]], 'btn-break': [cx[1], cy[1]], 'btn-dodge': [cx[2], cy[1]],
+            'btn-scope': [cx[0], cy[2]], 'btn-inspect': [cx[1], cy[2]], 'btn-tnt': [cx[2], cy[2]]
+        };
+        const out = {};
+        for (const id in p) out[id] = { x: (leftHanded ? W - p[id][0] : p[id][0]) / W, y: p[id][1] / H };
+        return out;
+    }
 
-        if (chkLeftHanded) {
-            chkLeftHanded.onchange = (e) => {
-                this.layout.leftHanded = e.target.checked;
-                this.layout.preset = 'custom';
-                if (!this.layout.splitButtons && !this.layout.buttonsPos) {
-                    if (this.layout.leftHanded) {
-                        this.layout.buttonsPos = { left: '12px', right: 'auto', bottom: '56px', top: 'auto' };
-                    } else {
-                        this.layout.buttonsPos = null;
-                    }
-                }
-                this.applyLayout(this.layout);
-                this.saveLayout();
-            };
-        }
-
-        if (chkSplitButtons) {
-            chkSplitButtons.onchange = (e) => {
-                this.layout.splitButtons = e.target.checked;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-                this.saveLayout();
-                this.showToast(this.layout.splitButtons ? "🔀 Режим розділених кнопок увімкнено!" : "📦 Кнопки згруповано в один блок");
-            };
-        }
-
-        if (btnSave) {
-            btnSave.onclick = () => {
-                this.saveLayout();
-                this.toggleLayoutModal(false);
-                this.showToast("💾 Розкладку збережено!");
-            };
-        }
-
-        if (btnReset) {
-            btnReset.onclick = () => {
-                if (confirm("Скинути розкладку кнопок до стандартної?")) {
-                    this.applyLayout(this.DEFAULT_HUD_LAYOUT);
-                    this.saveLayout();
-                    this.showToast("🔄 Розкладку скинуто до стандартної!");
-                }
-            };
-        }
-
-        if (btnStartDrag) {
-            btnStartDrag.onclick = () => {
-                this.startHudDragMode();
-            };
-        }
-
-        // Apply on initial load
-        this.applyLayout(this.layout);
+    hudButtonCfg(id) {
+        const def = this.hudDefaultPositions(this.layout.leftHanded)[id] || { x: 0.5, y: 0.5 };
+        const c = this.layout.buttons[id] || {};
+        return { x: c.x ?? def.x, y: c.y ?? def.y, s: c.s ?? 1, hidden: !!c.hidden, moved: c.x !== undefined };
     }
 
     applyLayout(layout) {
-        this.layout = Object.assign({}, this.DEFAULT_HUD_LAYOUT, layout);
-        if (!this.layout.buttonPositions) this.layout.buttonPositions = {};
-
-        const buttonsEl = document.getElementById('touch-action-buttons');
-        const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
-
-        // Split buttons handling
-        if (this.layout.splitButtons) {
-            if (buttonsEl) {
-                buttonsEl.style.pointerEvents = 'none';
-                buttonsEl.style.transform = 'none';
-                buttonsEl.style.position = 'static';
-            }
-
-            const isLeft = !!this.layout.leftHanded;
-            actionButtonIds.forEach(btnId => {
-                const btn = document.getElementById(btnId);
-                if (!btn) return;
-                btn.classList.add('is-split');
-                btn.style.pointerEvents = 'auto';
-                btn.style.transform = `scale(${this.layout.btnScale || 1.0})`;
-                btn.style.opacity = `${this.layout.btnOpacity || 0.95}`;
-
-                const pos = this.layout.buttonPositions[btnId];
-                if (pos) {
-                    btn.style.left = pos.left || 'auto';
-                    btn.style.top = pos.top || 'auto';
-                    btn.style.right = pos.right || 'auto';
-                    btn.style.bottom = pos.bottom || 'auto';
-                } else {
-                    const defaults = {
-                        'btn-attack': isLeft ? { left: '130px', bottom: '130px' } : { right: '130px', bottom: '130px' },
-                        'btn-break':  isLeft ? { left: '25px',  bottom: '130px' } : { right: '25px',  bottom: '130px' },
-                        'btn-place':  isLeft ? { left: '130px', bottom: '50px' }  : { right: '130px', bottom: '50px' },
-                        'btn-jump':   isLeft ? { left: '25px',  bottom: '50px' }  : { right: '25px',  bottom: '50px' },
-                        'btn-sprint': isLeft ? { left: '130px', bottom: '215px' } : { right: '130px', bottom: '215px' },
-                        'btn-tnt':    isLeft ? { left: '25px',  bottom: '215px' } : { right: '25px',  bottom: '215px' }
-                    };
-                    const def = defaults[btnId] || {};
-                    btn.style.left = def.left || 'auto';
-                    btn.style.top = 'auto';
-                    btn.style.right = def.right || 'auto';
-                    btn.style.bottom = def.bottom || 'auto';
-                }
-            });
-        } else {
-            // Grouped cluster mode
-            actionButtonIds.forEach(btnId => {
-                const btn = document.getElementById(btnId);
-                if (!btn) return;
-                btn.classList.remove('is-split');
-                btn.style.pointerEvents = '';
-                btn.style.position = '';
-                btn.style.left = '';
-                btn.style.top = '';
-                btn.style.right = '';
-                btn.style.bottom = '';
-                btn.style.transform = '';
-                btn.style.opacity = '';
-            });
-
-            if (buttonsEl) {
-                buttonsEl.style.pointerEvents = '';
-                buttonsEl.style.transform = `scale(${this.layout.btnScale || 1.0})`;
-                buttonsEl.style.opacity = `${this.layout.btnOpacity || 0.95}`;
-
-                if (this.layout.buttonsPos) {
-                    buttonsEl.style.position = 'fixed';
-                    buttonsEl.style.left = this.layout.buttonsPos.left || 'auto';
-                    buttonsEl.style.right = this.layout.buttonsPos.right || 'auto';
-                    buttonsEl.style.top = this.layout.buttonsPos.top || 'auto';
-                    buttonsEl.style.bottom = this.layout.buttonsPos.bottom || 'auto';
-                    buttonsEl.style.transformOrigin = this.layout.leftHanded ? 'bottom left' : 'bottom right';
-                } else {
-                    buttonsEl.style.position = 'absolute';
-                    if (this.layout.leftHanded) {
-                        buttonsEl.style.left = '12px';
-                        buttonsEl.style.right = 'auto';
-                        buttonsEl.style.bottom = '56px';
-                        buttonsEl.style.top = 'auto';
-                        buttonsEl.style.transformOrigin = 'bottom left';
-                    } else {
-                        buttonsEl.style.left = 'auto';
-                        buttonsEl.style.right = '12px';
-                        buttonsEl.style.bottom = '56px';
-                        buttonsEl.style.top = 'auto';
-                        buttonsEl.style.transformOrigin = 'bottom right';
-                    }
-                }
-            }
+        this.layout = this.normalizeLayout(layout);
+        const L = this.layout;
+        for (const b of this.HUD_BUTTONS) {
+            const el = document.getElementById(b.id);
+            if (!el) continue;
+            const c = this.hudButtonCfg(b.id);
+            el.style.left = (Math.min(0.97, Math.max(0.03, c.x)) * 100) + '%';
+            el.style.top = (Math.min(0.97, Math.max(0.05, c.y)) * 100) + '%';
+            el.style.setProperty('--hs', String(L.btnScale * c.s));
+            el.style.opacity = String(L.btnOpacity);
+            el.classList.toggle('hud-hidden', c.hidden);
         }
-
-        // Hotbar positioning
-        if (hotbarEl) {
-            hotbarEl.style.opacity = `${Math.min(1.0, (this.layout.btnOpacity || 0.95) + 0.05)}`;
-
-            if (this.layout.hotbarPos) {
-                hotbarEl.style.position = 'fixed';
-                hotbarEl.style.left = this.layout.hotbarPos.left || 'auto';
-                hotbarEl.style.right = this.layout.hotbarPos.right || 'auto';
-                hotbarEl.style.top = this.layout.hotbarPos.top || 'auto';
-                hotbarEl.style.bottom = this.layout.hotbarPos.bottom || 'auto';
-                hotbarEl.style.transform = `scale(${this.layout.hotbarScale || 1.0})`;
-                hotbarEl.style.transformOrigin = 'center center';
+        const hotbar = document.getElementById('hotbar-container');
+        if (hotbar) {
+            hotbar.style.setProperty('--hbs', String(L.hotbarScale));
+            if (L.hotbar) {
+                hotbar.classList.add('hud-moved');
+                hotbar.style.left = (L.hotbar.x * 100) + '%';
+                hotbar.style.top = (L.hotbar.y * 100) + '%';
             } else {
-                hotbarEl.style.position = 'absolute';
-                hotbarEl.style.left = '50%';
-                hotbarEl.style.right = 'auto';
-                hotbarEl.style.top = 'auto';
-                hotbarEl.style.bottom = '8px';
-                hotbarEl.style.transform = `translateX(-50%) scale(${this.layout.hotbarScale || 1.0})`;
-                hotbarEl.style.transformOrigin = 'bottom center';
+                hotbar.classList.remove('hud-moved');
+                hotbar.style.left = hotbar.style.top = '';
             }
+            hotbar.style.opacity = String(Math.min(1, L.btnOpacity + 0.08));
         }
-
-        if (this.game && this.game.controls) {
-            this.game.controls.setLayout(this.layout);
-        }
-
-        this.syncLayoutUIControls();
-    }
-
-    syncLayoutUIControls() {
-        if (!this.layout) return;
-        const sliderBtnScale = document.getElementById('slider-btn-scale');
-        const sliderBtnOpacity = document.getElementById('slider-btn-opacity');
-        const sliderHotbarScale = document.getElementById('slider-hotbar-scale');
-        const chkLeftHanded = document.getElementById('chk-left-handed');
-        const chkSplitButtons = document.getElementById('chk-split-buttons');
-        const lblBtnScale = document.getElementById('lbl-btn-scale');
-        const lblBtnOpacity = document.getElementById('lbl-btn-opacity');
-        const lblHotbarScale = document.getElementById('lbl-hotbar-scale');
-
-        if (sliderBtnScale) sliderBtnScale.value = Math.round((this.layout.btnScale || 1.0) * 100);
-        if (sliderBtnOpacity) sliderBtnOpacity.value = Math.round((this.layout.btnOpacity || 0.95) * 100);
-        if (sliderHotbarScale) sliderHotbarScale.value = Math.round((this.layout.hotbarScale || 1.0) * 100);
-        if (chkLeftHanded) chkLeftHanded.checked = !!this.layout.leftHanded;
-        if (chkSplitButtons) chkSplitButtons.checked = !!this.layout.splitButtons;
-
-        if (lblBtnScale) lblBtnScale.textContent = `${Math.round((this.layout.btnScale || 1.0) * 100)}%`;
-        if (lblBtnOpacity) lblBtnOpacity.textContent = `${Math.round((this.layout.btnOpacity || 0.95) * 100)}%`;
-        if (lblHotbarScale) lblHotbarScale.textContent = `${Math.round((this.layout.hotbarScale || 1.0) * 100)}%`;
-
-        const presetBtns = document.querySelectorAll('.layout-preset-btn');
-        presetBtns.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.preset === this.layout.preset);
-        });
+        if (this.game && this.game.controls) this.game.controls.setLayout(L);
     }
 
     saveLayout() {
-        try {
-            localStorage.setItem('eblankraft_hud_layout', JSON.stringify(this.layout));
-        } catch(e) {}
+        try { localStorage.setItem('eblankraft_hud_layout', JSON.stringify(this.layout)); } catch (e) {}
     }
 
+    // The pause-menu / HUD buttons open the editor directly
     toggleLayoutModal(forceState = null) {
-        const modal = document.getElementById('layout-modal');
-        if (!modal) return;
-        this.layoutModalOpen = forceState !== null ? forceState : (modal.style.display !== 'flex');
-        modal.style.display = this.layoutModalOpen ? 'flex' : 'none';
-        this.soundManager.playClick();
-        if (this.layoutModalOpen) {
-            if (document.pointerLockElement) document.exitPointerLock();
-            this.syncLayoutUIControls();
-        }
+        const open = forceState !== null ? forceState : !this.dragModeOpen;
+        if (open) this.startHudDragMode(); else this.stopHudDragMode(false);
     }
 
     startHudDragMode() {
-        this.toggleLayoutModal(false);
-
-        const overlay = document.getElementById('hud-drag-overlay');
-        const buttonsEl = document.getElementById('touch-action-buttons');
-        const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
-
-        if (!overlay) return;
-
+        if (this.dragModeOpen) return;
         this.dragModeOpen = true;
-        overlay.style.display = 'flex';
-
+        this.layoutModalOpen = false;
+        if (document.pointerLockElement) document.exitPointerLock();
+        document.body.classList.add('hud-editing');
         this._preDragLayout = JSON.parse(JSON.stringify(this.layout));
-        this._dragCleanups = [];
-        this._elementCleanups = [];
+        this.hudSel = null;
 
-        const attachDrag = (el, isHotbar = false) => {
-            let isDragging = false;
-            let startPointerX = 0, startPointerY = 0;
-            let origLeft = 0, origTop = 0;
+        const root = document.createElement('div');
+        root.id = 'hud-editor';
+        root.innerHTML = `
+            <div class="hude-grid"></div>
+            <div class="hude-handles"></div>
+            <div class="hude-panel">
+                <div class="hude-bar">
+                    <b>📐 Розкладка кнопок</b>
+                    <span class="hude-spacer"></span>
+                    <button class="hude-btn" data-act="collapse" title="Згорнути панель">▾</button>
+                </div>
+                <div class="hude-body">
+                    <div class="hude-sel" id="hude-sel"></div>
+                    <div class="hude-row hude-presets">
+                        <button class="hude-chip" data-preset="default">🎮 Стандарт</button>
+                        <button class="hude-chip" data-preset="left_handed">🖐️ Шульга</button>
+                        <button class="hude-chip" data-preset="claw">🦅 Клешня</button>
+                        <button class="hude-chip" data-preset="compact">📱 Компакт</button>
+                        <button class="hude-chip" data-preset="giant">🔍 Великі</button>
+                    </div>
+                    <div class="hude-row hude-sliders">
+                        <label>Усі кнопки <b id="hude-v-scale"></b><input id="hude-scale" type="range" min="50" max="200" step="5"></label>
+                        <label>Прозорість <b id="hude-v-op"></b><input id="hude-op" type="range" min="25" max="100" step="5"></label>
+                        <label>Хотбар <b id="hude-v-hb"></b><input id="hude-hb" type="range" min="50" max="160" step="5"></label>
+                    </div>
+                    <div class="hude-row">
+                        <button class="hude-chip" id="hude-mirror">⇆ Віддзеркалити</button>
+                        <button class="hude-chip" id="hude-snap">🧲 Сітка</button>
+                        <button class="hude-chip hude-danger" id="hude-reset">↺ Скинути все</button>
+                    </div>
+                    <div class="hude-row hude-final">
+                        <button class="hude-big hude-cancel" data-act="cancel">✖ Скасувати</button>
+                        <button class="hude-big hude-save" data-act="save">💾 Зберегти</button>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(root);
+        this._hudRoot = root;
+        const $ = (sel) => root.querySelector(sel);
+        const handles = $('.hude-handles');
 
-            const onStart = (e) => {
-                if (e.button !== undefined && e.button !== 0) return;
-                e.preventDefault();
-                e.stopPropagation();
-                isDragging = true;
-                const touch = e.touches ? e.touches[0] : e;
-                startPointerX = touch.clientX;
-                startPointerY = touch.clientY;
+        // One transparent handle per control sits on top of the real element and takes all pointer input
+        const targets = this.HUD_BUTTONS.concat([{ id: 'hotbar-container', label: '🎒 Хотбар', hotbar: true }]);
+        this._hudHandles = {};
+        for (const t of targets) {
+            const h = document.createElement('div');
+            h.className = 'hude-handle';
+            h.dataset.id = t.id;
+            h.innerHTML = `<span>${t.label}</span>`;
+            handles.appendChild(h);
+            this._hudHandles[t.id] = h;
+            this.bindHudHandle(h, t);
+        }
 
-                const rect = el.getBoundingClientRect();
-                origLeft = rect.left;
-                origTop = rect.top;
-
-                el.style.position = 'fixed';
-                el.style.left = `${origLeft}px`;
-                el.style.top = `${origTop}px`;
-                el.style.right = 'auto';
-                el.style.bottom = 'auto';
-                if (isHotbar) {
-                    el.style.transform = `scale(${this.layout.hotbarScale || 1.0})`;
-                } else if (this.layout.splitButtons) {
-                    el.style.transform = `scale(${this.layout.btnScale || 1.0})`;
-                }
-
-                window.addEventListener('pointermove', onMove, { passive: false });
-                window.addEventListener('pointerup', onEnd);
-                window.addEventListener('touchmove', onMove, { passive: false });
-                window.addEventListener('touchend', onEnd);
-                window.addEventListener('touchcancel', onEnd);
-            };
-
-            const onMove = (e) => {
-                if (!isDragging) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const touch = e.touches ? e.touches[0] : e;
-                const dx = touch.clientX - startPointerX;
-                const dy = touch.clientY - startPointerY;
-
-                const rect = el.getBoundingClientRect();
-                const maxLeft = window.innerWidth - rect.width;
-                const maxTop = window.innerHeight - rect.height;
-
-                const newLeft = Math.max(0, Math.min(origLeft + dx, Math.max(0, maxLeft)));
-                const newTop = Math.max(0, Math.min(origTop + dy, Math.max(0, maxTop)));
-
-                el.style.left = `${newLeft}px`;
-                el.style.top = `${newTop}px`;
-            };
-
-            const onEnd = (e) => {
-                if (!isDragging) return;
-                isDragging = false;
-                window.removeEventListener('pointermove', onMove);
-                window.removeEventListener('pointerup', onEnd);
-                window.removeEventListener('touchmove', onMove);
-                window.removeEventListener('touchend', onEnd);
-                window.removeEventListener('touchcancel', onEnd);
-            };
-
-            el.addEventListener('pointerdown', onStart);
-            el.addEventListener('touchstart', onStart, { passive: false });
-
-            const cleanupFn = () => {
-                el.removeEventListener('pointerdown', onStart);
-                el.removeEventListener('touchstart', onStart);
-                window.removeEventListener('pointermove', onMove);
-                window.removeEventListener('pointerup', onEnd);
-                window.removeEventListener('touchmove', onMove);
-                window.removeEventListener('touchend', onEnd);
-                window.removeEventListener('touchcancel', onEnd);
-            };
-            this._elementCleanups.push(cleanupFn);
-        };
-
-        const setupDraggables = () => {
-            if (this._elementCleanups) {
-                this._elementCleanups.forEach(c => {
-                    try { c(); } catch(e) {}
-                });
-            }
-            this._elementCleanups = [];
-
-            if (buttonsEl) buttonsEl.classList.remove('hud-draggable-active');
-            actionButtonIds.forEach(id => {
-                const btn = document.getElementById(id);
-                if (btn) btn.classList.remove('hud-draggable-active');
-            });
-
-            if (hotbarEl) {
-                hotbarEl.classList.add('hud-draggable-active');
-                attachDrag(hotbarEl, true);
-            }
-
-            if (this.layout.splitButtons) {
-                actionButtonIds.forEach(id => {
-                    const btn = document.getElementById(id);
-                    if (btn) {
-                        btn.classList.add('hud-draggable-active');
-                        attachDrag(btn, false);
-                    }
-                });
-            } else {
-                if (buttonsEl) {
-                    buttonsEl.classList.add('hud-draggable-active');
-                    attachDrag(buttonsEl, false);
-                }
-            }
-        };
-
-        setupDraggables();
-
-        // Overlay control buttons
-        const btnCancel = document.getElementById('btn-drag-cancel');
-        const btnSave = document.getElementById('btn-drag-save');
-        const btnEmergencyExit = document.getElementById('btn-drag-emergency-exit');
-        const btnToggleSplit = document.getElementById('btn-drag-toggle-split');
-
-        const bindButtonAction = (el, action) => {
-            if (!el) return;
-            const handler = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                action();
-            };
-            el.addEventListener('click', handler);
-            el.addEventListener('touchstart', handler, { passive: false });
-            this._dragCleanups.push(() => {
-                el.removeEventListener('click', handler);
-                el.removeEventListener('touchstart', handler);
-            });
-        };
-
-        bindButtonAction(btnEmergencyExit, () => this.stopHudDragMode(false));
-        bindButtonAction(btnCancel, () => this.stopHudDragMode(false));
-        bindButtonAction(btnSave, () => this.stopHudDragMode(true));
-
-        bindButtonAction(btnToggleSplit, () => {
-            this.layout.splitButtons = !this.layout.splitButtons;
-            this.applyLayout(this.layout);
-            setupDraggables();
-            this.showToast(this.layout.splitButtons ? "🔀 Кнопки розділено! Перетягуйте кожну окремо" : "📦 Кнопки згруповано в один блок!");
+        root.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.hude-handle') || e.target.closest('.hude-panel')) return;
+            this.hudSel = null; this.refreshHudEditor();
         });
 
-        // Escape key exit
-        const onKeydown = (e) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                this.stopHudDragMode(false);
-            }
+        const act = (a) => {
+            if (a === 'save') this.stopHudDragMode(true);
+            else if (a === 'cancel') this.stopHudDragMode(false);
+            else if (a === 'collapse') { root.classList.toggle('collapsed'); this.refreshHudEditor(); }
         };
-        window.addEventListener('keydown', onKeydown);
-        this._dragCleanups.push(() => window.removeEventListener('keydown', onKeydown));
+        root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); act(b.dataset.act); }));
+        root.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+            const p = this.HUD_LAYOUT_PRESETS[b.dataset.preset];
+            if (!p) return;
+            const keepSnap = this.layout.snap;
+            this.applyLayout(Object.assign(JSON.parse(JSON.stringify(p)), { snap: keepSnap }));
+            this.hudSel = null; this.refreshHudEditor();
+        }));
+        const setGlobal = (key, scale) => (e) => { this.layout[key] = parseInt(e.target.value, 10) / scale; this.layout.preset = 'custom'; this.applyLayout(this.layout); this.refreshHudEditor(true); };
+        $('#hude-scale').oninput = setGlobal('btnScale', 100);
+        $('#hude-op').oninput = setGlobal('btnOpacity', 100);
+        $('#hude-hb').oninput = setGlobal('hotbarScale', 100);
+        $('#hude-mirror').onclick = () => {
+            // flip every control (moved ones and defaults alike) to the other side of the screen
+            const L = this.layout;
+            L.leftHanded = !L.leftHanded;
+            for (const id in L.buttons) if (L.buttons[id].x !== undefined) L.buttons[id].x = 1 - L.buttons[id].x;
+            L.preset = 'custom';
+            this.applyLayout(L); this.refreshHudEditor();
+        };
+        $('#hude-snap').onclick = () => { this.layout.snap = !this.layout.snap; this.refreshHudEditor(); };
+        $('#hude-reset').onclick = () => {
+            if (!confirm('Скинути розкладку до стандартної?')) return;
+            this.applyLayout(JSON.parse(JSON.stringify(this.DEFAULT_HUD_LAYOUT)));
+            this.hudSel = null; this.refreshHudEditor();
+        };
+
+        this._hudKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); this.stopHudDragMode(false); } };
+        window.addEventListener('keydown', this._hudKey);
+        this.refreshHudEditor();
+    }
+
+    // Drag a handle: moves its control (snapped to a 2.5% grid when enabled); a tap just selects it
+    bindHudHandle(h, t) {
+        h.addEventListener('pointerdown', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            this.hudSel = t.id; this.refreshHudEditor();
+            const el = document.getElementById(t.id);
+            if (!el) return;
+            const startX = e.clientX, startY = e.clientY;
+            const r0 = el.getBoundingClientRect();
+            const ox = (r0.left + r0.width / 2) / window.innerWidth, oy = (r0.top + r0.height / 2) / window.innerHeight;
+            let moved = false;
+            try { h.setPointerCapture(e.pointerId); } catch (err) {}
+            const move = (ev) => {
+                const dx = ev.clientX - startX, dy = ev.clientY - startY;
+                if (!moved && Math.hypot(dx, dy) < 5) return;
+                moved = true;
+                let x = ox + dx / window.innerWidth, y = oy + dy / window.innerHeight;
+                if (this.layout.snap) { x = Math.round(x / 0.025) * 0.025; y = Math.round(y / 0.025) * 0.025; }
+                x = Math.min(0.97, Math.max(0.03, x)); y = Math.min(0.96, Math.max(0.05, y));
+                if (t.hotbar) this.layout.hotbar = { x, y };
+                else this.layout.buttons[t.id] = Object.assign({}, this.layout.buttons[t.id], { x, y });
+                this.layout.preset = 'custom';
+                this.applyLayout(this.layout);
+                this.positionHudHandles();
+            };
+            const up = () => {
+                h.removeEventListener('pointermove', move);
+                h.removeEventListener('pointerup', up);
+                h.removeEventListener('pointercancel', up);
+            };
+            h.addEventListener('pointermove', move);
+            h.addEventListener('pointerup', up);
+            h.addEventListener('pointercancel', up);
+        });
+    }
+
+    positionHudHandles() {
+        if (!this._hudHandles) return;
+        for (const id in this._hudHandles) {
+            const el = document.getElementById(id), h = this._hudHandles[id];
+            if (!el) { h.style.display = 'none'; continue; }
+            const r = el.getBoundingClientRect();
+            h.style.display = (r.width === 0) ? 'none' : 'flex';
+            h.style.left = r.left + 'px'; h.style.top = r.top + 'px';
+            h.style.width = r.width + 'px'; h.style.height = r.height + 'px';
+            h.classList.toggle('selected', this.hudSel === id);
+            h.classList.toggle('is-hotbar', id === 'hotbar-container');
+        }
+    }
+
+    refreshHudEditor(fromSlider = false) {
+        const root = this._hudRoot;
+        if (!root) return;
+        const L = this.layout;
+        const $ = (s) => root.querySelector(s);
+        $('#hude-v-scale').textContent = Math.round(L.btnScale * 100) + '%';
+        $('#hude-v-op').textContent = Math.round(L.btnOpacity * 100) + '%';
+        $('#hude-v-hb').textContent = Math.round(L.hotbarScale * 100) + '%';
+        if (!fromSlider) {
+            $('#hude-scale').value = Math.round(L.btnScale * 100);
+            $('#hude-op').value = Math.round(L.btnOpacity * 100);
+            $('#hude-hb').value = Math.round(L.hotbarScale * 100);
+        }
+        root.classList.toggle('dock-right', L.leftHanded);
+        $('#hude-snap').classList.toggle('on', L.snap);
+        root.classList.toggle('snap', L.snap);
+        root.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('on', b.dataset.preset === L.preset));
+
+        // selected control: its own size / visibility / reset
+        const sel = $('#hude-sel');
+        const id = this.hudSel;
+        if (!id) {
+            sel.innerHTML = '<span class="hude-hint">Торкніться кнопки, щоб вибрати її. Перетягніть, щоб перемістити.</span>';
+        } else if (id === 'hotbar-container') {
+            sel.innerHTML = '<b>🎒 Хотбар</b> <span class="hude-hint">— розмір змінюється повзунком «Хотбар»</span> <button class="hude-chip" id="hude-reset-one">↺ На місце</button>';
+            $('#hude-reset-one').onclick = () => { this.layout.hotbar = null; this.applyLayout(this.layout); this.refreshHudEditor(); };
+        } else {
+            const b = this.HUD_BUTTONS.find(x => x.id === id);
+            const c = this.hudButtonCfg(id);
+            sel.innerHTML = `<b>${b.label}</b>
+                <label class="hude-inl">Розмір <b id="hude-v-one">${Math.round(c.s * 100)}%</b><input id="hude-one" type="range" min="50" max="200" step="5" value="${Math.round(c.s * 100)}"></label>
+                <button class="hude-chip" id="hude-hide">${c.hidden ? '👁 Показати' : '🙈 Сховати'}</button>
+                <button class="hude-chip" id="hude-reset-one">↺ На місце</button>`;
+            $('#hude-one').oninput = (e) => {
+                const s = parseInt(e.target.value, 10) / 100;
+                this.layout.buttons[id] = Object.assign({}, this.layout.buttons[id], { s });
+                $('#hude-v-one').textContent = Math.round(s * 100) + '%';
+                this.applyLayout(this.layout); this.positionHudHandles();
+            };
+            $('#hude-hide').onclick = () => {
+                const cur = this.layout.buttons[id] || {};
+                this.layout.buttons[id] = Object.assign({}, cur, { hidden: !c.hidden });
+                this.applyLayout(this.layout); this.refreshHudEditor();
+            };
+            $('#hude-reset-one').onclick = () => { delete this.layout.buttons[id]; this.applyLayout(this.layout); this.refreshHudEditor(); };
+        }
+        this.positionHudHandles();
     }
 
     stopHudDragMode(saveChanges) {
+        if (!this.dragModeOpen) return;
         this.dragModeOpen = false;
-
-        const overlay = document.getElementById('hud-drag-overlay');
-        const buttonsEl = document.getElementById('touch-action-buttons');
-        const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
-
-        if (overlay) overlay.style.display = 'none';
-        if (buttonsEl) buttonsEl.classList.remove('hud-draggable-active');
-        if (hotbarEl) hotbarEl.classList.remove('hud-draggable-active');
-        actionButtonIds.forEach(id => {
-            const btn = document.getElementById(id);
-            if (btn) btn.classList.remove('hud-draggable-active');
-        });
-
-        if (this._elementCleanups) {
-            this._elementCleanups.forEach(cleanup => {
-                try { cleanup(); } catch(e) {}
-            });
-            this._elementCleanups = [];
-        }
-
-        if (this._dragCleanups) {
-            this._dragCleanups.forEach(cleanup => {
-                try { cleanup(); } catch(e) {}
-            });
-            this._dragCleanups = [];
-        }
-
+        window.removeEventListener('keydown', this._hudKey);
+        if (this._hudRoot) { this._hudRoot.remove(); this._hudRoot = null; }
+        this._hudHandles = null;
+        document.body.classList.remove('hud-editing');
         if (saveChanges) {
-            if (this.layout.splitButtons) {
-                this.layout.buttonPositions = this.layout.buttonPositions || {};
-                actionButtonIds.forEach(id => {
-                    const btn = document.getElementById(id);
-                    if (btn) {
-                        const rect = btn.getBoundingClientRect();
-                        this.layout.buttonPositions[id] = {
-                            left: `${Math.round(rect.left)}px`,
-                            top: `${Math.round(rect.top)}px`,
-                            right: 'auto',
-                            bottom: 'auto'
-                        };
-                    }
-                });
-            } else {
-                if (buttonsEl) {
-                    const bRect = buttonsEl.getBoundingClientRect();
-                    this.layout.buttonsPos = {
-                        left: `${Math.round(bRect.left)}px`,
-                        top: `${Math.round(bRect.top)}px`,
-                        right: 'auto',
-                        bottom: 'auto'
-                    };
-                }
-            }
-
-            if (hotbarEl) {
-                const hRect = hotbarEl.getBoundingClientRect();
-                this.layout.hotbarPos = {
-                    left: `${Math.round(hRect.left)}px`,
-                    top: `${Math.round(hRect.top)}px`,
-                    right: 'auto',
-                    bottom: 'auto'
-                };
-            }
-            this.layout.preset = 'custom';
+            this.layout.preset = this.layout.preset || 'custom';
             this.saveLayout();
             this.applyLayout(this.layout);
-            this.showToast("💾 Розкладку кнопок успішно збережено!");
+            this.showToast("💾 Розкладку збережено!");
         } else {
-            if (this._preDragLayout) {
-                this.applyLayout(this._preDragLayout);
-            }
-            this.showToast("Розстановку скасовано");
+            if (this._preDragLayout) this.applyLayout(this._preDragLayout);
+            this.showToast("Зміни скасовано");
         }
     }
 
