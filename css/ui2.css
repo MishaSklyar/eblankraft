@@ -1,0 +1,240 @@
+/* ==========================================================================
+   EBLANKRAFT — UI MODE 2
+   Brings every LEGACY dialog / screen up to the look of the modern parts of
+   the game: the in-game HUD and the Settings (pause) menu.
+
+   Design language copied from Settings:
+     panel   linear-gradient(#2f2f36 -> #232328), 2px #55555f border, 14px radius
+     cards   rgba(255,255,255,.045) + 1px rgba(255,255,255,.08), 10px radius
+     tabs    dark strip, active = yellow gradient (#ffd54a -> #f5b800)
+     labels  small uppercase grey section labels
+     fields  #3b3b44 selects/inputs, yellow range thumb, green checkboxes
+     buttons vertical gradient + coloured border (success/primary/danger/...)
+     close   round 32px button that turns red on hover
+
+   HUD (#hud-top, hotbar, touch buttons...) and #pause-menu are NOT touched:
+   they are already the reference. Scoped to html.ui2 only.
+   ========================================================================== */
+
+html.ui2 {
+    --u2-panel:    linear-gradient(180deg, #2f2f36 0%, #232328 100%);
+    --u2-border:   #55555f;
+    --u2-card:     rgba(255,255,255,0.045);
+    --u2-card-h:   rgba(255,255,255,0.09);
+    --u2-line:     rgba(255,255,255,0.08);
+    --u2-muted:    #8d93a0;
+    --u2-yellow:   #ffd54a;
+    --u2-yellow-g: linear-gradient(180deg, #ffd54a, #f5b800);
+    --u2-field:    #3b3b44;
+    --u2-field-b:  #5d5d69;
+    --u2-btn:      linear-gradient(180deg, #4a4a55, #3b3b44);
+}
+
+/* ---------- Overlay + panel (every modal except Settings) ---------- */
+html.ui2 .modal-overlay:not(#pause-menu) { background: rgba(0,0,0,0.72); backdrop-filter: blur(4px); }
+html.ui2 .modal-overlay:not(#pause-menu) .modal-content {
+    background: var(--u2-panel);
+    border: 2px solid var(--u2-border);
+    border-radius: 14px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+html.ui2 .inventory-full-modal { background: var(--u2-panel) !important; }
+html.ui2 .modal-overlay:not(#pause-menu) .modal-header {
+    border-bottom: 1px solid var(--u2-line); padding-bottom: 10px; margin-bottom: 12px;
+}
+html.ui2 .modal-overlay:not(#pause-menu) .modal-title {
+    color: #ffd700; font-size: 19px; letter-spacing: .3px; text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+
+/* round close button (same as Settings) */
+html.ui2 .modal-overlay:not(#pause-menu) .btn-close,
+html.ui2 .modal-overlay:not(#pause-menu) .modal-close,
+html.ui2 .quick-mods-close-btn {
+    width: 32px; height: 32px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1.5px solid rgba(255,255,255,0.25) !important;
+    border-radius: 50% !important;
+    background: rgba(255,255,255,0.08) !important;
+    color: #fff; font-size: 13px;
+    transition: background .15s, transform .15s;
+}
+html.ui2 .modal-overlay:not(#pause-menu) .btn-close:hover,
+html.ui2 .modal-overlay:not(#pause-menu) .modal-close:hover,
+html.ui2 .quick-mods-close-btn:hover { background: #c62828 !important; transform: rotate(90deg); }
+
+/* ---------- Tabs (inventory, mods, multiplayer) ---------- */
+html.ui2 .inv-tabs-header, html.ui2 .mods-tabs-header, html.ui2 .mp-tabs-nav {
+    background: rgba(0,0,0,0.35); border-radius: 10px; padding: 4px; gap: 4px; border: none;
+}
+html.ui2 .inv-tab, html.ui2 .mods-tab-btn, html.ui2 .mp-tab-btn, html.ui2 .catalog-filter-btn {
+    background: transparent; border: none; border-radius: 7px; color: #9aa0aa;
+    font-weight: 600; text-shadow: none; transition: background .15s, color .15s;
+}
+html.ui2 .inv-tab:hover, html.ui2 .mods-tab-btn:hover, html.ui2 .mp-tab-btn:hover,
+html.ui2 .catalog-filter-btn:hover { background: rgba(255,255,255,0.07); color: #fff; }
+html.ui2 .inv-tab.active, html.ui2 .mods-tab-btn.active, html.ui2 .mp-tab-btn.active,
+html.ui2 .catalog-filter-btn.active {
+    background: var(--u2-yellow-g); color: #1d1d1d; font-weight: 700; box-shadow: 0 2px 8px rgba(255,200,0,0.25);
+}
+html.ui2 .tab-arrow-btn { background: rgba(255,255,255,0.08); border: 1px solid var(--u2-line); border-radius: 8px; color: var(--u2-yellow); }
+
+/* ---------- Cards / tiles (inventory, craft, cases, upgrader, skins...) ---------- */
+html.ui2 .inventory-item, html.ui2 .backpack-slot, html.ui2 .catalog-card, html.ui2 .craft-card,
+html.ui2 .case-card, html.ui2 .upgrade-card, html.ui2 .skin-card, html.ui2 .mm-skin-tile,
+html.ui2 .villager-trade-row, html.ui2 .case-item-card, html.ui2 .quick-mod-row,
+html.ui2 .layout-control-row, html.ui2 .mp-room-active-card, html.ui2 .mp-profile-row,
+html.ui2 .mp-sync-intro, html.ui2 .mods-list-container, html.ui2 .editor-meta-grid,
+html.ui2 .docs-item, html.ui2 .docs-section, html.ui2 .villager-info-bar, html.ui2 .trade-item-box,
+html.ui2 .bug-report-note, html.ui2 .bug-report-attach {
+    background: var(--u2-card) !important;
+    border: 1px solid var(--u2-line) !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+}
+html.ui2 .backpack-slot:hover, html.ui2 .catalog-card:hover, html.ui2 .craft-card:hover,
+html.ui2 .case-card:hover, html.ui2 .upgrade-card:hover, html.ui2 .skin-card:hover,
+html.ui2 .mm-skin-tile:hover, html.ui2 .villager-trade-row:hover, html.ui2 .inventory-item:hover {
+    background: var(--u2-card-h) !important; border-color: rgba(255,213,74,0.45) !important;
+}
+html.ui2 .backpack-slot.selected, html.ui2 .skin-card.equipped, html.ui2 .mm-skin-tile.equipped,
+html.ui2 .backpack-slot.is-hotbar { border-color: var(--u2-yellow) !important; box-shadow: 0 0 0 1px rgba(255,213,74,0.35) !important; }
+html.ui2 .backpack-section-title, html.ui2 .layout-section-label, html.ui2 .trash-header {
+    color: var(--u2-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+}
+html.ui2 .craft-desc, html.ui2 .case-desc, html.ui2 .upg-desc, html.ui2 .skin-buff,
+html.ui2 .backpack-hint, html.ui2 .backpack-info-text { color: var(--u2-muted); }
+html.ui2 .case-cost, html.ui2 .upg-cost, html.ui2 .villager-emerald-counter { color: var(--u2-yellow); }
+html.ui2 .req-tag { background: rgba(255,255,255,0.07); border: 1px solid var(--u2-line); border-radius: 6px; }
+
+/* ---------- Form fields (same as Settings selects) ---------- */
+html.ui2 .modal-overlay:not(#pause-menu) select,
+html.ui2 .modal-overlay:not(#pause-menu) input[type="text"],
+html.ui2 .modal-overlay:not(#pause-menu) input[type="number"],
+html.ui2 .modal-overlay:not(#pause-menu) input[type="search"],
+html.ui2 .modal-overlay:not(#pause-menu) input[type="password"],
+html.ui2 .modal-overlay:not(#pause-menu) input:not([type]),
+html.ui2 .modal-overlay:not(#pause-menu) textarea,
+html.ui2 .mm-text-input, html.ui2 .mm-select-input {
+    background: var(--u2-field); color: #fff; border: 1px solid var(--u2-field-b); border-radius: 7px;
+}
+html.ui2 .modal-overlay:not(#pause-menu) select:hover, html.ui2 .modal-overlay:not(#pause-menu) select:focus,
+html.ui2 .modal-overlay:not(#pause-menu) input:focus, html.ui2 .modal-overlay:not(#pause-menu) textarea:focus,
+html.ui2 .mm-text-input:focus, html.ui2 .mm-select-input:focus { border-color: var(--u2-yellow); outline: none; }
+html.ui2 .modal-overlay:not(#pause-menu) input[type="checkbox"] { accent-color: #4caf50; }
+html.ui2 .modal-overlay:not(#pause-menu) input[type="range"] {
+    -webkit-appearance: none; appearance: none; height: 6px; border: none; border-radius: 3px; background: #4a4a55;
+}
+html.ui2 .modal-overlay:not(#pause-menu) input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--u2-yellow); border: 2px solid #1d1d1d; box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+}
+html.ui2 .modal-overlay:not(#pause-menu) input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; background: var(--u2-yellow); border: 2px solid #1d1d1d;
+}
+html.ui2 .editor-code-container, html.ui2 #editor-mod-code, html.ui2 .lua-console-box { background: #17171c; border: 1px solid #444; border-radius: 8px; }
+
+/* ---------- Buttons inside legacy dialogs (same recipe as Settings .menu-btn) ---------- */
+html.ui2 .modal-overlay:not(#pause-menu) .menu-btn,
+html.ui2 .warp-btn, html.ui2 .layout-preset-btn, html.ui2 .dev-pill-btn, html.ui2 .dev-head-btn,
+html.ui2 .btn-file-label, html.ui2 .btn-mod-action, html.ui2 .chat-send-btn,
+html.ui2 .quick-mods-dropdown .menu-btn {
+    color: #fff; font-weight: bold; border-radius: 8px; border: 1.5px solid transparent;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.7); box-shadow: 0 2px 0 rgba(0,0,0,0.35);
+}
+html.ui2 .modal-overlay:not(#pause-menu) .menu-btn:not([class*="btn-"]),
+html.ui2 .layout-preset-btn, html.ui2 .dev-pill-btn, html.ui2 .dev-head-btn { background: var(--u2-btn); border-color: var(--u2-field-b); }
+html.ui2 .modal-overlay:not(#pause-menu) .btn-success { background: linear-gradient(180deg, #388e3c, #2e7d32); border-color: #4caf50; }
+html.ui2 .modal-overlay:not(#pause-menu) .btn-primary, html.ui2 .quick-mods-dropdown .btn-primary { background: linear-gradient(180deg, #1976d2, #1565c0); border-color: #42a5f5; }
+html.ui2 .modal-overlay:not(#pause-menu) .btn-danger { background: linear-gradient(180deg, #d32f2f, #c62828); border-color: #ef5350; }
+html.ui2 .modal-overlay:not(#pause-menu) .btn-secondary { background: linear-gradient(180deg, #546e7a, #455a64); border-color: #78909c; }
+html.ui2 .modal-overlay:not(#pause-menu) .btn-warning { background: linear-gradient(180deg, #ef8f1a, #e67e00); border-color: #ffb74d; }
+html.ui2 .layout-preset-btn:hover, html.ui2 .dev-pill-btn:hover, html.ui2 .modal-overlay:not(#pause-menu) .menu-btn:hover { filter: brightness(1.15); }
+html.ui2 .warp-btn { padding: 11px 12px; font-size: 13.5px; }
+html.ui2 .btn-overworld { background: linear-gradient(180deg, #388e3c, #2e7d32); border-color: #4caf50; }
+html.ui2 .btn-race-track { background: linear-gradient(180deg, #d32f2f, #c62828); border-color: #ef5350; }
+html.ui2 .btn-highway-city { background: linear-gradient(180deg, #1976d2, #1565c0); border-color: #42a5f5; }
+html.ui2 .btn-nether { background: linear-gradient(180deg, #ef8f1a, #e67e00); border-color: #ffb74d; }
+html.ui2 .btn-end { background: linear-gradient(180deg, #7b1fa2, #6a1b9a); border-color: #ba68c8; }
+html.ui2 .modal-overlay:not(#pause-menu) button:not([class]) {
+    background: var(--u2-btn); color: #fff; border: 1.5px solid var(--u2-field-b);
+    border-radius: 8px; padding: 8px 12px; font-weight: bold; cursor: pointer;
+}
+
+/* ---------- Dev console / quick mods / death ---------- */
+html.ui2 .dev-console-window {
+    background: linear-gradient(180deg, #2a2a30, #1c1c21) !important; border: 2px solid var(--u2-border) !important;
+    border-radius: 14px !important; box-shadow: 0 18px 50px rgba(0,0,0,0.85) !important;
+}
+html.ui2 .dev-console-header, html.ui2 .console-controls-bar, html.ui2 .dev-console-input-bar { background: rgba(0,0,0,0.25) !important; border-color: var(--u2-line) !important; }
+html.ui2 .quick-mods-dropdown {
+    background: var(--u2-panel) !important; border: 2px solid var(--u2-border) !important; border-radius: 14px !important;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.85) !important;
+}
+html.ui2 #death-screen { background: rgba(120,0,0,0.82); }
+html.ui2 .death-box { border-color: #c62828; }
+
+/* ==========================================================================
+   MAIN MENU + sub-screens (the oldest, bevelled part)
+   ========================================================================== */
+html.ui2 .mc-menu-btn {
+    height: 52px; background: var(--u2-btn); border: 1.5px solid var(--u2-field-b); border-radius: 10px;
+    color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+    box-shadow: 0 2px 0 rgba(0,0,0,0.35), 0 6px 14px rgba(0,0,0,0.45);
+}
+html.ui2 .mc-menu-btn:hover {
+    background: linear-gradient(180deg, #55555f, #44444d); border: 1.5px solid var(--u2-yellow);
+    color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+    box-shadow: 0 2px 0 rgba(0,0,0,0.35), 0 0 14px rgba(255,213,74,0.25); transform: translateY(-1px);
+}
+html.ui2 .mc-menu-btn:active { transform: translateY(1px) scale(0.99); border: 1.5px solid var(--u2-yellow); background: #3b3b44; }
+html.ui2 .mc-btn-primary, html.ui2 .mc-btn-quickplay { background: linear-gradient(180deg, #388e3c, #2e7d32); border: 1.5px solid #4caf50; }
+html.ui2 .mc-btn-primary:hover, html.ui2 .mc-btn-quickplay:hover { background: linear-gradient(180deg, #43a047, #388e3c); border: 1.5px solid #81c784; }
+html.ui2 .mc-btn-secondary { background: linear-gradient(180deg, #1976d2, #1565c0); border: 1.5px solid #42a5f5; }
+html.ui2 .mc-btn-secondary:hover { background: linear-gradient(180deg, #1e88e5, #1976d2); border: 1.5px solid #90caf9; }
+html.ui2 .mc-btn-duels, html.ui2 .mc-btn-danger { background: linear-gradient(180deg, #d32f2f, #c62828); border: 1.5px solid #ef5350; }
+html.ui2 .mc-btn-duels:hover, html.ui2 .mc-btn-danger:hover { background: linear-gradient(180deg, #e53935, #d32f2f); border: 1.5px solid #ff8a80; }
+html.ui2 .mc-btn-skins-hub, html.ui2 .mc-btn-blockly-special { background: linear-gradient(180deg, #7b1fa2, #6a1b9a); border: 1.5px solid #ba68c8; }
+html.ui2 .mc-btn-supereblan, html.ui2 .mc-btn-supereblan-big { background: linear-gradient(180deg, #ef8f1a, #e67e00); border: 1.5px solid #ffb74d; }
+html.ui2 .mm-badge-new, html.ui2 .mm-badge-gold { background: var(--u2-yellow); color: #1d1d1d; border-radius: 6px; text-shadow: none; font-weight: 800; }
+
+html.ui2 .mm-top-pill { background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; color: #fff; }
+html.ui2 .mm-top-pill:hover { border-color: var(--u2-yellow); }
+html.ui2 .mm-version-pill { background: var(--u2-yellow-g); color: #1d1d1d; border: none; border-radius: 6px; font-weight: 800; text-shadow: none; }
+
+html.ui2 .mm-worlds-container, html.ui2 .mm-create-form-container, html.ui2 .mm-duels-hub-container,
+html.ui2 .mm-skins-hub-container, html.ui2 .mm-supereblan-container, html.ui2 .mm-achievements-container,
+html.ui2 .mm-news-content, html.ui2 .mm-character-card {
+    background: var(--u2-panel); border: 2px solid var(--u2-border); border-radius: 14px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+html.ui2 .mm-world-card, html.ui2 .mm-arena-card, html.ui2 .mm-ach-card, html.ui2 .mm-news-card,
+html.ui2 .mm-stat-box, html.ui2 .mm-vip-perk-item, html.ui2 .mm-duels-banner, html.ui2 .mm-duels-nick-row,
+html.ui2 .mm-duels-controls, html.ui2 .mm-skins-hub-top, html.ui2 .mm-vip-pricing-box, html.ui2 .mm-mode-btn {
+    background: var(--u2-card); border: 1px solid var(--u2-line); border-radius: 10px; box-shadow: none;
+}
+html.ui2 .mm-world-card:hover, html.ui2 .mm-arena-card:hover, html.ui2 .mm-news-card:hover, html.ui2 .mm-mode-btn:hover {
+    background: var(--u2-card-h); border-color: rgba(255,213,74,0.45);
+}
+html.ui2 .mm-world-card.selected, html.ui2 .mm-world-card.active, html.ui2 .mm-mode-btn.active, html.ui2 .mm-mode-btn.selected {
+    border-color: var(--u2-yellow); background: rgba(255,213,74,0.1); box-shadow: 0 0 0 1px rgba(255,213,74,0.3);
+}
+html.ui2 .mm-ach-card.unlocked { border-color: rgba(76,175,80,0.55); background: rgba(76,175,80,0.12); }
+html.ui2 .mm-world-badge, html.ui2 .mm-arena-tag, html.ui2 .mm-ach-status, html.ui2 .mm-duels-badge, html.ui2 .mm-vip-promo-badge {
+    background: rgba(255,255,255,0.08); border: 1px solid var(--u2-line); border-radius: 6px; color: #ddd;
+}
+html.ui2 .mm-form-label { color: var(--u2-muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+html.ui2 .mm-stat-val { color: var(--u2-yellow); }
+html.ui2 .mm-char-vip-badge { background: var(--u2-yellow-g); color: #1d1d1d; border-radius: 6px; }
+html.ui2 .mm-char-preview-box { background: rgba(0,0,0,0.3); border: 1px solid var(--u2-line); border-radius: 10px; }
+html.ui2 .mm-char-btn, html.ui2 .mm-inline-btn, html.ui2 .mm-action-btn {
+    background: var(--u2-btn); border: 1.5px solid var(--u2-field-b); border-radius: 8px; color: #fff; font-weight: bold;
+}
+html.ui2 .mm-char-btn:hover, html.ui2 .mm-inline-btn:hover, html.ui2 .mm-action-btn:hover { border-color: var(--u2-yellow); }
+html.ui2 .mm-btn-back { background: linear-gradient(180deg, #546e7a, #455a64); border: 1.5px solid #78909c; border-radius: 10px; color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,.7); }
+html.ui2 .mm-btn-back:hover { border-color: var(--u2-yellow); }
+html.ui2 .mm-vip-card { background: var(--u2-panel); border: 2px solid #ffb74d; border-radius: 14px; }
+
+/* ---------- Loading screen ---------- */
+html.ui2 .preloading-box { background: var(--u2-panel) !important; border: 2px solid var(--u2-border) !important; border-radius: 14px !important; }
+html.ui2 .preloading-bar-fill { background: var(--u2-yellow-g) !important; }
+html.ui2 .preloading-tips-card { background: var(--u2-card) !important; border: 1px solid var(--u2-line) !important; border-radius: 10px !important; }
