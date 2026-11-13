@@ -1613,7 +1613,7 @@ class UIManager {
             chkTexX64.checked = !!(tm && tm.textureX64);
             chkTexX64.onchange = (e) => {
                 if (tm && tm.setTextureX64) tm.setTextureX64(e.target.checked);
-                this.showToast(`🖼️ Texture x64: ${e.target.checked ? 'ON' : 'OFF'}`);
+                this.showToast(`🖼️ RTX ${e.target.checked ? 'ON' : 'OFF'}`);
             };
         }
 

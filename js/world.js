@@ -959,7 +959,7 @@ class Chunk {
             if (!m || m.isShaderMaterial) return m;
             if (!Chunk._shadedMats) Chunk._shadedMats = new WeakMap();
             let c = Chunk._shadedMats.get(m);
-            if (!c) { c = m.clone(); c.vertexColors = true; c.needsUpdate = true; Chunk._shadedMats.set(m, c); }
+            if (!c) { c = m.clone(); c.onBeforeCompile = m.onBeforeCompile; c.vertexColors = true; c.needsUpdate = true; Chunk._shadedMats.set(m, c); }
             return c;
         };
         const pbrOn = !isTurboOrA02 && textureManager && textureManager.textureX64;

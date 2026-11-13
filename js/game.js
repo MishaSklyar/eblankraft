@@ -65,6 +65,8 @@ class Game {
         this.initLights();
         this.initSkyAndAtmosphere();
         this.updateGraphicsLighting();
+        this.rtx = new RTXPipeline(this);
+        if (this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
 
         this.lastTime = performance.now();
         this.animate = this.animate.bind(this);
@@ -128,6 +130,7 @@ class Game {
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(w, h);
             this.renderer.setPixelRatio(this.getEffectivePixelRatio());
+            if (this.rtx) this.rtx.setSize(w, h, this.getEffectivePixelRatio());
         });
     }
 
@@ -351,6 +354,7 @@ class Game {
             const w = window.innerWidth;
             const h = window.innerHeight;
             this.renderer.setSize(w, h);
+            if (this.rtx) this.rtx.setSize(w, h, this.getEffectivePixelRatio());
             if (this.renderer.domElement) {
                 this.renderer.domElement.style.imageRendering = (this.renderScale < 1.0) ? 'pixelated' : 'auto';
             }
@@ -973,7 +977,10 @@ class Game {
 
         // Render submission time is CPU time, not GPU execution time.
         const renderStarted = performance.now();
-        this.renderer.render(this.scene, this.camera);
+        if (!(this.rtx && this.rtx.active && this.rtx.render(rawDt * 1000))) {
+            if (this.rtx && this.rtx.saved) this.renderer.toneMapping = this.rtx.saved.toneMapping;
+            this.renderer.render(this.scene, this.camera);
+        }
         const renderedAt = performance.now();
         this.lastRenderSubmitTime = renderedAt - renderStarted;
         this.lastFrameCpuTime = renderedAt - now;
