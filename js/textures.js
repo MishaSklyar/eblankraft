@@ -533,18 +533,20 @@ void main() {
         pT *= inv; pB *= inv;
         vec3 pV = normalize( vViewPosition );
         vec3 vts = vec3( dot( pV, pT ), dot( pV, pB ), dot( pV, pN ) );
-        float fade = 1.0 - smoothstep( 8.0, 20.0, length( vViewPosition ) );
+        float fade = 1.0 - smoothstep( 5.0, 14.0, length( vViewPosition ) );
         if ( vts.z > 0.05 && fade > 0.01 ) {
             vec2 base = floor( vUv );
             vec2 P = vts.xy / max( vts.z, 0.3 ) * pomScale * fade;
-            const int LAYERS = 14;
-            vec2 dUV = P / float( LAYERS );
-            float layerD = 1.0 / float( LAYERS );
+            const int LAYERS = 12;
+            // fewer ray-march steps when looking straight at the face (little parallax to resolve)
+            float nl = mix( 4.0, float( LAYERS ), 1.0 - clamp( vts.z, 0.0, 1.0 ) );
+            vec2 dUV = P / nl;
+            float layerD = 1.0 / nl;
             vec2 cur = vUv;
             float curD = 0.0;
             float h = 1.0 - texture2D( pomMap, cur ).r;
             for ( int i = 0; i < LAYERS; i++ ) {
-                if ( curD >= h ) break;
+                if ( curD >= h || float( i ) >= nl ) break;
                 cur -= dUV;
                 vec2 l = clamp( cur - base, vec2( 0.001 ), vec2( 0.999 ) );
                 h = 1.0 - texture2D( pomMap, base + l ).r;
