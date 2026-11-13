@@ -212,7 +212,7 @@ class RTXPipeline {
 
         this.composer = composer;
         this.quality = 3;
-        this.ema = 0; this.cool = 240; this.resScale = this.baseScale;   // ignore load-time hitches this.syncSize();
+        this.ema = 0; this.cool = 240; this.resScale = this.baseScale; this.syncSize();   // ignore load-time hitches
         this.applyQuality();
     }
 
