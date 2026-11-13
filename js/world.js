@@ -1296,6 +1296,11 @@ class VoxelWorld {
         if (this.trackModifications) {
             this.modifiedBlocks.set(`${wx},${wy},${wz}`, type);
         }
+        // Shared world: every change from any source (mining, TNT, creepers, fluids, mods) replicates to the others.
+        if (!this.applyingRemote && !this.isGeneratingTerrain) {
+            const net = this.game?.multiplayer;
+            if (net?.netSyncActive) net.queueBlock(ix, iy, iz, type, normalized);
+        }
         if (!this.isGeneratingTerrain && this.blockHistory) {
             const key = `${wx},${wy},${wz}`;
             let hist = this.blockHistory.get(key);
@@ -2835,8 +2840,11 @@ class VoxelWorld {
         // Do not stack streaming work on top of an expensive water/unload pass.
         // A chunk-count limit alone is not a time budget.
         const streamingDeadline = performance.now() + 4;
-        this.updateWaterPhysics(dt);
-        this.updateLavaPhysics(dt);
+        // In a shared world only the host simulates fluids; guests receive the resulting block changes.
+        if (!this.game?.multiplayer?.netGuest) {
+            this.updateWaterPhysics(dt);
+            this.updateLavaPhysics(dt);
+        }
 
         // End terrain is finite, but dirty meshes still need servicing.
 
@@ -3188,6 +3196,7 @@ class VoxelWorld {
         }
         // Shared room: the server owns the per-dimension world, players and mobs.
         if (sharedDimension && sc.currentRoom) sc.beginDimensionChange(newDimension, loading);
+        this.game?.multiplayer?.onDimensionChanged?.(newDimension);
         return loading;
     }
 

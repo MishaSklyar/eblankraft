@@ -32,8 +32,10 @@ test('role: pending until the server names an owner, then owner or puppet', () =
     assert.equal(net.role(), 'puppet');
     net.handleOwner({ dim: 'overworld', owner_id: 'me', mobs: [] });
     assert.equal(net.role(), 'owner');
-    net.handleOwner({ dim: 'nether', owner_id: 'other', mobs: [] });          // stale dimension ignored
-    assert.equal(net.role(), 'owner');
+    net.handleOwner({ dim: 'nether', owner_id: 'other', mobs: [] });          // owner is in another dimension: simulate locally
+    assert.equal(net.role(), 'solo');
+    net.handleOwner({ dim: 'overworld', owner_id: 'other', mobs: [] });
+    assert.equal(net.role(), 'puppet');
 });
 
 test('new owner adopts the previous owner\'s mobs and keeps ids unique', () => {

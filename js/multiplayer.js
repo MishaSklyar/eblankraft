@@ -411,6 +411,33 @@ class RemotePlayer {
     }
 }
 
+// Lets the shared-world mob sync (CoopMobs) talk over the P2P star: the host owns all mobs.
+class P2PMobLink {
+    constructor(mp) { this.mp = mp; }
+    get game() { return this.mp.game; }
+    get clientId() { return this.mp.peerId; }
+    get engineAuthority() { return this.mp.netSyncActive; }
+    get currentRoom() { return this.mp.netSyncActive ? 'coop_p2p' : null; }
+    get loadingRoom() { return false; }
+    sendRaw(p) {
+        const mp = this.mp;
+        switch (p.type) {
+            case 'mob_attack':
+                return mp.sendToPeer(p.target_id, { type: 'mob_damage', amount: p.amount, reason: p.reason });
+            case 'mob_loot': {
+                const id = 'd' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+                mp.broadcast({ type: 'item_drop', drop_id: id, itemId: p.itemId, count: p.count, x: p.x, y: p.y, z: p.z });
+                mp.spawnSharedDrop({ drop_id: id, itemId: p.itemId, count: p.count, x: p.x, y: p.y, z: p.z });
+                return true;
+            }
+            case 'item_pickup':
+                return mp.broadcast({ type: 'item_taken', id: p.id });
+            default:
+                return mp.broadcast(p);
+        }
+    }
+}
+
 // --- MULTIPLAYER MANAGER (PEERJS) ---
 class MultiplayerManager {
     constructor(game) {
@@ -431,6 +458,12 @@ class MultiplayerManager {
         // Network tick timer (20 updates/sec)
         this.sendTimer = 0;
         this.sendInterval = 0.05;
+
+        // Shared world replication: block edits are batched and the host owns mobs and the clock.
+        this.pendingBlocks = new Map();
+        this.blockFlushTimer = 0;
+        this.timeSyncTimer = 0;
+        this.mobs = typeof CoopMobs === 'function' ? new CoopMobs(new P2PMobLink(this)) : null;
 
         this.game.arenaClient = new ArenaClient(game, this);
         this.initUI();
@@ -677,6 +710,64 @@ class MultiplayerManager {
         }
     }
 
+    // --- SHARED WORLD (host plays their own world; everyone else mirrors it) ---
+    get netSyncActive() { return !!(this.isConnected && this.peer && !this.game.arenaClient?.isActive); }
+    get netGuest() { return this.netSyncActive && !this.isHost; }
+
+    queueBlock(x, y, z, type, design) {
+        (this.pendingBlocks ||= new Map()).set(`${x},${y},${z}`, [x, y, z, type, design || 0]);
+    }
+
+    flushBlocks() {
+        if (!this.pendingBlocks?.size) return;
+        const dim = this.game.world?.dimension || 'overworld';
+        const all = [...this.pendingBlocks.values()];
+        this.pendingBlocks.clear();
+        for (let i = 0; i < all.length; i += 400) this.broadcast({ type: 'blocks', dim, list: all.slice(i, i + 400) });
+    }
+
+    applyBlocks(data) {
+        const world = this.game.world;
+        if (!world || !Array.isArray(data.list) || data.dim !== (world.dimension || 'overworld')) return;
+        world.applyingRemote = true;
+        try {
+            for (const [x, y, z, type, design] of data.list) {
+                if ([x, y, z, type].every(Number.isInteger)) world.setBlock(x, y, z, type, design || null);
+            }
+        } finally { world.applyingRemote = false; }
+        world.updateMeshes();
+    }
+
+    spawnSharedDrop(d) {
+        const mgr = this.game.mobManager;
+        if (!mgr) return;
+        const sink = mgr._lootSink;
+        mgr._lootSink = null;                       // do not route this one back out again
+        try {
+            const drop = mgr.spawnItemDrop(d.x, d.y, d.z, d.itemId, d.count, 0.8, new THREE.Vector3(d.vx || 0, d.vy ?? 2, d.vz || 0));
+            if (drop && d.drop_id && drop.count === d.count) drop.netId = d.drop_id;
+        } finally { mgr._lootSink = sink; }
+    }
+
+    announceMobOwner(conn = null) {
+        if (!this.isHost || !this.mobs) return;
+        const dim = this.game.world?.dimension || 'overworld';
+        const packet = { type: 'mob_owner', dim, owner_id: this.peerId, mobs: [] };
+        if (!conn) this.mobs.handleOwner(packet);
+        if (conn) { try { conn.send(packet); } catch (e) {} } else this.broadcast(packet);
+    }
+
+    onDimensionChanged() {
+        if (!this.netSyncActive || !this.mobs) return;
+        this.pendingBlocks?.clear();
+        if (this.isHost) { this.mobs.onDimensionChange(); this.announceMobOwner(); }
+    }
+
+    broadcastExplosion(x, y, z, radius, fx = false) {
+        if (!this.netSyncActive) return;
+        this.broadcast({ type: 'explosion', x, y, z, radius, fx, from: this.peerId, dim: this.game.world?.dimension || 'overworld' });
+    }
+
     // --- HOST INITIALIZATION ---
     startHost(preferredId = null) {
         if (this.peer) this.disconnect();
@@ -716,6 +807,7 @@ class MultiplayerManager {
                 this.isConnected = true;
                 this.updateConnectedUI(true, id, true);
                 this.updatePlayerCount();
+                this.announceMobOwner();
                 return;
             }
             const conn = peer.connect(hostCode, { reliable: true });
@@ -760,11 +852,12 @@ class MultiplayerManager {
                 seed: this.game.world.seed,
                 worldType: this.game.world.worldType,
                 dimension: this.game.world.dimension,
-                time: this.game.dayTime || 0,
+                time: this.game.timeOfDay ?? 0.2,
                 modifiedBlocks: this.game.world.getModifiedBlocksArray(),
                 hostName: this.playerName,
                 mods: (window.modManager ? window.modManager.getSyncableMods() : [])
             });
+            this.announceMobOwner(conn);
 
             this.updatePlayerCount();
         });
@@ -840,7 +933,7 @@ class MultiplayerManager {
                         this.game.world.applyModifiedBlocks(data.modifiedBlocks);
                     }
                     if (data.time !== undefined) {
-                        this.game.dayTime = data.time;
+                        this.game.timeOfDay = data.time;
                     }
                     this.showToast(`🌍 Світ синхронізовано з хостом [${data.hostName || 'Host'}]!`);
                 }
@@ -871,6 +964,7 @@ class MultiplayerManager {
                 }
 
                 remote.setTargetState(data);
+                remote.group.visible = (data.dim || 'overworld') === (this.game.world?.dimension || 'overworld');
 
                 // If we are Host, relay client state to all other connected peers!
                 if (this.isHost) {
@@ -962,6 +1056,63 @@ class MultiplayerManager {
                     // Another remote player was hit
                     const remote = this.remotePlayers.get(data.targetId);
                     if (remote) remote.takeDamage(data.damage, data.attackerName, data.isCrit, data.isSweep, data.knockback);
+                }
+                if (this.isHost) this.broadcast(data, senderPeerId);
+                break;
+            }
+
+            case 'blocks': {
+                this.applyBlocks(data);
+                if (this.isHost) this.broadcast(data, senderPeerId);
+                break;
+            }
+
+            case 'time_sync': {
+                if (!this.isHost && typeof data.time === 'number') this.game.timeOfDay = data.time;
+                break;
+            }
+
+            case 'explosion': {
+                if (data.from === this.peerId) break;
+                if (data.dim === (this.game.world?.dimension || 'overworld') && [data.x, data.y, data.z].every(Number.isFinite)) {
+                    this.game.particleSystem?.spawnExplosionParticles?.(data.x, data.y + 0.5, data.z, 28);
+                    this.game.soundManager?.playExplosion?.();
+                    this.game.triggerCameraShake?.(0.5, 12);
+                    const p = this.game.player;
+                    if (!data.fx && p) {
+                        // Same blast as the TNT that caused it: push and hurt whoever is in range.
+                        const dx = p.position.x - data.x, dy = p.position.y - data.y, dz = p.position.z - data.z;
+                        const dist = Math.hypot(dx, dy, dz);
+                        if (dist < 8) {
+                            const force = (1 - dist / 8) * 22;
+                            p.velocity.x += (dx / (dist || 1)) * force;
+                            p.velocity.y += Math.max(6, (dy / (dist || 1)) * force + 6);
+                            p.velocity.z += (dz / (dist || 1)) * force;
+                            p.takeDamage(Math.floor((1 - dist / 8) * 75), 'Тебе підірвав інший гравець!');
+                        }
+                    }
+                    this.mobs?.blast({ x: data.x, y: data.y, z: data.z, radius: data.fx ? 2.4 : 3.8 });
+                }
+                if (this.isHost) this.broadcast(data, senderPeerId);
+                break;
+            }
+
+            // Mobs: the host simulates, guests mirror them. These packets are never relayed.
+            case 'mob_owner': if (!this.isHost) this.mobs?.handleOwner(data); break;
+            case 'mob_sync': if (!this.isHost) this.mobs?.handleSync(data); break;
+            case 'mob_hit': if (this.isHost) this.mobs?.handleHit({ ...data, from: senderPeerId }); break;
+            case 'mob_damage': {
+                const p = this.game.player;
+                if (p && Number.isFinite(data.amount)) p.takeDamage(Math.min(40, data.amount), data.reason || 'Тебе вбив моб!');
+                break;
+            }
+            case 'item_drop': {
+                if (!this.isHost) this.spawnSharedDrop(data);
+                break;
+            }
+            case 'item_taken': {
+                for (const d of this.game.mobManager?.itemDrops || []) {
+                    if (d.netId === data.id && !d.pickedUp) { d.pickedUp = true; d.destroy(); }
                 }
                 if (this.isHost) this.broadcast(data, senderPeerId);
                 break;
@@ -1066,7 +1217,7 @@ class MultiplayerManager {
             sc.sendBlockAction('place', x, y, z, blockType, expectedType, design);
             return;
         }
-        if (!this.isConnected) return;
+        if (!this.isConnected || this.netSyncActive) return;   // world.setBlock already replicates it
         this.broadcast({ type: 'block_place', x, y, z, blockType, design });
     }
 
@@ -1076,12 +1227,12 @@ class MultiplayerManager {
             sc.sendBlockAction('break', x, y, z, blockType);
             return;
         }
-        if (!this.isConnected) return;
+        if (!this.isConnected || this.netSyncActive) return;   // world.setBlock already replicates it
         this.broadcast({ type: 'block_break', x, y, z, blockType });
     }
 
     broadcastTNTExplode(x, y, z, radius = 3.5) {
-        if (!this.isConnected) return;
+        if (!this.isConnected || this.netSyncActive) return;   // real explosions are broadcast when they detonate
         this.broadcast({ type: 'tnt_explode', x, y, z, radius });
     }
 
@@ -1586,6 +1737,8 @@ class MultiplayerManager {
         this.isHost = false;
         const peer = this.peer;
         this.peer = null;
+        this.pendingBlocks?.clear();
+        if (this.mobs?.known) { this.mobs.reset(); this.mobs.clearMobs(); }
 
         for (let remote of this.remotePlayers.values()) {
             remote.destroy();
@@ -1631,6 +1784,16 @@ class MultiplayerManager {
             return;
         }
 
+        // Shared world: batch block edits (20 Hz) and let the host keep everyone's clock in step.
+        if (this.netSyncActive) {
+            this.blockFlushTimer = (this.blockFlushTimer || 0) + dt;
+            if (this.blockFlushTimer >= 0.05) { this.blockFlushTimer = 0; this.flushBlocks(); }
+            if (this.isHost) {
+                this.timeSyncTimer = (this.timeSyncTimer || 0) + dt;
+                if (this.timeSyncTimer >= 5) { this.timeSyncTimer = 0; this.broadcast({ type: 'time_sync', time: this.game.timeOfDay }); }
+            }
+        }
+
         // 2. Broadcast local player state at fixed interval (20 Hz)
         if (this.isConnected && this.game.player) {
             this.sendTimer += dt;
@@ -1651,6 +1814,7 @@ class MultiplayerManager {
                     isSprinting: !!p.isSprinting,
                     armSwing: p.armSwing || 0,
                     health: p.health ?? 100,
+                    dim: this.game.world?.dimension || 'overworld',
                     heldItem: p.getSelectedItem() ? p.getSelectedItem().itemId : null,
                     skin: (this.game && this.game.upgrader ? this.game.upgrader.equippedSkin : 'classic'),
                     customSkin: (window.skinManager ? window.skinManager.customSkinDataUrl : null)

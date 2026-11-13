@@ -26,6 +26,8 @@ class CoopMobs {
     role() {
         if (!this.active()) return 'solo';
         if (!this.known) return 'pending';
+        // Somebody in another dimension than the mob owner simulates their own mobs.
+        if (this.dim && this.dim !== (this.game.world?.dimension || 'overworld')) return 'solo';
         return this.ownerId === this.client.clientId ? 'owner' : 'puppet';
     }
 
@@ -40,11 +42,11 @@ class CoopMobs {
     onDimensionChange() { this.reset(); this.clearMobs(); }
 
     handleOwner(msg) {
-        if (msg.dim !== (this.game.world?.dimension || 'overworld')) return;
-        const wasOwner = this.known && this.ownerId === this.client.clientId;
+        const wasOwner = this.known && this.ownerId === this.client.clientId && this.dim === msg.dim;
         this.known = true;
         this.ownerId = msg.owner_id;
         this.dim = msg.dim;
+        if (msg.dim !== (this.game.world?.dimension || 'overworld')) { this.clearMobs(); return; }
         const owner = this.ownerId === this.client.clientId;
         if (owner && wasOwner) return;
         this.clearMobs();
@@ -102,7 +104,7 @@ class CoopMobs {
             mobs.push({ id: m.netId, t: m.type, x: m.position.x, y: m.position.y, z: m.position.z, yaw: m.yaw || 0,
                 hp: Math.max(0, m.health), wc: m.walkCycle || 0 });
         }
-        this.client.sendRaw({ type: 'mob_sync', mobs });
+        this.client.sendRaw({ type: 'mob_sync', dim: this.dim, mobs });
     }
 
     // A remote player hit one of our mobs.

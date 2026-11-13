@@ -960,7 +960,7 @@ class Game {
 
         // Update Redstone & Wires
         if (this.redstoneEngine && !this.arenaClient?.isActive) {
-            this.redstoneEngine.update(dt);
+            if (!this.multiplayer?.netGuest) this.redstoneEngine.update(dt);
         }
 
         // Camera Shake effect

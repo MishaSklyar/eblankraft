@@ -1070,6 +1070,7 @@ class MobEntity {
             this.die(false);
             return;
         }
+        this.game.multiplayer?.broadcastExplosion?.(this.position.x, this.position.y, this.position.z, 2.4, true);
         // Break blocks around creeper
         const r = 2;
         for (let dx = -r; dx <= r; dx++) {
@@ -1125,7 +1126,7 @@ class MobEntity {
 
     dropMobLoot() {
         if (!this.def.loot) return;
-        const net = this.game.serverClient?.coopMobs;
+        const net = _coopMobs(this.game);
         const drop = () => this.def.loot(this.game.mobManager, this.position.x, this.position.y + 0.5, this.position.z);
         // Shared room: loot is dropped for everyone through the server, not just at the mob owner's feet.
         if (net) net.shareLoot(this.game.mobManager, drop); else drop();
@@ -1449,6 +1450,13 @@ class EblanDragonBoss {
 }
 
 // --- MOB MANAGER (MANAGES ALL MOBS, DROPS & BOSSES) ---
+// The shared-world mob link for this session: a server room, a P2P shared world, or none.
+function _coopMobs(game) {
+    const sc = game.serverClient;
+    if (sc?.engineAuthority) return sc.coopMobs;
+    return game.multiplayer?.netSyncActive ? game.multiplayer.mobs : null;
+}
+
 class MobManager {
     constructor(scene, textureManager, soundManager, game) {
         this.scene = scene;
@@ -1633,7 +1641,7 @@ class MobManager {
     update(dt, player, world) {
         const disabled = this.applyCreativeMobSetting(player);
         // Co-op rooms share mobs: one client per dimension simulates them, the rest show puppets.
-        const net = this.game.serverClient?.coopMobs;
+        const net = _coopMobs(this.game);
         const role = net ? net.role() : 'solo';
         // Spawn mobs periodically based on dimension (controlled mob cap)
         const canSpawn = !disabled && role !== 'puppet' && role !== 'pending';
