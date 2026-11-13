@@ -2328,6 +2328,17 @@ class Player {
             }
 
             // With bunny hop a jump on the landing frame keeps the horizontal speed (no ground snap)
+            // CS 1.6 style anti-bhop: touching the ground above the speed limit drops you to run/walk speed
+            if (this.bunnyhop && jumpedThisFrame && isGroundedNow && !this.isFlying) {
+                const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+                const limit = (this.bhopSpeedLimit ?? 10.5);
+                if (hSpeed > limit) {
+                    const cap = baseSpeed / hSpeed;
+                    this.velocity.x *= cap;
+                    this.velocity.z *= cap;
+                }
+            }
+
             const isAirborne = !isGroundedNow || (this.bunnyhop && jumpedThisFrame);
             if (isAirborne && !this.isFlying && this.bunnyhop) {
                 this.airAccelerate(moveX, moveZ, baseSpeed, dt);
