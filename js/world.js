@@ -2446,6 +2446,7 @@ class VoxelWorld {
                 for (let z = 0; z < CHUNK_SIZE_Z; z++) {
                     const wx = cx * CHUNK_SIZE_X + x, wz = cz * CHUNK_SIZE_Z + z;
                     if (wx < map.min || wx > map.max || wz < map.min || wz > map.max) continue;
+                    if (map.radius && Math.hypot(wx + .5, wz + .5) > map.radius + .5) continue;   // round platform over the void
                     chunk.setBlock(x, map.floorY - 1, z, BLOCK_TYPES.STONE);
                     if (wx === map.min || wx === map.max || wz === map.min || wz === map.max) {
                         for (let y = map.floorY; y < map.floorY + map.wallHeight; y++) {

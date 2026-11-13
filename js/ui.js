@@ -2221,6 +2221,14 @@ class UIManager {
             };
         }
 
+        const btnKnockback = document.getElementById('mm-btn-knockback');
+        if (btnKnockback) {
+            btnKnockback.onclick = () => {
+                if (this.soundManager) this.soundManager.playClick();
+                this.game?.multiplayer?.joinKnockback();
+            };
+        }
+
         if (btnSkins) {
             btnSkins.onclick = () => {
                 if (this.soundManager) this.soundManager.playClick();

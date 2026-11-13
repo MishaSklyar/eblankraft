@@ -56,7 +56,7 @@ class ArenaClient {
         return `${protocol}//${host}/ws`;
     }
 
-    connect(room, team = null) {
+    connect(room, team = null, mode = 'dust2') {
         if (this.game.serverClient) this.game.serverClient.leaveRoom();
         this.disconnect();
         if (!/^[A-Za-z0-9_-]{1,32}$/.test(room)) {
@@ -89,8 +89,8 @@ class ArenaClient {
         socket.onopen = () => {
             if (this.socket !== socket) return;
             window.authenticateAddonWallet?.(socket);
-            this.mode = 'dust2';
-            this.send({ type: 'arena_join', room, name: this.multiplayer.playerName, mode: 'dust2', ...(team ? { team } : {}) });
+            this.mode = mode;
+            this.send({ type: 'arena_join', room, name: this.multiplayer.playerName, mode, ...(team ? { team } : {}) });
         };
         socket.onmessage = event => {
             if (this.socket !== socket) return;
@@ -196,7 +196,7 @@ class ArenaClient {
                 break;
             case 'arena_welcome':
                 if (this.isConnected) return;
-                if (message.mode !== 'dust2') {
+                if (message.mode !== 'dust2' && message.mode !== 'knockback') {
                     this.disconnect();
                     mp.showToast('Сервер запустив стару арену. Перезапустіть python3 server.py та оновіть сторінку Ctrl+Shift+R.');
                     return;
@@ -213,6 +213,7 @@ class ArenaClient {
                 mp.updateConnectedUI(true, message.room, false);
                 this.applySnapshot(message.players, message.match);
                 if (this.mode === 'dust2') this.mountDustHud();
+                if (this.mode === 'knockback') { this.mountKnockHud(); this.renderKnockHud(); }
                 this.heartbeat = setInterval(() => {
                     const controls = this.game.controls;
                     const paused = this.game.ui?.mainMenuOpen || this.game.ui?.menuOpen;
@@ -222,7 +223,9 @@ class ArenaClient {
                 }, 5000);
                 mp.showToast(this.mode === 'dust2'
                     ? 'Dust2: B — купівля, E — встановити / розмінувати, [ ] — спостерігати'
-                    : 'PvP-арена: алмазний меч, серверний рух та урон');
+                    : this.mode === 'knockback'
+                        ? 'Knockback: штовхай суперників з платформи — чим більше %, тим далі відлітають'
+                        : 'PvP-арена: алмазний меч, серверний рух та урон');
                 break;
             case 'arena_snapshot':
                 if (this.isConnected) this.applySnapshot(message.players, message.match);
@@ -333,6 +336,7 @@ class ArenaClient {
             if (!present.has(id)) this.multiplayer.removeRemotePlayer(id);
         }
         this.multiplayer.updatePlayerCount();
+        if (this.mode === 'knockback') this.renderKnockHud();
         if (this.mode === 'dust2') {
             this.renderDustHud();
             this.renderScoreboard();
@@ -513,6 +517,8 @@ class ArenaClient {
         const feed = document.getElementById('dust2-feed');
         if (feed) feed.textContent = this.killFeed.map(entry => entry.text).join('\n');
         if (feed) feed.style.whiteSpace = 'pre-line';
+        const knockFeed = document.getElementById('knock-feed');
+        if (knockFeed) knockFeed.textContent = this.killFeed.map(entry => entry.text).join('\n');
     }
 
     weaponSpec() {
@@ -650,6 +656,7 @@ class ArenaClient {
         this.pendingFrames = reset ? [] : this.pendingFrames.filter(frame => frame.seq > state.seq);
         this.predicted = {
             ...state.position, vx: state.velocity.x, vy: state.velocity.y, vz: state.velocity.z,
+            kx: state.knock?.x ?? 0, kz: state.knock?.z ?? 0,
             onGround: state.onGround, jumpHeld: state.jumpHeld ?? false,
         };
         for (const frame of this.pendingFrames) this.predict(this.predicted, frame.control, frame.dt);
@@ -693,6 +700,7 @@ class ArenaClient {
 
     predictionCollides(x, y, z) {
         const map = this.game.world.arenaMap;
+        if (map.knockback) return false;                      // open platform: no walls, nothing to collide with
         const edge = map.id === 'de_eblan2' ? 1 : 0;
         if (x - .3 < map.min + 1 || x + .3 > map.max - edge ||
             z - .3 < map.min + 1 || z + .3 > map.max - edge) return true;
@@ -708,6 +716,7 @@ class ArenaClient {
         state.vz = (-control.strafe * Math.sin(control.yaw) - control.forward * Math.cos(control.yaw)) / length * speed;
         if (control.jump && !state.jumpHeld && state.onGround) { state.vy = 8.5; state.onGround = false; }
         state.jumpHeld = control.jump;
+        if (map.knockback) { this.predictKnock(state, dt, map); return; }
         const count = dust ? Math.max(1, Math.ceil(Math.max(Math.abs(state.vx), Math.abs(state.vz), Math.abs(state.vy) + 22 * dt) * dt / .1)) : Math.max(1, Math.ceil(dt / .05));
         const step = dt / count;
         for (let i = 0; i < count; i++) {
@@ -738,6 +747,46 @@ class ArenaClient {
                 }
                 state.vy = 0;
             }
+        }
+    }
+
+    // Mirror of ArenaService.integrateKnock: the shove decays, there is no floor past the rim.
+    predictKnock(state, dt, map) {
+        const decay = Math.exp(-map.decay * dt);
+        state.kx = Math.abs((state.kx || 0) * decay) < .01 ? 0 : state.kx * decay;
+        state.kz = Math.abs((state.kz || 0) * decay) < .01 ? 0 : state.kz * decay;
+        state.x += (state.vx + state.kx) * dt;
+        state.z += (state.vz + state.kz) * dt;
+        state.vy = Math.max(-30, state.vy - 22 * dt);
+        const ny = state.y + state.vy * dt;
+        if (Math.hypot(state.x, state.z) <= map.radius && state.y >= map.floorY - 1e-6 && ny <= map.floorY) {
+            state.y = map.floorY; state.vy = 0; state.onGround = true;
+        } else { state.y = ny; state.onGround = false; }
+    }
+
+    mountKnockHud() {
+        if (!document.createElement || document.getElementById('knock-hud')) return;
+        const hud = document.createElement('div');
+        hud.id = 'knock-hud';
+        hud.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:30;pointer-events:none;text-align:center;color:#fff;font:700 14px sans-serif;text-shadow:0 1px 3px #000;';
+        hud.innerHTML = `<div id="knock-percent" style="font-size:34px;font-weight:900"></div>
+            <div id="knock-score"></div>
+            <div id="knock-feed" style="margin-top:6px;white-space:pre-line;font-size:12px;color:#ffd7a8"></div>`;
+        document.body.appendChild(hud);
+    }
+
+    renderKnockHud() {
+        const percent = document.getElementById('knock-percent'), score = document.getElementById('knock-score');
+        const me = this.localState;
+        if (percent && me) {
+            const value = me.percent || 0;
+            percent.textContent = `${value}%`;
+            percent.style.color = value >= 150 ? '#ff4d4d' : value >= 80 ? '#ffb347' : '#fff';
+        }
+        if (score) {
+            score.textContent = [...this.playerStates].sort((a, b) => (b.kills || 0) - (a.kills || 0)).slice(0, 5)
+                .map(state => `${state.id === this.clientId ? '▶ ' : ''}${state.name}: ${state.kills || 0} ⚔ / ${state.deaths || 0} ☠ · ${state.percent || 0}%`).join('\n');
+            score.style.whiteSpace = 'pre-line';
         }
     }
 
@@ -934,6 +983,7 @@ class ArenaClient {
         }
         const hud = document.getElementById('dust2-hud');
         if (hud) hud.remove();
+        document.getElementById('knock-hud')?.remove();
         this.resetPrediction();
         this.multiplayer.isConnected = false;
         this.multiplayer.peerId = null;
