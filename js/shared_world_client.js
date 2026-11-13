@@ -3,6 +3,280 @@
  * Connects to port 8082 for server-authoritative PvP, anti-cheat, anti-one-tap, and room sync.
  */
 
+/**
+ * Shared mobs for co-op rooms. One client per dimension (the "owner", chosen by the server)
+ * simulates the mobs with the normal MobManager AI and streams them ~10x/s; everybody else shows
+ * interpolated "puppets", forwards their hits to the owner, and takes damage the owner reports.
+ */
+class CoopMobs {
+    constructor(client) { this.client = client; this.reset(); }
+
+    reset() {
+        this.known = false;
+        this.ownerId = null;
+        this.nextId = 1;
+        this.syncTimer = 0;
+        this.proxies = new Map();
+        this.dim = null;
+        this.nextFireId = 1;
+    }
+
+    get game() { return this.client.game; }
+    active() { const c = this.client; return !!(c.engineAuthority && c.currentRoom && c.currentRoom.startsWith('coop_') && !c.loadingRoom); }
+    // 'solo' (no shared room), 'pending' (owner not announced yet), 'owner' or 'puppet'
+    role() {
+        if (!this.active()) return 'solo';
+        if (!this.known) return 'pending';
+        // Somebody in another dimension than the mob owner simulates their own mobs.
+        if (this.dim && this.dim !== (this.game.world?.dimension || 'overworld')) return 'solo';
+        return this.ownerId === this.client.clientId ? 'owner' : 'puppet';
+    }
+
+    clearMobs() {
+        const mgr = this.game.mobManager;
+        if (!mgr) return;
+        for (const m of mgr.mobs) if (!m.isScriptBot) m.die(false);
+        mgr.mobs = mgr.mobs.filter(m => !m.isDead);
+        mgr._lootSink = null;
+        mgr.clearBoss?.();
+    }
+
+    onDimensionChange() { this.reset(); this.clearMobs(); }
+
+    handleOwner(msg) {
+        const wasOwner = this.known && this.ownerId === this.client.clientId && this.dim === msg.dim;
+        this.known = true;
+        this.ownerId = msg.owner_id;
+        this.dim = msg.dim;
+        if (msg.dim !== (this.game.world?.dimension || 'overworld')) { this.clearMobs(); return; }
+        const owner = this.ownerId === this.client.clientId;
+        if (owner && wasOwner) return;
+        this.clearMobs();
+        if (!owner) return;
+        // We just became the owner (first in the dimension, or the previous owner left): adopt their mobs.
+        const mgr = this.game.mobManager;
+        for (const e of Array.isArray(msg.mobs) ? msg.mobs : []) {
+            if (typeof MOB_DEFS === 'undefined' || !MOB_DEFS[e.t]) continue;
+            const mob = mgr.spawnMob(e.t, e.x, e.y, e.z);
+            mob.netId = e.id; mob.health = e.hp; mob.yaw = e.yaw;
+            this.nextId = Math.max(this.nextId, e.id + 1);
+        }
+    }
+
+    // ---- owner side ----
+    targets(local) {
+        const list = [];
+        if (local && !local.isDead) list.push(local);
+        const remote = this.game.multiplayer?.remotePlayers;
+        if (remote) for (const [id, rp] of remote) if (rp?.group && rp.health !== 0) list.push(this.proxy(id, rp));
+        return list;
+    }
+    nearestTarget(position, local) {
+        let best = local, bestD = Infinity;
+        for (const t of this.targets(local)) {
+            const d = t.position.distanceToSquared(position);
+            if (d < bestD) { bestD = d; best = t; }
+        }
+        return best;
+    }
+    randomTarget(local) {
+        const list = this.targets(local);
+        return list.length ? list[Math.floor(Math.random() * list.length)] : local;
+    }
+    proxy(id, rp) {
+        let p = this.proxies.get(id);
+        if (!p || p.rp !== rp) {
+            const client = this.client;
+            p = { id, rp, camera: null, isDead: false, iq: 0, game: this.game, addItem: () => 0,
+                takeDamage: (amount, reason) => client.sendRaw({ type: 'mob_attack', target_id: id, amount: Math.min(60, Math.max(1, +amount || 1)), reason }) };
+            Object.defineProperty(p, 'position', { get: () => rp.group.position });
+            this.proxies.set(id, p);
+        }
+        return p;
+    }
+
+    tickOwner(mgr, dt) {
+        this.syncTimer += dt;
+        if (this.syncTimer < 0.1) return;
+        this.syncTimer = 0;
+        const mobs = [];
+        for (const m of mgr.mobs) {
+            if (m.isDead || m.isScriptBot || m.isPuppet || mobs.length >= 64) continue;
+            m.netId ??= this.nextId++;
+            mobs.push({ id: m.netId, t: m.type, x: m.position.x, y: m.position.y, z: m.position.z, yaw: m.yaw || 0,
+                hp: Math.max(0, m.health), wc: m.walkCycle || 0 });
+        }
+        this.client.sendRaw({ type: 'mob_sync', dim: this.dim, mobs });
+        if (this.dim === 'the_end' || mgr.dragon) this.client.sendRaw(this.bossSnapshot(mgr));
+    }
+
+    // ---- the Ender Dragon: the owner simulates it, everybody else mirrors it ----
+    bossSnapshot(mgr) {
+        const d = mgr.dragon;
+        const dragon = d && d.mesh && !d.isPuppet ? { x: d.mesh.position.x, y: d.mesh.position.y, z: d.mesh.position.z,
+            q: [d.mesh.quaternion.x, d.mesh.quaternion.y, d.mesh.quaternion.z, d.mesh.quaternion.w], hp: d.health, dead: !!d.isDead } : null;
+        const fireballs = mgr.fireballs.filter(f => !f.exploded && !f.isPuppet).slice(0, 16)
+            .map(f => [f.netId ??= this.nextFireId++, f.position.x, f.position.y, f.position.z]);
+        return { type: 'boss_sync', dim: this.dim, dragon, fireballs, crystals: mgr.crystals.filter(c => !c.isDestroyed).map(c => c.netId) };
+    }
+
+    hookDragon(d) {
+        d.takeDamage = (amount) => {
+            if (d.isDead) return;
+            d.soundManager?.playDragonRoar?.();
+            this.client.sendRaw({ type: 'boss_hit', damage: Math.min(500, Math.max(0, +amount || 0)) });
+        };
+        d.heal = () => {};
+    }
+    hookCrystal(c) {
+        if (c._netHooked) return;
+        c._netHooked = true;
+        c.takeDamage = () => { if (!c.isDestroyed) this.client.sendRaw({ type: 'crystal_hit', id: c.netId }); };
+    }
+
+    handleBoss(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'puppet' || !mgr || msg.dim !== (this.game.world?.dimension || 'overworld')) return;
+        const e = msg.dragon;
+        let d = mgr.dragon;
+        if (e) {
+            if (d && !d.isPuppet) { mgr.clearBoss(); d = null; }          // a local dragon we started before the host's
+            if (!d && !e.dead) { d = mgr.spawnPuppetDragon(); this.hookDragon(d); d.mesh.position.set(e.x, e.y, e.z); }
+            if (d) {
+                d.target = e; d.health = e.hp;
+                if (e.dead && !d.isDead) this.puppetDragonDied(d);
+            }
+        } else if (d?.isPuppet && !d.isDead) {
+            mgr.clearBoss();
+        }
+        // fireballs
+        const seen = new Set();
+        for (const [id, x, y, z] of Array.isArray(msg.fireballs) ? msg.fireballs : []) {
+            seen.add(id);
+            let f = mgr.fireballs.find(o => o.isPuppet && o.netId === id);
+            if (!f) {
+                f = new DragonFireball(x, y, z, new THREE.Vector3(), mgr.scene, this.game);
+                f.isPuppet = true; f.netId = id; mgr.fireballs.push(f);
+            }
+            f.target = new THREE.Vector3(x, y, z);
+        }
+        for (const f of mgr.fireballs) if (f.isPuppet && !seen.has(f.netId)) f.explode();
+        // crystals: ours are generated identically from the seed; the host decides which are gone
+        const alive = new Set(msg.crystals || []);
+        for (const c of mgr.crystals) {
+            this.hookCrystal(c);
+            if (!c.isDestroyed && c.netId !== undefined && !alive.has(c.netId)) {
+                c.isDestroyed = true;
+                this.game.particleSystem?.spawnExplosionParticles?.(c.group.position.x, c.group.position.y, c.group.position.z, 40);
+                c.soundManager?.playExplosion?.();
+                c.destroy();
+            }
+        }
+    }
+
+    puppetDragonDied(d) {
+        d.isDead = true;
+        d.soundManager?.playExplosion?.();
+        d.soundManager?.speakRandomMeme?.(['ЄБЛАН ДРАКОН ПОВЕРЖЕНИЙ!', 'ТАК! ТИ ПЕРЕМІГ ДРАКОНА!']);
+        if (this.game.player) this.game.player.iq += 1000;
+        for (let i = 0; i < 6; i++) setTimeout(() => {
+            if (d.mesh) this.game.particleSystem?.spawnExplosionParticles?.(d.mesh.position.x + (Math.random() - 0.5) * 6, d.mesh.position.y + (Math.random() - 0.5) * 4, d.mesh.position.z + (Math.random() - 0.5) * 6, 60);
+        }, i * 350);
+        setTimeout(() => { if (d.mesh) { d.scene.remove(d.mesh); d.mesh = null; } }, 2200);
+    }
+
+    // The owner takes the guests' hits on the real dragon and crystals.
+    handleBossHit(msg) {
+        const d = this.game.mobManager?.dragon;
+        if (this.role() === 'owner' && d && !d.isPuppet && !d.isDead && Number.isFinite(msg.damage)) d.takeDamage(Math.min(500, Math.max(0, msg.damage)));
+    }
+    handleCrystalHit(msg) {
+        const c = this.game.mobManager?.crystals.find(o => o.netId === msg.id && !o.isDestroyed);
+        if (this.role() === 'owner' && c) c.takeDamage(10);
+    }
+
+    // A remote player hit one of our mobs.
+    handleHit(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'owner' || !mgr) return;
+        const mob = mgr.mobs.find(m => m.netId === msg.id && !m.isDead && !m.isPuppet);
+        if (!mob) return;
+        const client = this.client;
+        // Loot from a remote kill is dropped for everyone through the server instead of only at our feet.
+        mob.takeDamage(msg.damage, { x: msg.kx || 0, z: msg.kz || 0 });
+    }
+
+    // Runs `drop` (which calls mgr.spawnItemDrop) so every drop goes out through the server instead.
+    shareLoot(mgr, drop) {
+        if (this.role() !== 'owner' || mgr._lootSink) return drop();
+        const client = this.client;
+        mgr._lootSink = (x, y, z, itemId, count) => client.sendRaw({ type: 'mob_loot', itemId: String(itemId), count, x, y, z });
+        try { drop(); } finally { mgr._lootSink = null; }
+    }
+
+    // An explosion in the room: the owner's mobs take the blast too.
+    blast(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'owner' || !mgr) return;
+        const reach = (msg.radius || 3.8) < 3 ? 5 : 8;
+        for (const m of [...mgr.mobs]) {
+            if (m.isDead || m.isPuppet) continue;
+            const dx = m.position.x - msg.x, dz = m.position.z - msg.z;
+            const d = Math.hypot(dx, m.position.y - msg.y, dz);
+            if (d >= reach) continue;
+            m.takeDamage(Math.max(3, (1 - d / reach) * 55), { x: dx / (d || 1), z: dz / (d || 1) });
+        }
+    }
+
+    // ---- puppet side ----
+    handleSync(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'puppet' || !mgr || msg.dim !== (this.game.world?.dimension || 'overworld')) return;
+        const seen = new Set();
+        for (const e of Array.isArray(msg.mobs) ? msg.mobs : []) {
+            if (typeof MOB_DEFS === 'undefined' || !MOB_DEFS[e.t]) continue;
+            seen.add(e.id);
+            let mob = mgr.mobs.find(m => m.isPuppet && m.netId === e.id && !m.isDead);
+            if (!mob) {
+                mob = mgr.spawnMob(e.t, e.x, e.y, e.z);
+                mob.isPuppet = true; mob.netId = e.id; mob.target = { x: e.x, y: e.y, z: e.z, yaw: e.yaw };
+                mob.takeDamage = (amount, kb) => this.puppetHit(mob, amount, kb);
+            }
+            mob.target = { x: e.x, y: e.y, z: e.z, yaw: e.yaw };
+            mob.health = e.hp;
+            mob.walkCycle = e.wc;
+        }
+        for (const m of mgr.mobs) if (m.isPuppet && !m.isDead && !seen.has(m.netId)) m.die(false);
+    }
+    puppetHit(mob, amount, kb) {
+        if (mob.isDead) return;
+        mob.hurtTimer = 0.18; mob._setTint(1);
+        mob.soundManager?.playHurt?.();
+        this.client.sendRaw({ type: 'mob_hit', id: mob.netId, damage: amount, kx: kb?.x || 0, kz: kb?.z || 0 });
+    }
+    updatePuppet(m, dt) {
+        if (m.isDead || !m.group) return;
+        if (m.hurtTimer > 0 && (m.hurtTimer -= dt) <= 0) m.resetColor();
+        const t = m.target;
+        if (t) {
+            const k = 1 - Math.exp(-12 * dt);
+            m.position.x += (t.x - m.position.x) * k;
+            m.position.y += (t.y - m.position.y) * k;
+            m.position.z += (t.z - m.position.z) * k;
+            let dy = t.yaw - m.yaw;
+            dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+            m.yaw += dy * k;
+        }
+        m.group.position.copy(m.position);
+        m.group.rotation.y = m.yaw;
+        if (m.leftLeg && m.rightLeg) {
+            const a = Math.sin(m.walkCycle) * 0.45, axis = m.legRollAxis === 'z' ? 'z' : 'x';
+            m.leftLeg.rotation[axis] = a; m.rightLeg.rotation[axis] = -a;
+            if (m.backLeftLeg) { m.backLeftLeg.rotation[axis] = -a; m.backRightLeg.rotation[axis] = a; }
+        }
+    }
+}
+
 class SharedWorldClient {
     constructor(game) {
         this.game = game;
@@ -18,6 +292,9 @@ class SharedWorldClient {
         this.engineAuthority = false;
         this.explosiveAuthority = false;
         this.authorityChunks = new Map();
+        this.coopMobs = new CoopMobs(this);
+        this.dimensionLoading = null;
+        this.dimSpawn = null;
         this.nextExplosiveId = 0;
         this.ping = 0;
         this.pingInterval = null;
@@ -203,7 +480,7 @@ class SharedWorldClient {
         return false;
     }
 
-    joinRoom(roomName = 'pvp_arena', playerName = 'Боєць', skin = 'classic', mode = 'survival') {
+    joinRoom(roomName = 'pvp_arena', playerName = 'Боєць', skin = 'classic', mode = 'survival', pvp = true) {
         this.roomMode = mode;
         this.roomGeneration++;
         this.roomPackets = [];
@@ -214,7 +491,8 @@ class SharedWorldClient {
             room: roomName,
             name: playerName,
             skin: skin,
-            mode: mode
+            mode: mode,
+            pvp: pvp
         });
     }
 
@@ -244,12 +522,16 @@ class SharedWorldClient {
         this.authorityChunks?.clear();
         this.roomPackets = [];
         this.loadingRoom = false;
+        this.dimensionLoading = null;
+        this.dimSpawn = null;
+        this.coopMobs?.reset();
+        this.coopMobs?.clearMobs();
         this.clearRemotePlayers();
         const status = document.getElementById('coop-room-status');
         if (status) status.textContent = 'Ви вийшли з кімнати. Світ тепер локальний.';
     }
 
-    joinCooperativeRoom(code, mode = 'survival') {
+    joinCooperativeRoom(code, mode = 'survival', pvp = true) {
         if (this.loadingRoom) return false;
         code = String(code).trim().toLowerCase();
         if (!/^[a-z0-9_-]{1,24}$/.test(code)) return false;
@@ -269,7 +551,7 @@ class SharedWorldClient {
         const mp = this.game && this.game.multiplayer;
         if (mp && mp.isConnected) mp.disconnect();
         const name = (mp && mp.playerName) || 'Гравець';
-        this.joinRoom('coop_' + code, name, 'classic', mode);
+        this.joinRoom('coop_' + code, name, 'classic', mode, pvp);
         if (!this.isConnected) this.connect();
         return true;
     }
@@ -288,7 +570,10 @@ class SharedWorldClient {
             if (generation !== this.roomGeneration) return;
             this.game.world.id = 'server:' + msg.room;
             this.engineAuthority = msg.world.authority === 'eblan';
+            this.roomPvp = !!msg.world.pvp;
             (this.authorityChunks ||= new Map()).clear();
+            this.coopMobs.reset();
+            this.dimSpawn = null;
             if (this.engineAuthority && msg.spawn) {
                 player.position.set(msg.spawn.x, msg.spawn.y, msg.spawn.z);
                 player.velocity.set(0, 0, 0);
@@ -310,7 +595,7 @@ class SharedWorldClient {
             for (const raw of queued) this.handleMessage(raw);
             const status = document.getElementById('coop-room-status');
             if (status) status.textContent = 'Кімната: ' + msg.room.slice(5) + ' · ' +
-                (msg.world.mode === 'creative' ? 'Творчість' : 'Виживання') + ' · PvP вимкнено';
+                (msg.world.mode === 'creative' ? 'Творчість' : 'Виживання') + (this.roomPvp ? ' · PvP увімкнено' : ' · PvP вимкнено');
         } catch (error) {
             console.error('Cooperative world failed:', error);
             if (generation === this.roomGeneration) this.leaveRoom();
@@ -375,13 +660,64 @@ class SharedWorldClient {
     }
 
     requestAttack(targetId, isCrit = false) {
-        if (this.currentRoom && this.currentRoom.startsWith('coop_')) return false;
+        if (this.currentRoom && this.currentRoom.startsWith('coop_') && !this.roomPvp) return false;
         // Authoritative Combat: Client requests attack; server decides hit, reach, damage and i-frames!
         return this.sendRaw({
             type: 'attack',
             target_id: targetId,
             is_crit: !!isCrit
         });
+    }
+
+    // True when `dim` can be visited without leaving the shared room.
+    supportsDimension(dim) {
+        return !!(this.engineAuthority && this.currentRoom?.startsWith('coop_') && ['overworld', 'nether', 'the_end'].includes(dim));
+    }
+
+    // Called by VoxelWorld.switchDimension: tell the server, forget the old dimension's players and
+    // mobs, and hold back packets for the new dimension until its terrain exists.
+    beginDimensionChange(dim, loading) {
+        this.dimSpawn = null;
+        this.authorityChunks?.clear();
+        this.clearRemotePlayers();
+        this.coopMobs.onDimensionChange();
+        this.dimensionLoading = Promise.resolve(loading).catch(() => {});
+        this.sendRaw({ type: 'dimension_change', dim });
+    }
+
+    applyDimensionSpawn() {
+        const spawn = this.dimSpawn, player = this.game.player;
+        if (!spawn || !player) return;
+        player.position.set(spawn.x, spawn.y, spawn.z);
+        player.velocity.set(0, 0, 0);
+    }
+
+    async enterDimension(msg) {
+        const generation = this.roomGeneration;
+        this.loadingRoom = true;                      // queue everything for the new dimension until it is built
+        try { await this.dimensionLoading; } catch (e) { /* the switch handles its own errors */ }
+        if (generation !== this.roomGeneration) return;
+        const world = this.game.world;
+        if (world && (world.dimension || 'overworld') === msg.dim) {
+            this.dimSpawn = { x: msg.x, y: msg.y, z: msg.z };
+            this.applyDimensionSpawn();
+            for (const block of msg.blocks || []) world.setBlock(block.x, block.y, block.z, block.block_type, block.design);
+            world.updateMeshes();
+            const mp = this.game.multiplayer;
+            if (mp) for (const p of msg.players || []) {
+                if (!mp.remotePlayers.has(p.id)) mp.addRemotePlayer(p.id, p.name);
+                const rp = mp.remotePlayers.get(p.id);
+                if (!rp) continue;
+                rp.targetPosition.set(p.x, p.y, p.z);
+                rp.group.position.set(p.x, p.y, p.z);
+                if (p.skin) rp.setSkin(p.skin);
+                rp.updateHeldItem(this.resolveHeldItem(p.held_item));
+            }
+        }
+        this.loadingRoom = false;
+        const queued = this.roomPackets;
+        this.roomPackets = [];
+        for (const raw of queued) this.handleMessage(raw);
     }
 
     requestRespawn() {
@@ -500,6 +836,20 @@ class SharedWorldClient {
                 break;
             }
 
+            case 'dimension_state': {
+                this.enterDimension(msg);
+                break;
+            }
+
+            case 'mob_owner': this.coopMobs.handleOwner(msg); break;
+            case 'mob_sync': this.coopMobs.handleSync(msg); break;
+            case 'mob_hit': this.coopMobs.handleHit(msg); break;
+            case 'mob_damage': {
+                const player = this.game.player;
+                if (player && Number.isFinite(msg.amount)) player.takeDamage(msg.amount, msg.reason || 'Тебе вбив моб!');
+                break;
+            }
+
             case 'chunk_state': {
                 if (!this.engineAuthority || typeof msg.voxels !== 'string') break;
                 const raw = atob(msg.voxels);
@@ -575,7 +925,7 @@ class SharedWorldClient {
                         if (p.skin) rp.setSkin(p.skin);
                         rp.updateHeldItem(this.resolveHeldItem(p.held_item));
                     }
-                    if (mp.showToast) mp.showToast(`👋 Гравець [${p.name}] приєднався до сервера!`);
+                    if (mp.showToast && !msg.moved) mp.showToast(`👋 Гравець [${p.name}] приєднався до сервера!`);
                 }
                 break;
             }
@@ -696,7 +1046,7 @@ class SharedWorldClient {
             case 'player_left': {
                 if (mp) {
                     mp.removeRemotePlayer(msg.id);
-                    if (mp.showToast) mp.showToast(`👋 Гравець [${msg.name}] покинув арену.`);
+                    if (mp.showToast && !msg.moved) mp.showToast(`👋 Гравець [${msg.name}] покинув арену.`);
                 }
                 break;
             }
@@ -740,7 +1090,15 @@ class SharedWorldClient {
             case 'item_drop': {
                 if (this.game && this.game.mobManager) {
                     const throwVel = new THREE.Vector3(msg.vx || 0, msg.vy || 2, msg.vz || 0);
-                    this.game.mobManager.spawnItemDrop(msg.x, msg.y, msg.z, msg.itemId, msg.count, 0.8, throwVel);
+                    const drop = this.game.mobManager.spawnItemDrop(msg.x, msg.y, msg.z, msg.itemId, msg.count, 0.8, throwVel);
+                    if (drop && msg.drop_id && drop.count === msg.count) drop.netId = msg.drop_id;
+                }
+                break;
+            }
+
+            case 'item_taken': {
+                for (const d of this.game.mobManager?.itemDrops || []) {
+                    if (d.netId === msg.id && !d.pickedUp) { d.pickedUp = true; d.destroy(); }
                 }
                 break;
             }
@@ -783,6 +1141,7 @@ class SharedWorldClient {
 
             case 'tnt_exploded': {
                 if (this.game) {
+                    this.coopMobs?.blast(msg);
                     const remote = this.game.tntEntities?.find(t => t.serverId === msg.tnt_id);
                     if (remote) { remote.exploded = true; this.game.scene.remove(remote.mesh); }
                     if (this.game.soundManager && this.game.soundManager.playExplosion) {

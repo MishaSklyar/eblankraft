@@ -1117,7 +1117,7 @@ class VoxelWorld {
         this.textureManager = textureManager;
         this.game = options.game || window.game || null;
         this.chunkRadius = options.chunkRadius || 2; // e.g. 2 means 5x5 chunks (-2 to +2)
-        this.dimension = 'overworld';
+        this.dimension = options.dimension || 'overworld';
         this.dimensionStates = new Map();
         this.arenaMap = options.arenaMap || null;
         this.worldType = options.worldType || 'normal'; // 'normal', 'flat', 'mountains', 'tnt_paradise'
@@ -1295,6 +1295,11 @@ class VoxelWorld {
         }
         if (this.trackModifications) {
             this.modifiedBlocks.set(`${wx},${wy},${wz}`, type);
+        }
+        // Shared world: every change from any source (mining, TNT, creepers, fluids, mods) replicates to the others.
+        if (!this.applyingRemote && !this.isGeneratingTerrain) {
+            const net = this.game?.multiplayer;
+            if (net?.netSyncActive) net.queueBlock(ix, iy, iz, type, normalized);
         }
         if (!this.isGeneratingTerrain && this.blockHistory) {
             const key = `${wx},${wy},${wz}`;
@@ -2835,8 +2840,11 @@ class VoxelWorld {
         // Do not stack streaming work on top of an expensive water/unload pass.
         // A chunk-count limit alone is not a time budget.
         const streamingDeadline = performance.now() + 4;
-        this.updateWaterPhysics(dt);
-        this.updateLavaPhysics(dt);
+        // In a shared world only the host simulates fluids; guests receive the resulting block changes.
+        if (!this.game?.multiplayer?.netGuest) {
+            this.updateWaterPhysics(dt);
+            this.updateLavaPhysics(dt);
+        }
 
         // End terrain is finite, but dirty meshes still need servicing.
 
@@ -3056,9 +3064,14 @@ class VoxelWorld {
 
     switchDimension(newDimension) {
         const sc = this.game && this.game.serverClient;
-        if (sc && sc.currentRoom && sc.currentRoom.startsWith('coop_') && newDimension !== 'overworld') {
-            sc.leaveRoom();
-            if (this.game.ui) this.game.ui.showToast('Вихід зі спільної кімнати для подорожі в інший вимір.');
+        // Shared rooms host the overworld, nether and end; anything else (race tracks...) is local only.
+        let sharedDimension = false;
+        if (sc && sc.currentRoom && sc.currentRoom.startsWith('coop_')) {
+            if (sc.supportsDimension(newDimension)) sharedDimension = true;
+            else if (newDimension !== 'overworld' || (this.dimension || 'overworld') !== 'overworld') {
+                sc.leaveRoom();
+                if (this.game.ui) this.game.ui.showToast('Вихід зі спільної кімнати для подорожі в інший вимір.');
+            }
         }
         if (this.arenaMap) return Promise.resolve();
         if ((this.dimension || 'overworld') === newDimension) return Promise.resolve();
@@ -3181,6 +3194,9 @@ class VoxelWorld {
                                      newDimension === 'highway_city' ? "🏙️ ШОСЕ ТА МІСТО" :
                                      "🌲 ПЕРЕХІД У ВЕРХНІЙ СВІТ");
         }
+        // Shared room: the server owns the per-dimension world, players and mobs.
+        if (sharedDimension && sc.currentRoom) sc.beginDimensionChange(newDimension, loading);
+        this.game?.multiplayer?.onDimensionChanged?.(newDimension);
         return loading;
     }
 

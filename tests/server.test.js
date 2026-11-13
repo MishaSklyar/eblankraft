@@ -148,15 +148,54 @@ test('Dust2 map, six players, buying, ammo, reloads, objectives and side swaps',
     assert.equal(WEAPONS.awp.damage, 105);
 });
 
-test('TNT explosions require a server-owned fuse and cannot damage co-op friends', t => {
-    const { player, send, game } = harness(t), p = player('coop_bombs'), friend = player('coop_bombs');
-    send(p, { type: 'tnt_explode', x: friend.x, y: friend.y, z: friend.z, radius: 999 });
-    assert.equal(friend.health, 100); assert.equal(p.health, 100);
-    send(p, { type: 'tnt_spawn', x: p.x, y: p.y, z: p.z });
-    const tnt = [...p.room.tnt.values()][0]; assert.ok(tnt);
-    game.explode(p.room, p, tnt);
-    assert.equal(friend.health, 100); assert.ok(p.health < 100);
-    const health = p.health; game.explode(p.room, p, tnt); assert.equal(p.health, health);
+test('TNT explosions require a server-owned fuse; friends are only hurt where the room allows PvP', t => {
+    const { player, send, game } = harness(t);
+    const hits = (p) => p.messages.filter(m => m.type === 'damage_event' && m.target_id === p.id).length;
+    for (const pvp of [false, true]) {
+        const room = 'coop_bombs' + pvp;
+        const p = player(room, { pvp }), friend = player(room, { pvp });
+        send(p, { type: 'tnt_explode', x: friend.x, y: friend.y, z: friend.z, radius: 999 });
+        assert.equal(hits(friend), 0); assert.equal(hits(p), 0);
+        send(p, { type: 'tnt_spawn', x: p.x, y: p.y, z: p.z });
+        const tnt = [...p.room.tnt.values()][0]; assert.ok(tnt);
+        game.explode(p.room, p, tnt);
+        assert.equal(hits(p), 1);                         // the thrower always takes their own blast
+        assert.equal(hits(friend), pvp ? 1 : 0);
+        game.explode(p.room, p, tnt); assert.equal(hits(p), 1);
+    }
+});
+
+test('co-op PvP: melee hits are relayed only when the room allows PvP, in the same dimension', t => {
+    const { player, send, advance } = harness(t);
+    for (const pvp of [false, true]) {
+        const a = player('coop_pvp' + pvp, { pvp }), b = player('coop_pvp' + pvp, { pvp });
+        Object.assign(b, { x: a.x + 1, y: a.y, z: a.z }); advance(2);
+        send(a, { type: 'attack', target_id: b.id });
+        const hit = b.messages.find(m => m.type === 'damage_event' && m.target_id === b.id);
+        assert.equal(!!hit, pvp);
+        if (pvp) { assert.equal(hit.attacker_id, a.id); assert.equal(hit.health_remaining, undefined); assert.equal(b.is_alive, true); }
+    }
+    const a = player('coop_pvpdim'), b = player('coop_pvpdim');
+    Object.assign(b, { x: a.x + 1, y: a.y, z: a.z }); advance(2);
+    send(b, { type: 'dimension_change', dim: 'nether' }); Object.assign(b, { x: a.x + 1, y: a.y, z: a.z });
+    advance(2); send(a, { type: 'attack', target_id: b.id });
+    assert.equal(b.messages.some(m => m.type === 'damage_event' && m.target_id === b.id), false);
+});
+
+test('creeper blasts break blocks and hurt every player in the dimension; mob loot is shared once', t => {
+    const { player, send, advance } = harness(t), a = player('coop_creep', { pvp: false }), b = player('coop_creep', { pvp: false });
+    const world = a.room.world(); world.setBlock(5, 20, 5, world.blocks.STONE);
+    Object.assign(b, { x: 5.5, y: 20, z: 6.5 });
+    send(b, { type: 'mob_explode', x: 5.5, y: 20, z: 5.5 });                  // non-owner cannot detonate
+    assert.equal(world.getBlock(5, 20, 5), world.blocks.STONE);
+    send(a, { type: 'mob_explode', x: 5.5, y: 20, z: 5.5 });
+    assert.equal(world.getBlock(5, 20, 5), 0);
+    assert.equal(b.messages.filter(m => m.type === 'damage_event' && m.target_id === b.id).at(-1).attacker_name, 'Кріпер');
+    send(a, { type: 'mob_loot', itemId: 'apple', count: 1, x: 5, y: 20, z: 5 });
+    const drop = b.messages.findLast(m => m.type === 'item_drop');
+    send(b, { type: 'item_pickup', id: drop.drop_id });
+    assert.equal(a.messages.findLast(m => m.type === 'item_taken').id, drop.drop_id);
+    assert.equal(b.messages.some(m => m.type === 'item_taken'), false);
 });
 
 test('Dust2 shots own damage, armor, ammo, cooldown, freshness and weapon switching', t => {

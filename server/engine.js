@@ -42,6 +42,9 @@ class AuthorityWorld {
         this.world.setBlock(x, y, z, type, design);
     }
     spawn() {
+        // Same fixed arrival points the client's Player.spawnSafe() uses in these dimensions.
+        if (this.world.dimension === 'nether') return { x: 1.5, y: 7.05, z: 2.5 };
+        if (this.world.dimension === 'the_end') return { x: .5, y: 14.05, z: 18 };
         for (let y = 30; y >= 0; y--) {
             const block = this.getBlock(0, y, 0);
             if (block && block !== this.blocks.WATER && block !== this.blocks.LEAVES) return { x: .5, y: y + 1, z: .5 };

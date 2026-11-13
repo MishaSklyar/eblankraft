@@ -774,6 +774,8 @@ class TNTEntity {
         }
         this.exploded = true;
         this.scene.remove(this.mesh);
+        // Shared world: others get the effect and take blast damage/knockback (terrain replicates on its own).
+        if (!this.isRemote) this.game?.multiplayer?.broadcastExplosion?.(this.x, this.y, this.z, 8);
 
         this.soundManager.playExplosion();
         const particleCount = (this.particleSystem && this.particleSystem.particles.length > 50) ? 14 : 36;
