@@ -156,6 +156,7 @@ const ITEM_TYPES = {
 
     // Raw Materials
     STICK: 'stick',
+    LEATHER: 'leather',
     COAL: 'coal',
     IRON_INGOT: 'iron_ingot',
     GOLD_INGOT: 'gold_ingot',
@@ -347,6 +348,7 @@ const ITEM_REGISTRY = {
     [ITEM_TYPES.NETHERITE_SCRAP]: { id: ITEM_TYPES.NETHERITE_SCRAP, name: "Незеритовый слиток", category: 'material', icon: 'netherite_scrap', maxStack: 64 },
     [ITEM_TYPES.ENDER_EYE]: { id: ITEM_TYPES.ENDER_EYE, name: "Око Ебланда (Ключ в Энд)", category: 'material', icon: 'ender_eye', maxStack: 16 },
     [ITEM_TYPES.BLAZE_ROD]: { id: ITEM_TYPES.BLAZE_ROD, name: "Огненный стержень", category: 'material', icon: 'blaze_rod', maxStack: 64 },
+    [ITEM_TYPES.LEATHER]: { id: ITEM_TYPES.LEATHER, name: "Шкіра", category: 'material', icon: 'leather', maxStack: 64, value: 4 },
     [ITEM_TYPES.GUNPOWDER]: { id: ITEM_TYPES.GUNPOWDER, name: "Порох", category: 'material', icon: 'gunpowder', maxStack: 64 },
     [ITEM_TYPES.ROTTEN_FLESH]: { id: ITEM_TYPES.ROTTEN_FLESH, name: "Гнилая плоть", category: 'material', icon: 'rotten_flesh', maxStack: 64 },
 
@@ -1063,6 +1065,99 @@ for (const type of Object.values(window.BLOCK_TYPES)) {
     BLOCK_DROP_MAP[type] ??= id;
 }
 
+// --- ARMOR (helmet / chestplate / leggings / boots) ---
+// Each piece adds `defense` points; the player's damage reduction is 3% per point (capped, see Player.getArmorReduction).
+const ARMOR_TIERS = [
+    { id: 'leather',   name: 'Шкіряний',   ingredient: ITEM_TYPES.LEATHER,          points: [1, 3, 2, 1],  value: [6, 10, 8, 5] },
+    { id: 'gold',      name: 'Золотий',    ingredient: ITEM_TYPES.GOLD_INGOT,       points: [2, 5, 3, 1],  value: [90, 150, 120, 60] },
+    { id: 'iron',      name: 'Залізний',   ingredient: ITEM_TYPES.IRON_INGOT,       points: [2, 6, 5, 2],  value: [45, 75, 65, 35] },
+    { id: 'diamond',   name: 'Алмазний',   ingredient: ITEM_TYPES.DIAMOND_ITEM,     points: [3, 8, 6, 3],  value: [320, 520, 450, 260] },
+    { id: 'netherite', name: 'Незеритовий', ingredient: ITEM_TYPES.NETHERITE_SCRAP, points: [4, 9, 7, 4],  value: [800, 1300, 1100, 650] }
+];
+const ARMOR_SLOTS = [
+    { id: 'helmet',     label: 'Шолом',     icon: '🪖', name: 'шолом',     shape: ['XXX', 'X.X'] },
+    { id: 'chestplate', label: 'Нагрудник', icon: '👕', name: 'нагрудник', shape: ['X.X', 'XXX', 'XXX'] },
+    { id: 'leggings',   label: 'Поножі',    icon: '👖', name: 'поножі',    shape: ['XXX', 'X.X', 'X.X'] },
+    { id: 'boots',      label: 'Чоботи',    icon: '🥾', name: 'чоботи',    shape: ['X.X', 'X.X'] }
+];
+const ARMOR_ITEM_IDS = [];
+ARMOR_TIERS.forEach(tier => {
+    ARMOR_SLOTS.forEach((slot, si) => {
+        const id = tier.id + '_' + slot.id;
+        ITEM_TYPES[id.toUpperCase()] = id;
+        ARMOR_ITEM_IDS.push(id);
+        ITEM_REGISTRY[id] = {
+            id, name: `${tier.name} ${slot.name}`, category: 'armor', icon: id, maxStack: 1,
+            isArmor: true, armorSlot: slot.id, armorTier: tier.id, defense: tier.points[si], value: tier.value[si]
+        };
+        const need = slot.shape.join('').split('X').length - 1;
+        CRAFTING_RECIPES.push({
+            id: 'craft_' + id,
+            name: `${slot.icon} ${tier.name} ${slot.name}`,
+            category: 'armor',
+            inputs: [{ itemId: tier.ingredient, count: need }],
+            pattern: slot.shape,
+            key: { X: tier.ingredient },
+            output: { itemId: id, count: 1 },
+            desc: `${need} × ${ITEM_REGISTRY[tier.ingredient].name} (форма «${slot.label}» у сітці) ➔ +${tier.points[si]} броні`
+        });
+    });
+});
+ITEM_REGISTRY[ITEM_TYPES.TOTEM_OF_UNDYING].equipSlot = 'totem';
+
+// Crafting grid matcher. `cells` is a row-major 3x3 array of {itemId,count}|null.
+// Recipes with a `pattern` are shaped (placed anywhere in the grid); the rest are shapeless and
+// match when the grid holds exactly the recipe's ingredient types with at least the needed counts.
+// Returns { recipe, consume: [[cellIndex, count], ...] } or null.
+function matchCraftingGrid(cells) {
+    const filled = [];
+    for (let i = 0; i < 9; i++) if (cells[i]) filled.push(i);
+    if (!filled.length) return null;
+
+    const rows = filled.map(i => Math.floor(i / 3)), cols = filled.map(i => i % 3);
+    const r0 = Math.min(...rows), r1 = Math.max(...rows), c0 = Math.min(...cols), c1 = Math.max(...cols);
+    const h = r1 - r0 + 1, w = c1 - c0 + 1;
+
+    const totals = {};
+    for (const i of filled) totals[cells[i].itemId] = (totals[cells[i].itemId] || 0) + cells[i].count;
+    const types = Object.keys(totals);
+
+    for (const recipe of CRAFTING_RECIPES) {
+        if (recipe.pattern) {
+            if (recipe.pattern.length !== h || recipe.pattern[0].length !== w) continue;
+            let ok = true;
+            const consume = [];
+            for (let r = 0; r < h && ok; r++) {
+                for (let c = 0; c < w; c++) {
+                    const ch = recipe.pattern[r][c];
+                    const idx = (r0 + r) * 3 + (c0 + c);
+                    const cell = cells[idx];
+                    if (ch === '.') { if (cell) { ok = false; break; } }
+                    else if (!cell || cell.itemId !== recipe.key[ch]) { ok = false; break; }
+                    else consume.push([idx, 1]);
+                }
+            }
+            if (ok) return { recipe, consume };
+        } else {
+            if (recipe.inputs.length !== types.length) continue;
+            if (!recipe.inputs.every(inp => (totals[inp.itemId] || 0) >= inp.count)) continue;
+            const consume = [];
+            for (const inp of recipe.inputs) {
+                let left = inp.count;
+                for (const i of filled) {
+                    if (left <= 0) break;
+                    if (cells[i].itemId !== inp.itemId) continue;
+                    const take = Math.min(left, cells[i].count);
+                    consume.push([i, take]);
+                    left -= take;
+                }
+            }
+            return { recipe, consume };
+        }
+    }
+    return null;
+}
+
 // Random junk pool that can drop from breaking blocks or killing mobs
 const JUNK_ITEMS_POOL = [
     ITEM_TYPES.JUNK_SOCK,
@@ -1076,3 +1171,6 @@ window.ITEM_REGISTRY = ITEM_REGISTRY;
 window.CRAFTING_RECIPES = CRAFTING_RECIPES;
 window.BLOCK_DROP_MAP = BLOCK_DROP_MAP;
 window.JUNK_ITEMS_POOL = JUNK_ITEMS_POOL;
+window.ARMOR_SLOTS = ARMOR_SLOTS;
+window.ARMOR_ITEM_IDS = ARMOR_ITEM_IDS;
+window.matchCraftingGrid = matchCraftingGrid;

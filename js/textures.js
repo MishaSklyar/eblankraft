@@ -1789,6 +1789,46 @@ void main() {
         totemCtx.fillRect(7, 9, 2, 2); // Heart emerald jewel
         this.canvasCache['totem_of_undying'] = totemCv;
 
+        // Leather scrap icon (armor ingredient)
+        {
+            const lcv = this.createCanvas();
+            const lctx = lcv.getContext('2d');
+            const LEATHER = ["", "", "", "....hbbbbbh.....", "...hbbbbbbbbh...", "..hbbbbdbbbbbh..", "..hbbbbbbbbbbd..", "...hbbbbbbbbbd..", "...hbbbbbbbdbd..", "....hbbbbbbbd...", "......ddddd....."];
+            const lp = { b: '#a0622d', h: '#c98b52', d: '#6b3e1a' };
+            LEATHER.forEach((row, y) => { for (let x = 0; x < 16; x++) { const c = row[x]; if (c && lp[c]) { lctx.fillStyle = lp[c]; lctx.fillRect(x, y, 1, 1); } } });
+            this.canvasCache['leather'] = lcv;
+        }
+
+        // --- ARMOR ICONS (5 tiers x helmet / chestplate / leggings / boots) ---
+        // Pixel maps: b = base, h = highlight, d = shadow. Rows are padded to 16x16.
+        const ARMOR_SHAPES = {
+            helmet: ["", "", "....hhhhhhhh....", "...hbbbbbbbbd...", "..hbbbbbbbbbbd..", "..hbbbbbbbbbbd..", "..hbbbbbbbbbbd..", "..hbbd....hbbd..", "..hbd......hbd..", "..hbd......hbd..", "..dd........dd.."],
+            chestplate: ["", "", ".hbbh.hhhh.hbbd.", "hbbbbhbbbbhbbbbd", "hbbbbbbbbbbbbbbd", "hbbbbbbbbbbbbbbd", ".bbbbbbbbbbbbbd.", "..hbbbbbbbbbbd..", "..hbbbbbbbbbbd..", "..hbbbbbbbbbbd..", "..hbbbbbbbbbbd..", "..hbbbbbbbbbbd..", "..dddddddddddd.."],
+            leggings: ["", "...hhhhhhhhhh...", "...hbbbbbbbbd...", "...hbbbbbbbbd...", "...hbbbbbbbbd...", "...hbbbddbbbd...", "...hbbd..hbbd...", "...hbbd..hbbd...", "...hbbd..hbbd...", "...hbbd..hbbd...", "...hbbd..hbbd...", "...dddd..dddd..."],
+            boots: ["", "", "", "", "..hbbd....hbbd..", "..hbbd....hbbd..", "..hbbd....hbbd..", "..hbbd....hbbd..", ".hbbbd....hbbbd.", "hbbbbd....hbbbbd", "hhhhhd....hhhhhd", "dddddd....dddddd"]
+        };
+        const ARMOR_PALETTES = {
+            leather:   { b: '#a0622d', h: '#c98b52', d: '#6b3e1a' },
+            gold:      { b: '#f5c518', h: '#fff3a0', d: '#b8860b' },
+            iron:      { b: '#c8c8c8', h: '#f2f2f2', d: '#8a8a8a' },
+            diamond:   { b: '#4eedff', h: '#bdf8ff', d: '#25a8b8' },
+            netherite: { b: '#4a4548', h: '#74696f', d: '#2a2527' }
+        };
+        for (const tier in ARMOR_PALETTES) {
+            for (const piece in ARMOR_SHAPES) {
+                const cv = this.createCanvas();
+                const actx = cv.getContext('2d');
+                const pal = ARMOR_PALETTES[tier];
+                ARMOR_SHAPES[piece].forEach((row, y) => {
+                    for (let x = 0; x < 16; x++) {
+                        const c = row[x];
+                        if (c && c !== '.' && pal[c]) { actx.fillStyle = pal[c]; actx.fillRect(x, y, 1, 1); }
+                    }
+                });
+                this.canvasCache[tier + '_' + piece] = cv;
+            }
+        }
+
         // --- NEW BIOME BLOCK TEXTURES ---
         // 1. Snow
         const snowCv = this.createCanvas();

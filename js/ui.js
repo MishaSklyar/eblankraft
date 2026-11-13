@@ -11,7 +11,7 @@ class UIManager {
 
         this.inventoryOpen = false;
         this.menuOpen = false;
-        this.currentTab = 'backpack';
+        this.currentTab = 'inventory';
         this.selectedInventorySlot = null;
 
         this.fpsHistory = [];
@@ -402,7 +402,7 @@ class UIManager {
             closeBtn.addEventListener('click', () => this.toggleInventory(false));
         }
 
-        const tabs = ['backpack', 'catalog', 'crafting', 'cases', 'gg', 'upgrader', 'trash', 'skins'];
+        const tabs = ['inventory', 'catalog', 'cases', 'skins'];
 
         // Tab Navigation Arrows (◀ / ▶)
         const btnNavPrev = document.getElementById('tab-nav-prev');
@@ -500,26 +500,14 @@ class UIManager {
         contentContainer.scrollTop = 0;
 
         switch (this.currentTab) {
-            case 'backpack':
-                this.renderBackpackTab(contentContainer);
+            case 'inventory':
+                this.renderInventoryTab(contentContainer);
                 break;
             case 'catalog':
                 this.renderCatalogTab(contentContainer);
                 break;
-            case 'crafting':
-                this.renderCraftingTab(contentContainer);
-                break;
             case 'cases':
                 this.renderCasesTab(contentContainer);
-                break;
-            case 'gg':
-                this.renderUpgraderGGTab(contentContainer);
-                break;
-            case 'upgrader':
-                this.renderUpgraderTab(contentContainer);
-                break;
-            case 'trash':
-                this.renderTrashTab(contentContainer);
                 break;
             case 'skins':
                 this.renderSkinsTab(contentContainer);
@@ -527,71 +515,229 @@ class UIManager {
         }
     }
 
-    // 1. Backpack Tab (27 slots)
-    renderBackpackTab(container) {
+    // 1. Inventory tab: armor + totem slots, 3x3 crafting grid, backpack, recipe list and the Upgrader wheel
+    renderInventoryTab(container) {
+        const player = this.player;
+        const sections = this.invSections || (this.invSections = { recipes: false, upgrader: true });
+        const icon = (id) => this.textureManager.getIconDataURL((ITEM_REGISTRY[id] || {}).icon || 'stone');
+
         const wrapper = document.createElement('div');
-        wrapper.className = 'tab-backpack-wrapper';
+        wrapper.className = 'tab-backpack-wrapper inv2-wrap';
+        const top = document.createElement('div');
+        top.className = 'inv2-top';
+        wrapper.appendChild(top);
 
-        const title = document.createElement('div');
-        title.className = 'backpack-section-title';
-        title.innerHTML = '🎒 ХОТБАР (1-9) &amp; ОСНОВНИЙ РЮКЗАК:';
-        wrapper.appendChild(title);
+        // --- slot access helpers: ref = { kind: 'inv'|'grid'|'armor'|'totem'|'out', idx } ---
+        const refKey = (r) => r ? r.kind + ':' + r.idx : '';
+        const get = (r) => {
+            if (r.kind === 'inv') return player.inventory[r.idx];
+            if (r.kind === 'grid') return player.craftGrid[r.idx];
+            if (r.kind === 'armor') return player.armor[r.idx] ? { itemId: player.armor[r.idx], count: 1 } : null;
+            if (r.kind === 'totem') return player.totemSlot ? { itemId: player.totemSlot, count: 1 } : null;
+            return null;
+        };
+        const set = (r, st) => {
+            if (r.kind === 'inv') player.inventory[r.idx] = st;
+            else if (r.kind === 'grid') player.craftGrid[r.idx] = st;
+            else if (r.kind === 'armor') player.armor[r.idx] = st ? st.itemId : null;
+            else if (r.kind === 'totem') player.totemSlot = st ? st.itemId : null;
+        };
+        const accepts = (r, st) => {
+            if (!st) return true;
+            const reg = ITEM_REGISTRY[st.itemId] || {};
+            if (r.kind === 'armor') return reg.armorSlot === r.idx;
+            if (r.kind === 'totem') return !!reg.isTotem;
+            return r.kind !== 'out';
+        };
+        const changed = () => {
+            player.saveInventory();
+            player.updateHeldBlock();
+            this.initHotbar();
+            renderTop();
+        };
+        const sameRef = (a, b) => a && b && a.kind === b.kind && a.idx === b.idx;
 
-        const grid = document.createElement('div');
-        grid.className = 'backpack-grid';
-
-        for (let i = 0; i < 27; i++) {
-            const slotEl = document.createElement('div');
-            slotEl.className = `backpack-slot ${i < 9 ? 'is-hotbar' : ''} ${this.selectedInventorySlot === i ? 'selected' : ''}`;
-
-            const item = this.player.inventory[i];
-            if (item) {
-                const img = document.createElement('img');
-                const reg = ITEM_REGISTRY[item.itemId];
-                img.src = this.textureManager.getIconDataURL(reg ? reg.icon : 'stone');
-                slotEl.appendChild(img);
-
-                if (item.count > 1) {
-                    const countEl = document.createElement('span');
-                    countEl.className = 'slot-count';
-                    countEl.textContent = item.count;
-                    slotEl.appendChild(countEl);
+        // Move/swap/merge a stack from one slot to another
+        const moveTo = (from, to) => {
+            const a = get(from), b = get(to);
+            if (!a) return false;
+            if (!accepts(to, a)) { this.showToast('❌ Цей предмет сюди не підходить'); return false; }
+            const regA = ITEM_REGISTRY[a.itemId] || {};
+            if (b && b.itemId === a.itemId && (regA.maxStack || 64) > 1 && (to.kind === 'inv' || to.kind === 'grid') && (from.kind === 'inv' || from.kind === 'grid')) {
+                const room = (regA.maxStack || 64) - b.count;
+                const mv = Math.min(room, a.count);
+                if (mv > 0) {
+                    b.count += mv; a.count -= mv;
+                    if (a.count <= 0) set(from, null);
+                    return true;
                 }
             }
+            if (b && !accepts(from, b)) {
+                // can't swap into a restricted slot: fall back to a free backpack slot for b if the source is restricted
+                this.showToast('❌ Предмет не можна поміняти місцями');
+                return false;
+            }
+            set(from, b || null);
+            set(to, a);
+            return true;
+        };
 
-            slotEl.addEventListener('click', () => {
-                if (this.selectedInventorySlot === null) {
-                    if (this.player.inventory[i]) {
-                        this.selectedInventorySlot = i;
-                        this.renderCurrentTab();
-                    }
-                } else {
-                    // Swap slots
-                    const fromIdx = this.selectedInventorySlot;
-                    const toIdx = i;
-                    const temp = this.player.inventory[fromIdx];
-                    this.player.inventory[fromIdx] = this.player.inventory[toIdx];
-                    this.player.inventory[toIdx] = temp;
+        // Right-click / long action: quick equip or unequip
+        const quick = (ref) => {
+            const st = get(ref);
+            if (!st) return;
+            const reg = ITEM_REGISTRY[st.itemId] || {};
+            if (ref.kind === 'armor' || ref.kind === 'totem') {
+                const idx = player.inventory.findIndex(x => !x);
+                if (idx === -1) { this.showToast('🎒 Немає вільного місця'); return; }
+                if (moveTo(ref, { kind: 'inv', idx })) changed();
+                return;
+            }
+            let target = null;
+            if (reg.armorSlot) target = { kind: 'armor', idx: reg.armorSlot };
+            else if (reg.isTotem) target = { kind: 'totem', idx: 0 };
+            if (target && moveTo(ref, target)) { this.soundManager.playClick(); changed(); }
+        };
 
-                    this.selectedInventorySlot = null;
-                    this.player.saveInventory();
-                    this.player.updateHeldBlock();
-                    this.initHotbar();
-                    this.renderCurrentTab();
-                    this.soundManager.playClick();
+        const onSlot = (ref) => {
+            const sel = this.invSel;
+            if (!sel) {
+                if (get(ref)) { this.invSel = ref; renderTop(); }
+                return;
+            }
+            if (sameRef(sel, ref)) { this.invSel = null; renderTop(); return; }
+            this.invSel = null;
+            if (moveTo(sel, ref)) { this.soundManager.playClick(); changed(); }
+            else renderTop();
+        };
+
+        const makeSlot = (ref, extraClass = '', placeholder = '') => {
+            const el = document.createElement('div');
+            el.className = `backpack-slot ${extraClass} ${sameRef(this.invSel, ref) ? 'selected' : ''}`;
+            const st = get(ref);
+            if (st) {
+                const reg = ITEM_REGISTRY[st.itemId];
+                const img = document.createElement('img');
+                img.src = icon(st.itemId);
+                el.appendChild(img);
+                el.title = reg ? reg.name + (reg.defense ? ` (+${reg.defense} броні)` : '') : st.itemId;
+                if (st.count > 1) {
+                    const c = document.createElement('span');
+                    c.className = 'slot-count';
+                    c.textContent = st.count;
+                    el.appendChild(c);
                 }
+            } else if (placeholder) {
+                const ph = document.createElement('span');
+                ph.className = 'inv2-ph';
+                ph.textContent = placeholder;
+                el.appendChild(ph);
+            }
+            // highlight valid targets for the selected item
+            const selSt = this.invSel ? get(this.invSel) : null;
+            if (selSt && !sameRef(this.invSel, ref) && (ref.kind === 'armor' || ref.kind === 'totem') && accepts(ref, selSt)) el.classList.add('inv2-target');
+            el.addEventListener('click', () => onSlot(ref));
+            el.addEventListener('contextmenu', (e) => { e.preventDefault(); quick(ref); });
+            el.addEventListener('dblclick', () => { this.invSel = null; quick(ref); });
+            return el;
+        };
+
+        const renderTop = () => {
+            top.innerHTML = '';
+
+            // --- Equipment column ---
+            const equip = document.createElement('div');
+            equip.className = 'inv2-equip';
+            equip.innerHTML = '<div class="backpack-section-title">🛡️ БРОНЯ</div>';
+            const eqCol = document.createElement('div');
+            eqCol.className = 'inv2-equip-col';
+            ARMOR_SLOTS.forEach(sl => eqCol.appendChild(makeSlot({ kind: 'armor', idx: sl.id }, 'inv2-equip-slot', sl.icon)));
+            equip.appendChild(eqCol);
+            const totemRow = document.createElement('div');
+            totemRow.className = 'inv2-totem-row';
+            totemRow.innerHTML = '<span>Тотем</span>';
+            totemRow.appendChild(makeSlot({ kind: 'totem', idx: 0 }, 'inv2-equip-slot inv2-totem', '✨'));
+            equip.appendChild(totemRow);
+            const def = player.getArmorDefense();
+            const stats = document.createElement('div');
+            stats.className = 'inv2-armor-stats';
+            stats.innerHTML = `🛡️ ${def} · −${Math.round(player.getArmorReduction() * 100)}% шкоди`;
+            equip.appendChild(stats);
+            top.appendChild(equip);
+
+            // --- Crafting grid ---
+            const craft = document.createElement('div');
+            craft.className = 'inv2-craft';
+            craft.innerHTML = '<div class="backpack-section-title">🔨 КРАФТ</div>';
+            const row = document.createElement('div');
+            row.className = 'inv2-craft-row';
+            const grid = document.createElement('div');
+            grid.className = 'inv2-craft-grid';
+            for (let i = 0; i < 9; i++) grid.appendChild(makeSlot({ kind: 'grid', idx: i }));
+            row.appendChild(grid);
+            const arrow = document.createElement('div');
+            arrow.className = 'inv2-arrow';
+            arrow.textContent = '➜';
+            row.appendChild(arrow);
+
+            const match = matchCraftingGrid(player.craftGrid);
+            const out = document.createElement('div');
+            out.className = 'backpack-slot inv2-out' + (match ? ' inv2-out-ready' : '');
+            if (match) {
+                const oReg = ITEM_REGISTRY[match.recipe.output.itemId];
+                const img = document.createElement('img');
+                img.src = icon(match.recipe.output.itemId);
+                out.appendChild(img);
+                out.title = oReg ? oReg.name : '';
+                if (match.recipe.output.count > 1) {
+                    const c = document.createElement('span');
+                    c.className = 'slot-count';
+                    c.textContent = match.recipe.output.count;
+                    out.appendChild(c);
+                }
+            }
+            out.addEventListener('click', () => {
+                const m = matchCraftingGrid(player.craftGrid);
+                if (!m) return;
+                for (const [idx, n] of m.consume) {
+                    const st = player.craftGrid[idx];
+                    st.count -= n;
+                    if (st.count <= 0) player.craftGrid[idx] = null;
+                }
+                const o = m.recipe.output;
+                if (!player.addItem(o.itemId, o.count) && this.game.mobManager) {
+                    this.game.mobManager.spawnItemDrop(player.position.x, player.position.y + 1, player.position.z, o.itemId, o.count);
+                }
+                this.soundManager.playClick();
+                this.soundManager.speakRandomMeme?.(["Скрафтив!", "Красава!", "Оце річ!"]);
+                changed();
             });
+            row.appendChild(out);
+            craft.appendChild(row);
+            const hint = document.createElement('div');
+            hint.className = 'backpack-hint';
+            hint.textContent = match ? `✔ ${match.recipe.name}` : 'Розкладіть предмети у сітці. Броню збирають формою (шолом, нагрудник…), інше — у будь-якому порядку.';
+            craft.appendChild(hint);
+            const btnClearGrid = document.createElement('button');
+            btnClearGrid.className = 'menu-btn';
+            btnClearGrid.textContent = '↩ Забрати з сітки';
+            btnClearGrid.onclick = () => { player.returnCraftGrid(); changed(); };
+            craft.appendChild(btnClearGrid);
+            top.appendChild(craft);
 
-            grid.appendChild(slotEl);
-        }
-        wrapper.appendChild(grid);
+            // --- Backpack ---
+            const pack = document.createElement('div');
+            pack.className = 'inv2-pack';
+            pack.innerHTML = '<div class="backpack-section-title">🎒 ХОТБАР (1-9) &amp; РЮКЗАК:</div>';
+            const bg = document.createElement('div');
+            bg.className = 'backpack-grid';
+            for (let i = 0; i < 27; i++) bg.appendChild(makeSlot({ kind: 'inv', idx: i }, i < 9 ? 'is-hotbar' : ''));
+            pack.appendChild(bg);
 
-        // Actions toolbar
-        const actions = document.createElement('div');
-        actions.className = 'backpack-actions';
-
-        if (this.selectedInventorySlot !== null) {
-            const selItem = this.player.inventory[this.selectedInventorySlot];
+            const actions = document.createElement('div');
+            actions.className = 'backpack-actions';
+            const sel = this.invSel;
+            const selItem = sel ? get(sel) : null;
             if (selItem) {
                 const reg = ITEM_REGISTRY[selItem.itemId];
                 const infoText = document.createElement('div');
@@ -599,71 +745,93 @@ class UIManager {
                 infoText.textContent = `Вибрано: ${reg ? reg.name : selItem.itemId} (${selItem.count} шт.)`;
                 actions.appendChild(infoText);
 
-                const btnDrop = document.createElement('button');
-                btnDrop.className = 'menu-btn btn-danger';
-                btnDrop.textContent = '🗑️ Викинути (1 шт)';
-                btnDrop.onclick = () => {
-                    this.player.dropItem(this.selectedInventorySlot, 1);
-                    this.renderCurrentTab();
-                };
-                actions.appendChild(btnDrop);
-
-                if (reg && reg.category === 'food') {
-                    const btnEat = document.createElement('button');
-                    btnEat.className = 'menu-btn btn-success';
-                    btnEat.textContent = '🍗 З’їсти';
-                    btnEat.onclick = () => {
-                        this.player.selectedHotbarIndex = this.selectedInventorySlot < 9 ? this.selectedInventorySlot : 0;
-                        this.player.eatFood();
-                        this.renderCurrentTab();
-                    };
-                    actions.appendChild(btnEat);
+                if (sel.kind === 'inv') {
+                    const btnDrop = document.createElement('button');
+                    btnDrop.className = 'menu-btn btn-danger';
+                    btnDrop.textContent = '🗑️ Викинути (1 шт)';
+                    btnDrop.onclick = () => { player.dropItem(sel.idx, 1); renderTop(); };
+                    actions.appendChild(btnDrop);
+                    if (reg && reg.category === 'food') {
+                        const btnEat = document.createElement('button');
+                        btnEat.className = 'menu-btn btn-success';
+                        btnEat.textContent = '🍗 З’їсти';
+                        btnEat.onclick = () => {
+                            player.selectedHotbarIndex = sel.idx < 9 ? sel.idx : 0;
+                            player.eatFood();
+                            renderTop();
+                        };
+                        actions.appendChild(btnEat);
+                    }
                 }
+                if (reg && (reg.armorSlot || reg.isTotem) && sel.kind !== 'armor' && sel.kind !== 'totem') {
+                    const btnEq = document.createElement('button');
+                    btnEq.className = 'menu-btn btn-primary';
+                    btnEq.textContent = reg.isTotem ? '✨ У слот тотема' : '🛡️ Одягнути';
+                    btnEq.onclick = () => { this.invSel = null; quick(sel); };
+                    actions.appendChild(btnEq);
+                }
+            } else {
+                const h = document.createElement('div');
+                h.className = 'backpack-hint';
+                h.textContent = '💡 Клік по предмету, потім по слоту — перемістити. ПКМ / подвійний клік — одягнути чи зняти броню й тотем.';
+                actions.appendChild(h);
             }
-        } else {
-            const hint = document.createElement('div');
-            hint.className = 'backpack-hint';
-            hint.textContent = '💡 Клікніть на предмет, потім на інший слот, щоб поміняти місцями!';
-            actions.appendChild(hint);
-        }
+            pack.appendChild(actions);
 
-        wrapper.appendChild(actions);
-
-        // Inventory Management Toolbar (Reset / Clear)
-        const manageToolbar = document.createElement('div');
-        manageToolbar.className = 'backpack-manage-toolbar';
-
-        const btnStarter = document.createElement('button');
-        btnStarter.className = 'menu-btn btn-primary';
-        btnStarter.innerHTML = '🔄 Стартовий набір';
-        btnStarter.title = 'Повернути стандартний набір виживання';
-        btnStarter.onclick = () => {
-            if (confirm("Скинути інвентар до стандартного набору виживання?")) {
-                this.selectedInventorySlot = null;
-                this.player.resetToStarterInventory();
-                this.initHotbar();
-                this.renderCurrentTab();
-                this.showToast("🎒 Стартовий набір отримано!");
-            }
+            const manage = document.createElement('div');
+            manage.className = 'backpack-manage-toolbar';
+            const btnStarter = document.createElement('button');
+            btnStarter.className = 'menu-btn btn-primary';
+            btnStarter.innerHTML = '🔄 Стартовий набір';
+            btnStarter.title = 'Повернути стандартний набір виживання';
+            btnStarter.onclick = () => {
+                if (confirm("Скинути інвентар до стандартного набору виживання?")) {
+                    this.invSel = null;
+                    player.returnCraftGrid();
+                    player.resetToStarterInventory();
+                    this.initHotbar();
+                    renderTop();
+                    this.showToast("🎒 Стартовий набір отримано!");
+                }
+            };
+            const btnClear = document.createElement('button');
+            btnClear.className = 'menu-btn btn-danger';
+            btnClear.innerHTML = '🧹 Очистити все';
+            btnClear.title = 'Повністю очистити інвентар, броню та сітку крафту';
+            btnClear.onclick = () => {
+                if (confirm("Повністю очистити весь інвентар, броню та тотем?")) {
+                    this.invSel = null;
+                    player.clearInventory();
+                    this.initHotbar();
+                    renderTop();
+                    this.showToast("🧹 Інвентар повністю очищено!");
+                }
+            };
+            manage.appendChild(btnStarter);
+            manage.appendChild(btnClear);
+            pack.appendChild(manage);
+            top.appendChild(pack);
         };
+        this.invTopRefresh = renderTop;
+        renderTop();
 
-        const btnClear = document.createElement('button');
-        btnClear.className = 'menu-btn btn-danger';
-        btnClear.innerHTML = '🧹 Очистити все';
-        btnClear.title = 'Повністю очистити весь інвентар';
-        btnClear.onclick = () => {
-            if (confirm("Повністю очистити весь інвентар (усі 27 слотів)?")) {
-                this.selectedInventorySlot = null;
-                this.player.clearInventory();
-                this.initHotbar();
-                this.renderCurrentTab();
-                this.showToast("🧹 Інвентар повністю очищено!");
-            }
+        // Collapsible sections below
+        const section = (key, title, build) => {
+            const d = document.createElement('details');
+            d.className = 'inv2-section';
+            d.open = !!sections[key];
+            d.innerHTML = `<summary>${title}</summary>`;
+            const body = document.createElement('div');
+            body.className = 'inv2-section-body';
+            d.appendChild(body);
+            let built = false;
+            const ensure = () => { if (!built) { built = true; build(body); } };
+            if (d.open) ensure();
+            d.addEventListener('toggle', () => { sections[key] = d.open; if (d.open) ensure(); });
+            wrapper.appendChild(d);
         };
-
-        manageToolbar.appendChild(btnStarter);
-        manageToolbar.appendChild(btnClear);
-        wrapper.appendChild(manageToolbar);
+        section('recipes', '📖 Список рецептів', (body) => this.renderCraftingTab(body));
+        section('upgrader', '🎰 Upgrader', (body) => this.renderUpgraderGGTab(body));
 
         container.appendChild(wrapper);
     }
@@ -859,51 +1027,7 @@ class UIManager {
         container.appendChild(grid);
     }
 
-    // 4. Upgrader Tab
-    renderUpgraderTab(container) {
-        const list = document.createElement('div');
-        list.className = 'upgrader-list';
-
-        Object.keys(UPGRADES_CONFIG).forEach(upgKey => {
-            const cfg = UPGRADES_CONFIG[upgKey];
-            const curLvl = this.game.upgrader.upgrades[upgKey] || 0;
-            const isMax = curLvl >= cfg.maxLevel;
-            const cost = cfg.baseCost * (curLvl + 1);
-
-            const card = document.createElement('div');
-            card.className = 'upgrade-card';
-
-            const left = document.createElement('div');
-            left.className = 'upg-left';
-            left.innerHTML = `
-                <div class="upg-icon">${cfg.icon}</div>
-                <div class="upg-details">
-                    <div class="upg-name">${cfg.name} <span class="upg-level">Рівень: ${curLvl}/${cfg.maxLevel}</span></div>
-                    <div class="upg-desc">${cfg.desc}</div>
-                    <div class="upg-cost">${isMax ? 'МАКСИМАЛЬНИЙ РІВЕНЬ!' : `Ціна: <b>${cost} Жетонів / Злитків</b>`}</div>
-                </div>
-            `;
-            card.appendChild(left);
-
-            const btnUpg = document.createElement('button');
-            const canAfford = this.game.upgrader.canAffordUpgrade(upgKey);
-            btnUpg.className = `menu-btn ${!isMax && canAfford ? 'btn-success' : 'btn-disabled'}`;
-            btnUpg.textContent = isMax ? '✔ МАКС' : '⚡ Прокачати';
-            btnUpg.disabled = isMax || !canAfford;
-            btnUpg.onclick = () => {
-                if (this.game.upgrader.purchaseUpgrade(upgKey)) {
-                    this.renderCurrentTab();
-                }
-            };
-            card.appendChild(btnUpg);
-
-            list.appendChild(card);
-        });
-
-        container.appendChild(list);
-    }
-
-    // 4b. Upgrader.gg-style tab: stake items, pick a target, spin the wheel
+    // Upgrader.gg-style section: stake items, pick a target, spin the wheel
     renderUpgraderGGTab(container) {
         const player = this.player;
         const stake = this.ggStake || (this.ggStake = {});
@@ -1023,6 +1147,7 @@ class UIManager {
                 if (!given && this.game.mobManager) this.game.mobManager.spawnItemDrop(player.position.x, player.position.y + 1, player.position.z, targetId, 1);
             }
             for (const id of Object.keys(stake)) delete stake[id];
+            if (this.invTopRefresh) this.invTopRefresh();
 
             state.spinning = true;
             const turns = 5 + Math.floor(Math.random() * 3);
@@ -1044,65 +1169,12 @@ class UIManager {
                     this.soundManager?.playHurt?.();
                     this.showToast(`💀 Не пощастило... ${name} не випав`);
                 }
-                if (this.currentTab === 'gg' && wrap.isConnected) this.renderCurrentTab();
+                if (this.currentTab === 'inventory' && wrap.isConnected) this.renderCurrentTab();
             }, 5200);
             refresh();
         };
 
         refresh();
-    }
-
-    // 5. Trash & Recycler Tab
-    renderTrashTab(container) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'trash-wrapper';
-
-        wrapper.innerHTML = `
-            <div class="trash-header">
-                <h2>🗑️ МУСОРОПРОВІД ТА УТИЛІЗАТОР ЄБЛАНА</h2>
-                <p>Знайшов у шахті старий носок, бичок або банку пива? Здай у переробку та отримай Мусорні Жетони ♻️ для Апгрейдера!</p>
-            </div>
-        `;
-
-        // Count junk in player's inventory
-        let totalJunk = 0;
-        JUNK_ITEMS_POOL.forEach(jId => {
-            totalJunk += this.player.getItemCount(jId);
-        });
-
-        const status = document.createElement('div');
-        status.className = 'trash-status';
-        status.innerHTML = `У вашому інвентарі знайдено мусору: <b>${totalJunk} шт.</b>`;
-        wrapper.appendChild(status);
-
-        const btnRecycle = document.createElement('button');
-        btnRecycle.className = `menu-btn ${totalJunk > 0 ? 'btn-success' : 'btn-disabled'}`;
-        btnRecycle.style.padding = '14px 20px';
-        btnRecycle.style.fontSize = '16px';
-        btnRecycle.textContent = `♻️ Переробити весь мусор (Отримати ~${Math.ceil(totalJunk / 2)} Жетонів)`;
-        btnRecycle.disabled = totalJunk === 0;
-
-        btnRecycle.onclick = () => {
-            let tokensToAdd = 0;
-            JUNK_ITEMS_POOL.forEach(jId => {
-                const count = this.player.getItemCount(jId);
-                if (count > 0) {
-                    this.player.removeItem(jId, count);
-                    tokensToAdd += Math.max(1, Math.floor(count / 2));
-                }
-            });
-
-            if (tokensToAdd > 0) {
-                this.player.addItem(ITEM_TYPES.JUNK_TOKEN, tokensToAdd);
-                this.soundManager.playClick();
-                this.soundManager.speakRandomMeme(["Мусор перероблено!", "Оце ти еколог!"]);
-                this.showToast(`♻️ Отримано +${tokensToAdd} Мусорних Жетонів!`);
-                this.renderCurrentTab();
-            }
-        };
-        wrapper.appendChild(btnRecycle);
-
-        container.appendChild(wrapper);
     }
 
     // 6. Skins Tab
@@ -1483,6 +1555,11 @@ class UIManager {
         if (!modal) return;
         this.inventoryOpen = forceState !== null ? forceState : !this.inventoryOpen;
         modal.style.display = this.inventoryOpen ? 'flex' : 'none';
+        if (!this.inventoryOpen) {
+            this.invSel = null;
+            this.player.returnCraftGrid();
+            this.initHotbar();
+        }
         this.soundManager.playClick();
         if (this.inventoryOpen) {
             if (document.pointerLockElement) document.exitPointerLock();

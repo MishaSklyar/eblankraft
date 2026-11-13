@@ -609,6 +609,11 @@ class Player {
         this.inventory = new Array(27).fill(null);
         this.selectedHotbarIndex = 0;
         this.initDefaultInventory();
+        // Equipment: 4 armor slots + 1 totem slot, and the 3x3 crafting grid (transient, returned on close)
+        this.armor = { helmet: null, chestplate: null, leggings: null, boots: null };
+        this.totemSlot = null;
+        this.craftGrid = new Array(9).fill(null);
+        this.loadEquipment();
 
         // Mining State & Speed
         this.targetBlock = null; // { hit, x, y, z, nx, ny, nz, type }
@@ -682,6 +687,8 @@ class Player {
         this.inventory = new Array(27).fill(null);
         this.selectedHotbarIndex = 0;
         this.initDefaultInventory();
+        this.craftGrid = new Array(9).fill(null);
+        this.loadEquipment();
         this.saveInventory();
         this.updateHeldBlock();
     }
@@ -690,7 +697,50 @@ class Player {
         if (this.game?.arenaClient?.isActive || this.game?.ui?.duelSavedSession) { return; }
         try {
             localStorage.setItem(this.getInventoryStorageKey(), JSON.stringify(this.inventory));
+            localStorage.setItem(this.getInventoryStorageKey() + '_equip', JSON.stringify({ armor: this.armor, totem: this.totemSlot }));
         } catch (e) {}
+    }
+
+    // --- Equipment (armor + totem) ---
+    loadEquipment() {
+        this.armor = { helmet: null, chestplate: null, leggings: null, boots: null };
+        this.totemSlot = null;
+        try {
+            const saved = JSON.parse(localStorage.getItem(this.getInventoryStorageKey() + '_equip') || 'null');
+            if (saved && saved.armor) {
+                for (const slot of Object.keys(this.armor)) {
+                    const reg = ITEM_REGISTRY[saved.armor[slot]];
+                    if (reg && reg.armorSlot === slot) this.armor[slot] = reg.id;
+                }
+            }
+            if (saved && saved.totem && ITEM_REGISTRY[saved.totem]?.isTotem) this.totemSlot = saved.totem;
+        } catch (e) {}
+    }
+
+    getArmorDefense() {
+        let pts = 0;
+        for (const slot of Object.keys(this.armor)) {
+            const reg = this.armor[slot] && ITEM_REGISTRY[this.armor[slot]];
+            if (reg) pts += reg.defense || 0;
+        }
+        return pts;
+    }
+
+    // 3% less damage per armor point, never more than 70%
+    getArmorReduction() {
+        return Math.min(0.7, this.getArmorDefense() * 0.03);
+    }
+
+    // Puts any leftover crafting-grid items back into the backpack (or drops them if it is full)
+    returnCraftGrid() {
+        for (let i = 0; i < 9; i++) {
+            const st = this.craftGrid[i];
+            if (!st) continue;
+            this.craftGrid[i] = null;
+            if (!this.addItem(st.itemId, st.count) && this.game?.mobManager) {
+                this.game.mobManager.spawnItemDrop(this.position.x, this.position.y + 1, this.position.z, st.itemId, st.count);
+            }
+        }
     }
 
     syncInventoryWithServer() {
@@ -755,6 +805,9 @@ class Player {
 
     clearInventory() {
         this.inventory = new Array(27).fill(null);
+        this.armor = { helmet: null, chestplate: null, leggings: null, boots: null };
+        this.totemSlot = null;
+        this.craftGrid = new Array(9).fill(null);
         this.selectedHotbarIndex = 0;
         this.saveInventory();
         this.updateHeldBlock();
@@ -1265,11 +1318,17 @@ class Player {
             amount = Math.max(1, Math.round(amount * (1 - red)));
         }
 
+        // Apply armor reduction
+        const armorRed = this.getArmorReduction();
+        if (armorRed > 0) amount = Math.max(1, Math.round(amount * (1 - armorRed)));
+
         // --- 3. CHECK TOTEM OF UNDYING (Lethal damage prevention) ---
         if (this.health - amount <= 0) {
             let totemSlot = -1;
             const held = this.getSelectedItem();
-            if (held && held.itemId === ITEM_TYPES.TOTEM_OF_UNDYING) {
+            if (this.totemSlot === ITEM_TYPES.TOTEM_OF_UNDYING) {
+                totemSlot = 'equip'; // the dedicated totem slot is used first
+            } else if (held && held.itemId === ITEM_TYPES.TOTEM_OF_UNDYING) {
                 totemSlot = this.selectedHotbarIndex;
             } else {
                 for (let i = 0; i < this.inventory.length; i++) {
@@ -1308,7 +1367,11 @@ class Player {
 
     // Consume Totem of Undying upon lethal damage
     consumeTotem(slot) {
-        if (this.inventory[slot]) {
+        if (slot === 'equip') {
+            this.totemSlot = null;
+            this.saveInventory();
+            if (this.game?.ui?.inventoryOpen) this.game.ui.renderCurrentTab();
+        } else if (this.inventory[slot]) {
             this.inventory[slot].count -= 1;
             if (this.inventory[slot].count <= 0) {
                 this.inventory[slot] = null;

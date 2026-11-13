@@ -6753,3 +6753,28 @@ body.is-preloading #mining-progress-container {
 #rtx-parts.rtx-off .toggle-item { opacity: .45; pointer-events: none; }
 #rtx-parts .menu-toggles-grid { grid-template-columns: 1fr; }
 .rtx-part small { white-space: normal; }
+
+/* Merged inventory tab: armor + totem, crafting grid, backpack, Upgrader */
+.inv2-top { display: grid; grid-template-columns: auto auto 1fr; gap: 16px; align-items: start; }
+.inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 52px; height: 52px; min-width: 52px; }
+.inv2-equip-col { display: flex; flex-direction: column; gap: 4px; }
+.inv2-totem-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #ffd54f; }
+.inv2-totem { border-color: #b8860b; }
+.inv2-armor-stats { margin-top: 8px; font-size: 12px; color: #9ad; }
+.inv2-ph { font-size: 20px; opacity: 0.3; pointer-events: none; }
+.inv2-target { border-color: #4caf50 !important; box-shadow: 0 0 8px #4caf50; }
+.inv2-craft-row { display: flex; align-items: center; gap: 10px; }
+.inv2-craft-grid { display: grid; grid-template-columns: repeat(3, 52px); gap: 3px; }
+.inv2-arrow { font-size: 26px; color: #ffd700; }
+.inv2-out { width: 64px !important; height: 64px !important; border-color: #555; }
+.inv2-out-ready { border-color: #4caf50; box-shadow: 0 0 10px #4caf50; }
+.inv2-craft .backpack-hint { max-width: 240px; margin: 6px 0; }
+.inv2-section { margin-top: 12px; border: 1px solid #383844; border-radius: 6px; padding: 6px 10px; }
+.inv2-section > summary { cursor: pointer; font-weight: bold; color: #ffd700; padding: 4px 0; user-select: none; }
+.inv2-section-body { margin-top: 8px; }
+@media (max-width: 800px) {
+    .inv2-top { grid-template-columns: 1fr; }
+    .inv2-equip-col { flex-direction: row; flex-wrap: wrap; }
+    .inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 46px; height: 46px; min-width: 46px; }
+    .inv2-craft-grid { grid-template-columns: repeat(3, 46px); }
+}
