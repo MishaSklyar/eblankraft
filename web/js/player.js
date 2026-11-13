@@ -179,6 +179,60 @@ function createVoxelKnifeModel(type) {
     return root;
 }
 window.createVoxelKnifeModel = createVoxelKnifeModel;
+
+// --- Per-knife pickup (draw) and inspect animations ---
+// draw(d, o): d = remaining pickup weight (1 -> 0); inspect(p, o): p = progress (0 -> 1).
+// o collects additive viewmodel offsets (px/py/pz position, rx/ry/rz arm rotation) and
+// mesh-local spin (mx/my/mz) so every knife can flip, roll or twirl around its own handle.
+const TAU = Math.PI * 2;
+const _ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const _clamp01 = t => Math.max(0, Math.min(1, t));
+function _inspectLift(o, p, k = 1) {   // raise the knife toward the screen centre while it is shown off
+    const l = Math.sin(p * Math.PI) * k;
+    o.px += (.16 - o.bx) * l * .6; o.py += .05 * l; o.pz += .05 * l; o.ry += .35 * l; o.rx += .12 * l;
+    return l;
+}
+const KNIFE_ANIMS = {
+    default: {
+        drawTime: .35, inspectTime: 1.9,
+        draw(d, o) { o.py -= d * .42; o.px += d * .12; o.rx -= d * 1.2; o.rz += d * .9; },
+        inspect(p, o) { const l = _inspectLift(o, p); o.mz = _ease(p) * TAU; o.my = l * .2; },
+    },
+    bayonet: {   // stabbed up from low right, then turned to show the blade and spine
+        drawTime: .5, inspectTime: 1.9,
+        draw(d, o) { o.py -= d * .4; o.px += d * .2; o.ry -= d * .8; o.mz = -d * 1.6; o.pz += d * .1; },
+        inspect(p, o) { const l = _inspectLift(o, p, 1.2); o.ry += Math.sin(p * Math.PI) * .7; o.mx = -l * .7; o.mz = Math.sin(p * TAU) * .5 + _ease(p) * Math.PI; o.my = Math.sin(p * Math.PI) * .6; },
+    },
+    huntsman: {   // flipped in with a forward somersault; inspect = reverse-grip backflip
+        drawTime: .6, inspectTime: 2,
+        draw(d, o) { o.py -= d * .4; o.px += d * .08; o.mx = -d * TAU; },
+        inspect(p, o) { const l = _inspectLift(o, p); o.mx = -_ease(p) * TAU; o.mz = l * .35; },
+    },
+    m9: {   // spins like a propeller on its axis
+        drawTime: .6, inspectTime: 2.2,
+        draw(d, o) { o.py -= d * .42; o.px += d * .1; o.rx -= d * .8; o.mz = d * TAU; },
+        inspect(p, o) { const l = _inspectLift(o, p, 1.1); o.mz = _ease(p) * TAU; o.mx = Math.sin(p * TAU) * .45; o.my = l * .3; },
+    },
+    butterfly: {   // balisong tricks: double flip on the way in, flip-flip-roll inspect
+        drawTime: .8, inspectTime: 2.5,
+        draw(d, o) { o.py -= d * .36; o.px += d * .1; o.mx = d * TAU * 2; o.mz = d * .6; },
+        inspect(p, o) {
+            const l = _inspectLift(o, p, 1.15), u1 = _clamp01(p / .55), u2 = _clamp01((p - .55) / .45);
+            o.mx = _ease(u1) * TAU * 2; o.mz = _ease(u2) * TAU; o.my = l * .25;
+        },
+    },
+    karambit: {   // twirled around the finger ring
+        drawTime: .65, inspectTime: 2.3,
+        draw(d, o) { o.py -= d * .38; o.px += d * .15; o.rz += d * .5; o.mx = -d * TAU; o.mz = d * .5; },
+        inspect(p, o) { const l = _inspectLift(o, p, 1.3); o.mx = -_ease(p) * TAU * 2; o.mz = l * .45; o.my = Math.sin(p * TAU) * .3; },
+    },
+    gold: {   // slow, showy rotation so the shine catches the light
+        drawTime: .7, inspectTime: 2.7,
+        draw(d, o) { o.py -= d * .45; o.px += d * .1; o.rx -= d * .7; o.my = d * TAU; o.mz = d * .5; },
+        inspect(p, o) { const l = _inspectLift(o, p, 1.5); o.my = _ease(p) * TAU; o.mz = l * .55; o.mx = -l * .3; },
+    },
+};
+window.KNIFE_ANIMS = KNIFE_ANIMS;
 function disposeHeldModel(model) {
     if (!model) return;
     const materials = new Set();
@@ -813,7 +867,8 @@ class Player {
             if (this.heldToolMesh) this.heldToolMesh.visible = false;
         } else if (reg?.isKnife) {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
-            this.heldKnifeMesh = createVoxelKnifeModel(String(reg.icon).replace('knife_', ''));
+            this._knifeType = String(reg.icon).replace('knife_', '');
+            this.heldKnifeMesh = createVoxelKnifeModel(this._knifeType);
             this.heldKnifeMesh.scale.setScalar(1.12);
             this.itemPivot.add(this.heldKnifeMesh);
             // the hand sits on the grip; the forearm points down-right/back, in camera space (base rotation cancelled)
@@ -2798,7 +2853,7 @@ class Player {
     }
 
 
-    // --- Knife viewmodel: pose, breathing, draw, 3 alternating attacks, inspect (key X) ---
+    // --- Knife viewmodel: pose, breathing, per-knife pickup, 3 alternating attacks, per-knife inspect (key X) ---
     inspectKnife() {
         const held = this.getSelectedItem();
         if (!held || !ITEM_REGISTRY[held.itemId]?.isKnife || this.isDead || this.isThirdPerson) return false;
@@ -2815,17 +2870,15 @@ class Player {
             this.knifeInspect = 0;
         }
         this._knifePrevSwing = this.armSwing;
-        this.knifeDraw = Math.max(0, (this.knifeDraw || 0) - dt * 3.2);
-        if (this.knifeInspect > 0) this.knifeInspect = Math.max(0, this.knifeInspect - dt / 1.9);
+        const anim = KNIFE_ANIMS[this._knifeType] || KNIFE_ANIMS.default;
+        this.knifeDraw = Math.max(0, (this.knifeDraw || 0) - dt / anim.drawTime);
+        if (this.knifeInspect > 0) this.knifeInspect = Math.max(0, this.knifeInspect - dt / anim.inspectTime);
 
         const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
         let px = .22 + bobX, py = -.215 + bobY + Math.sin(t * 1.6) * .004, pz = -.43;
         let rx = .34, ry = .52, rz = -.34 + Math.sin(t * 1.3) * .012;
 
         if (this.isSprinting && this.onGround && !this.isAiming) { py -= .05; px += .03; rx -= .28; rz -= .12; }
-
-        const draw = (this.knifeDraw || 0) ** 2;
-        if (draw > 0) { py -= draw * .42; px += draw * .12; rx -= draw * 1.2; rz += draw * .9; }
 
         const s = swing;
         if (s > 0) {
@@ -2835,17 +2888,14 @@ class Player {
             else { pz -= s * .38; py += s * .05; px -= s * .08; rx -= s * .18; ry *= 1 - s * .55; }
         }
 
-        // inspect: the knife is lifted toward the centre and rolled around its own axis; the arm stays put
+        // pickup / inspect: additive offsets for the arm pose plus a spin of the knife around its own handle
+        const o = { bx: px, px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0, mx: 0, my: 0, mz: 0 };
+        const d = (this.knifeDraw || 0) ** 2;
+        if (d > 0) anim.draw(d, o);
         const ins = this.knifeInspect || 0;
-        let roll = 0, tilt = 0;
-        if (ins > 0) {
-            const p = 1 - ins, e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;   // ease in/out
-            const lift = Math.sin(p * Math.PI);
-            px += (.16 - px) * lift * .6; py += .05 * lift; pz += .05 * lift;
-            ry += lift * .35; rx += lift * .12;
-            roll = e * Math.PI * 2; tilt = lift * .5;
-        }
-        if (this.heldKnifeMesh) this.heldKnifeMesh.rotation.set(0, tilt * .4, roll);
+        if (ins > 0) anim.inspect(1 - ins, o);
+        px += o.px; py += o.py; pz += o.pz; rx += o.rx; ry += o.ry; rz += o.rz;
+        if (this.heldKnifeMesh) this.heldKnifeMesh.rotation.set(o.mx, o.my, o.mz);
 
         this.itemPivot.position.set(px, py, pz);
         this.itemPivot.rotation.set(rx, ry, rz);

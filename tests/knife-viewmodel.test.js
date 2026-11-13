@@ -68,4 +68,24 @@ for (const prefix of ['js', 'web/js']) {
         p.getSelectedItem = () => ({ itemId: 'stone' });
         assert.equal(p.inspectKnife(), false);
     });
+
+    test(`${prefix}: every knife type has its own pickup and inspect animation that start offset and end at rest`, () => {
+        const c = load();
+        const sigs = new Set();
+        for (const type of TYPES) {
+            const p = pose(c, { knifeDraw: 1, _knifeType: type, heldKnifeMesh: c.createVoxelKnifeModel(type) });
+            p.getSelectedItem = () => ({ itemId: 'knife_m9' });
+            p.updateKnifeView(1 / 60, 0, 0, 0);
+            const r0 = p.heldKnifeMesh.rotation, start = [p.itemPivot.position.y, r0.x, r0.y, r0.z].map(v => +v.toFixed(2)).join();
+            for (let i = 0; i < 120; i++) p.updateKnifeView(1 / 60, 0, 0, 0);
+            assert.equal(p.knifeDraw, 0, `${type}: pickup ends`);
+            assert.deepEqual(p.heldKnifeMesh.rotation.toArray().slice(0, 3), [0, 0, 0], `${type}: knife at rest after pickup`);
+            p.knifeInspect = 1; let moved = 0;
+            for (let i = 0; i < 400; i++) { p.updateKnifeView(1 / 60, 0, 0, 0); const q = p.heldKnifeMesh.rotation; moved = Math.max(moved, Math.abs(q.x), Math.abs(q.y), Math.abs(q.z)); }
+            assert.ok(moved > .5, `${type}: inspect animates the knife`);
+            assert.equal(p.knifeInspect, 0);
+            sigs.add(start + '|' + moved.toFixed(2));
+        }
+        assert.equal(sigs.size, TYPES.length, 'animations differ per knife');
+    });
 }
