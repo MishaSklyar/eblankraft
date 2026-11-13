@@ -6998,7 +6998,9 @@ body.hud-shooter #btn-dodge   { left: 94.5% !important; top: 38.5% !important; w
 body.hud-shooter #btn-inspect { left: 82%   !important; top: 38.5% !important; width: 14vh !important; height: 14vh !important; }
 body.hud-shooter #btn-sprint  { left: 28%   !important; top: 92%   !important; width: 11vh !important; height: 11vh !important; }
 body.hud-shooter #btn-scope, body.hud-shooter #btn-reload { display: flex !important; }
-body.hud-shooter #btn-break, body.hud-shooter #btn-place { display: none !important; }
+/* use / place / eat and mine stay available (they used to be hidden, so blocks and food could not be used) */
+body.hud-shooter #btn-place { left: 94.5% !important; top: 57% !important; width: 14vh !important; height: 14vh !important; display: flex !important; }
+body.hud-shooter #btn-break { left: 82%   !important; top: 57% !important; width: 14vh !important; height: 14vh !important; display: flex !important; }
 body.hud-shooter:not(.hold-gun) #btn-scope, body.hud-shooter:not(.hold-gun) #btn-reload { opacity: 0.45 !important; }
 
 /* fixed movement ring with arrows (always visible, instead of the floating joystick) */
@@ -7080,8 +7082,8 @@ body.hud-shooter #hotbar-container {
     transform: translateX(-50%) !important; padding: 2px 3px !important; border: 0 !important; border-radius: 3px !important;
     background: rgba(24, 22, 20, 0.72) !important; box-shadow: none !important;
 }
-body.hud-shooter .hotbar-slot { width: 28px !important; height: 28px !important; min-width: 22px !important; min-height: 22px !important; }
-body.hud-shooter .hotbar-slot .slot-icon { width: 19px !important; height: 19px !important; }
+body.hud-shooter .hotbar-slot { width: clamp(30px, 9.5vh, 46px) !important; height: clamp(30px, 9.5vh, 46px) !important; min-width: 30px !important; min-height: 30px !important; }
+body.hud-shooter .hotbar-slot .slot-icon { width: 72% !important; height: 72% !important; }
 body.hud-shooter #hotbar-slots { gap: 2px !important; }
 /* the old vitals row moves down into the bars */
 body.hud-shooter .hud-vital-row { display: none !important; }
