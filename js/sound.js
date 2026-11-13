@@ -1167,6 +1167,57 @@ class SoundManager {
         } catch (e) {}
     }
 
+    // 🔪 Knife swish: band-passed noise sweeping down (pitch < 1 = heavier blade)
+    playKnifeSwish(pitch = 1) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+            const now = this.ctx.currentTime, dur = 0.16 / Math.max(.6, pitch);
+            const src = this.ctx.createBufferSource();
+            src.buffer = this.createNoiseBuffer(dur + .05);
+            const bp = this.ctx.createBiquadFilter();
+            bp.type = 'bandpass'; bp.Q.value = 1.6;
+            bp.frequency.setValueAtTime(5200 * pitch, now);
+            bp.frequency.exponentialRampToValueAtTime(900 * pitch, now + dur);
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.exponentialRampToValueAtTime(0.32, now + dur * .3);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+            src.connect(bp); bp.connect(gain); gain.connect(this.getDestination());
+            src.start(now, Math.random() * 2); src.stop(now + dur + .02);
+        } catch (e) {}
+    }
+
+    // 🔪 Knife deploy: short metallic scrape + ring
+    playKnifeDeploy() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+            const now = this.ctx.currentTime;
+            const src = this.ctx.createBufferSource();
+            src.buffer = this.createNoiseBuffer(0.3);
+            const hp = this.ctx.createBiquadFilter();
+            hp.type = 'bandpass'; hp.Q.value = 6;
+            hp.frequency.setValueAtTime(2600, now);
+            hp.frequency.exponentialRampToValueAtTime(6500, now + 0.18);
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0.001, now);
+            g.gain.exponentialRampToValueAtTime(0.16, now + 0.05);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+            src.connect(hp); hp.connect(g); g.connect(this.getDestination());
+            src.start(now, Math.random() * 2); src.stop(now + 0.22);
+            const osc = this.ctx.createOscillator(), og = this.ctx.createGain();
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(3150, now + 0.17);
+            og.gain.setValueAtTime(0.001, now);
+            og.gain.setValueAtTime(0.06, now + 0.17);
+            og.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+            osc.connect(og); og.connect(this.getDestination());
+            osc.start(now); osc.stop(now + 0.46);
+        } catch (e) {}
+    }
+
     // 🏃 Tactical Dodge Roll / Dash Swoosh
     playDodgeRoll() {
         if (!this.enabled) return;
