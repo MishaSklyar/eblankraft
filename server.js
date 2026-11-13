@@ -402,7 +402,10 @@ class AuthoritativeGameServer {
             room.broadcast({ type: 'block_update', action: msg.action, x: msg.x, y: msg.y, z: msg.z, block_type: block, player_id: client.id, ...(design ? { design } : {}) });
             return;
         }
-        if (type === 'respawn' && !duel && !client.is_alive) {
+        // A client can die locally (void, lava, hunger) without the server knowing, so an alive client may
+        // also request a respawn, rate-limited so it cannot be used as a free heal mid-fight.
+        if (type === 'respawn' && !duel && (!client.is_alive || now - (client.last_respawn_time ?? -Infinity) > 5)) {
+            client.last_respawn_time = now;
             Object.assign(client, room.cooperative ? room.world().spawn() : { x: 0, y: 32, z: 0 });
             client.health = 100; client.is_alive = true; client.invulnerable_until = now + 1.5; client.last_move_time = now;
             client.explosionImpulse = null;
