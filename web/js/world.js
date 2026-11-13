@@ -955,7 +955,8 @@ class Chunk {
             }
         }
 
-        const finalMaterials = isTurboOrA02 ? materials.map(m => (m && m.basicCounterpart) ? m.basicCounterpart : m) : materials;
+        const finalMaterials = isTurboOrA02 ? materials.map(m => (m && m.basicCounterpart) ? m.basicCounterpart : m)
+            : (textureManager && textureManager.textureX64 ? materials.map(m => textureManager.getPbrMaterial(m)) : materials);
 
         if (combinedPositions && combinedPositions.length > 0) {
             const geom = new THREE.BufferGeometry();
