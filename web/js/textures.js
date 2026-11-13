@@ -396,22 +396,10 @@ class TextureManager {
         return pbr;
     }
 
-    // Swaps materials on already-built chunk meshes when Texture x64 is toggled.
+    // Rebuilds chunk meshes so they pick up the standard/PBR materials when Texture x64 is toggled.
     swapChunkMaterials() {
         const g = window.game;
-        const chunks = g && g.world && g.world.chunks;
-        if (!chunks) return;
-        const turbo = g.turboFPS || g.isA02Mode || g.lowGraphicsMode;
-        if (turbo) return;
-        const conv = (m) => {
-            if (!m || m.isMeshBasicMaterial) return m;
-            return this.textureX64 ? this.getPbrMaterial(m) : (m.lambertCounterpart || m);
-        };
-        for (const k in chunks) {
-            const mesh = chunks[k].mesh;
-            if (!mesh || !mesh.material) continue;
-            mesh.material = Array.isArray(mesh.material) ? mesh.material.map(conv) : conv(mesh.material);
-        }
+        if (g && g.world && g.world.updateMeshes) g.world.updateMeshes(true);
     }
 
     createCanvas(w = 16, h = 16) {

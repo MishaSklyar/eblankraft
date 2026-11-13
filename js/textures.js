@@ -301,6 +301,105 @@ class TextureManager {
         this.itemDropTextures = {};
         this.itemDropGeometry = new THREE.BoxGeometry(0.32, 0.32, 0.32);
         this.init();
+        let saved = false;
+        try { saved = localStorage.getItem('eblankraft_texture_x64') === '1'; } catch (e) {}
+        this.textureX64 = false;
+        if (saved) this.setTextureX64(true);
+    }
+
+    // Upscales every texture to 64x64 (crisp, nearest-neighbour) or restores the originals.
+    setTextureX64(enabled) {
+        this.textureX64 = !!enabled;
+        try { localStorage.setItem('eblankraft_texture_x64', enabled ? '1' : '0'); } catch (e) {}
+        for (const key in this.threeTextures) {
+            const src = this.canvasCache[key];
+            const tex = this.threeTextures[key];
+            if (!src || !tex) continue;
+            if (enabled && src.width !== 64) {
+                const big = document.createElement('canvas');
+                big.width = 64;
+                big.height = 64;
+                const ctx = big.getContext('2d');
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(src, 0, 0, 64, 64);
+                tex.image = big;
+            } else {
+                tex.image = src;
+            }
+            tex.needsUpdate = true;
+        }
+        if (this.iconDataUrlCache) this.iconDataUrlCache.clear();
+        this.swapChunkMaterials();
+    }
+
+    // Builds normal + roughness maps (64x64) from a texture's colour data.
+    buildPbrMaps(tex) {
+        if (tex.userData.pbrReady) return;
+        const img = tex.image;
+        const w = img.width, h = img.height;
+        const data = img.getContext('2d').getImageData(0, 0, w, h).data;
+        const lum = new Float32Array(w * h);
+        for (let i = 0; i < w * h; i++) {
+            lum[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) / 255;
+        }
+        const nCv = document.createElement('canvas'); nCv.width = w; nCv.height = h;
+        const rCv = document.createElement('canvas'); rCv.width = w; rCv.height = h;
+        const nCtx = nCv.getContext('2d'), rCtx = rCv.getContext('2d');
+        const nImg = nCtx.createImageData(w, h), rImg = rCtx.createImageData(w, h);
+        const at = (x, y) => lum[((y + h) % h) * w + ((x + w) % w)];
+        const strength = 3.0;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+                const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+                let nx = -dx * strength, ny = dy * strength, nz = 1;
+                const len = Math.hypot(nx, ny, nz);
+                const i = (y * w + x) * 4;
+                nImg.data[i] = (nx / len * 0.5 + 0.5) * 255;
+                nImg.data[i + 1] = (ny / len * 0.5 + 0.5) * 255;
+                nImg.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
+                nImg.data[i + 3] = 255;
+                // brighter pixels are a bit smoother, darker crevices rougher
+                const r = Math.min(1, Math.max(0.45, 1.0 - lum[y * w + x] * 0.45)) * 255;
+                rImg.data[i] = rImg.data[i + 1] = rImg.data[i + 2] = r;
+                rImg.data[i + 3] = 255;
+            }
+        }
+        nCtx.putImageData(nImg, 0, 0);
+        rCtx.putImageData(rImg, 0, 0);
+        const mk = (cv) => {
+            const t = new THREE.CanvasTexture(cv);
+            t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+            t.wrapS = t.wrapT = THREE.RepeatWrapping;
+            return t;
+        };
+        tex.userData.normalMap = mk(nCv);
+        tex.userData.roughnessMap = mk(rCv);
+        tex.userData.pbrReady = true;
+    }
+
+    // Returns the PBR version of a block material (with normal/roughness maps), if it has one.
+    getPbrMaterial(mat) {
+        if (!mat || !mat.pbrCounterpart || !mat.map) return mat;
+        if (mat.isMeshBasicMaterial) return mat;
+        const pbr = mat.pbrCounterpart;
+        const tex = pbr.map;
+        if (tex.image && tex.image.width === 64) {
+            this.buildPbrMaps(tex);
+            if (pbr.normalMap !== tex.userData.normalMap) {
+                pbr.normalMap = tex.userData.normalMap;
+                pbr.roughnessMap = tex.userData.roughnessMap;
+                pbr.normalScale = new THREE.Vector2(1, 1);
+                pbr.needsUpdate = true;
+            }
+        }
+        return pbr;
+    }
+
+    // Rebuilds chunk meshes so they pick up the standard/PBR materials when Texture x64 is toggled.
+    swapChunkMaterials() {
+        const g = window.game;
+        if (g && g.world && g.world.updateMeshes) g.world.updateMeshes(true);
     }
 
     createCanvas(w = 16, h = 16) {
@@ -1838,6 +1937,20 @@ class TextureManager {
             });
             mat.basicCounterpart = basic;
             mat.lambertCounterpart = mat;
+            // PBR counterpart (used only when Texture x64 is on); maps are attached lazily
+            const pbr = new THREE.MeshStandardMaterial({
+                map: tex,
+                transparent: isTrans,
+                opacity: op,
+                alphaTest: at,
+                roughness: 1.0,
+                metalness: 0.0,
+                ...opts
+            });
+            pbr.basicCounterpart = basic;
+            pbr.lambertCounterpart = mat;
+            pbr.pbrCounterpart = pbr;
+            mat.pbrCounterpart = pbr;
             basic.basicCounterpart = basic;
             basic.lambertCounterpart = mat;
             this.materialCache.set(key, mat);
