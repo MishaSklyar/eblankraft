@@ -6908,3 +6908,20 @@ body.hud-editing #hud-top { opacity: 0.35; pointer-events: none; }
     .main-menu-overlay { padding: 10px; }
     .main-menu-nav .mc-menu-btn { height: 48px; font-size: 14px; }
 }
+
+/* Gun HUD on touch screens: compact strip above the hotbar, never on top of the action buttons */
+@media (pointer: coarse) {
+    #gun-hud { right: auto; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 4px 10px; gap: 8px; border-width: 2px; max-width: 46vw; }
+    #gun-hud .eblan-gun-title { font-size: 10px; }
+    #gun-hud .eblan-gun-count-big { font-size: 17px; }
+    #gun-hud .eblan-gun-reserve { font-size: 11px; }
+    #gun-hud .eblan-gun-status { display: none; }
+    #gun-hud .eblan-gun-reload-btn { font-size: 11px; padding: 6px 9px; min-height: 36px; }
+}
+body.force-touch #gun-hud { right: auto; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 4px 10px; gap: 8px; border-width: 2px; max-width: 46vw; }
+body.force-touch #gun-hud .eblan-gun-title { font-size: 10px; }
+body.force-touch #gun-hud .eblan-gun-count-big { font-size: 17px; }
+body.force-touch #gun-hud .eblan-gun-reserve { font-size: 11px; }
+body.force-touch #gun-hud .eblan-gun-status { display: none; }
+body.force-touch #gun-hud .eblan-gun-reload-btn { font-size: 11px; padding: 6px 9px; min-height: 36px; }
+body.in-main-menu #gun-hud, body.hud-editing #gun-hud { display: none !important; }
