@@ -263,8 +263,9 @@ class RTXPipeline {
         const g = this.game, u = this.final && this.final.uniforms;
         if (!u || !window.RTX_SKY_GLSL) return [];
         const dim = (g.world && g.world.dimension) || 'overworld';
-        const on = dim !== 'nether' && dim !== 'the_end' && !(g.player && g.player.isSubmerged) && !!(g.scene.background && g.scene.background.isColor);
+        const on = !(g.player && g.player.isSubmerged) && !!(g.scene.background && g.scene.background.isColor);
         u.skyOn.value = on ? 1 : 0;
+        u.skyMode.value = dim === 'nether' ? 1 : dim === 'the_end' ? 2 : 0;
         this.godrays.enabled = on || this.godrays.enabled;   // the god-ray pass also writes the sky mask the final pass reads
         if (!on) return [];
         const cam = g.camera;
@@ -292,7 +293,8 @@ class RTXPipeline {
         const sun = g.sunSprite;
         if (g.scene.background && g.scene.background.isColor) u.skyColor.value.copy(g.scene.background);   // also feeds the sky mask
         let on = 0;
-        if (sun && g.sunLight && g.sunLight.intensity > 0.3 && g.scene.background && g.scene.background.isColor && !(g.player && g.player.isSubmerged)) {
+        const dimension = (g.world && g.world.dimension) || 'overworld';
+        if (sun && g.sunLight && g.sunLight.intensity > 0.3 && dimension !== 'nether' && dimension !== 'the_end' && g.scene.background && g.scene.background.isColor && !(g.player && g.player.isSubmerged)) {
             this._sunNdc.copy(sun.position).project(g.camera);
             if (this._sunNdc.z < 1) {
                 u.sunPos.value.set(this._sunNdc.x * 0.5 + 0.5, this._sunNdc.y * 0.5 + 0.5);
@@ -347,7 +349,7 @@ class RTXPipeline {
                 tDiffuse: { value: null }, skyColor: { value: new THREE.Color(0.5, 0.7, 1) }, exposure: { value: 1.05 }, contrast: { value: 1.08 }, vibrance: { value: 0.22 },
                 skyInvProj: { value: new THREE.Matrix4() }, skyCamWorld: { value: new THREE.Matrix4() }, skyCamPos: { value: new THREE.Vector3() },
                 skySun: { value: new THREE.Vector3(0, 1, 0) }, skyMoon: { value: new THREE.Vector3(0, -1, 0) },
-                skyTime: { value: 0 }, skyOn: { value: 0 }, skyClouds: { value: 1 }
+                skyTime: { value: 0 }, skyOn: { value: 0 }, skyClouds: { value: 1 }, skyMode: { value: 0 }
             },
             vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
             fragmentShader: `

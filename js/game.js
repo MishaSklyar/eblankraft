@@ -270,6 +270,7 @@ class Game {
             color: 0xffffff,
             size: 2.2,
             transparent: true,
+            fog: false,          // at r=260 the scene fog would swallow every star
             opacity: 0
         });
         this.starfield = new THREE.Points(geom, this.starMat);
@@ -277,46 +278,48 @@ class Game {
         this.scene.add(this.starfield);
     }
 
+    // Soft round glow used for embers / stardust (a plain PointsMaterial draws huge hard squares when a point is close).
+    makeGlowTexture() {
+        const c = document.createElement('canvas');
+        c.width = c.height = 64;
+        const x = c.getContext('2d');
+        const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.25, 'rgba(255,255,255,0.6)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        x.fillStyle = g;
+        x.fillRect(0, 0, 64, 64);
+        return new THREE.CanvasTexture(c);
+    }
+
+    makeAtmosphereParticles(count, spread, yMin, yRange, color) {
+        const pos = new Float32Array(count * 3);
+        for (let i = 0; i < count * 3; i += 3) {
+            pos[i] = (Math.random() - 0.5) * spread;
+            pos[i + 1] = yMin + Math.random() * yRange;
+            pos[i + 2] = (Math.random() - 0.5) * spread;
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({
+            color, map: this.glowTexture || (this.glowTexture = this.makeGlowTexture()),
+            size: 6, sizeAttenuation: false,             // constant on-screen size, never a screen-filling block
+            transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending
+        });
+        const pts = new THREE.Points(geom, mat);
+        pts.frustumCulled = false;
+        pts.visible = false;
+        this.scene.add(pts);
+        return { pts, mat };
+    }
+
     initDimensionAtmosphere() {
         // Nether rising embers
-        const emberCount = 50;
-        const emberPos = new Float32Array(emberCount * 3);
-        for (let i = 0; i < emberCount * 3; i += 3) {
-            emberPos[i] = (Math.random() - 0.5) * 35;
-            emberPos[i + 1] = Math.random() * 20;
-            emberPos[i + 2] = (Math.random() - 0.5) * 35;
-        }
-        const emberGeom = new THREE.BufferGeometry();
-        emberGeom.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
-        this.emberMat = new THREE.PointsMaterial({
-            color: 0xff6611,
-            size: 2.2,
-            transparent: true,
-            opacity: 0.85
-        });
-        this.emberPoints = new THREE.Points(emberGeom, this.emberMat);
-        this.emberPoints.visible = false;
-        this.scene.add(this.emberPoints);
-
+        const e = this.makeAtmosphereParticles(160, 48, -5, 25, 0xff7722);
+        this.emberPoints = e.pts; this.emberMat = e.mat;
         // End cosmic stardust
-        const dustCount = 50;
-        const dustPos = new Float32Array(dustCount * 3);
-        for (let i = 0; i < dustCount * 3; i += 3) {
-            dustPos[i] = (Math.random() - 0.5) * 45;
-            dustPos[i + 1] = Math.random() * 25 + 5;
-            dustPos[i + 2] = (Math.random() - 0.5) * 45;
-        }
-        const dustGeom = new THREE.BufferGeometry();
-        dustGeom.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-        this.dustMat = new THREE.PointsMaterial({
-            color: 0xda33ff,
-            size: 2.5,
-            transparent: true,
-            opacity: 0.8
-        });
-        this.dustPoints = new THREE.Points(dustGeom, this.dustMat);
-        this.dustPoints.visible = false;
-        this.scene.add(this.dustPoints);
+        const d = this.makeAtmosphereParticles(140, 56, 0, 30, 0xc866ff);
+        this.dustPoints = d.pts; this.dustMat = d.mat;
     }
 
     setShadowsEnabled(enabled) {
@@ -703,14 +706,21 @@ class Game {
             }
         }
 
-        // 2. Stars
+        // 2. Stars (the End gets a tinted, always-on starfield; the Nether has none)
         if (this.starfield && this.player) {
             if (dim === 'overworld') {
                 this.starfield.position.set(this.player.position.x, 0, this.player.position.z);
+                this.starMat.color.setHex(0xffffff);
+            } else if (dim === 'the_end') {
+                this.starfield.visible = true;
+                this.starMat.opacity = 0.9;
+                this.starMat.color.setHex(0xd9b8ff);
+                this.starfield.position.set(this.player.position.x, this.player.position.y - 120, this.player.position.z);
             } else {
                 this.starfield.visible = false;
             }
         }
+        const partPx = this.renderer ? Math.max(3, this.renderer.domElement.height * 0.005) : 6;
 
         // 3. Nether Embers
         if (this.emberPoints && this.player) {
@@ -723,6 +733,8 @@ class Game {
                     if (pos[i] > 20) pos[i] = -5;
                 }
                 this.emberPoints.geometry.attributes.position.needsUpdate = true;
+                this.emberMat.size = partPx;
+                this.emberMat.opacity = 0.7 + 0.25 * Math.sin(performance.now() * 0.008);
             } else {
                 this.emberPoints.visible = false;
             }
@@ -739,6 +751,7 @@ class Game {
                     pos[i + 1] += Math.cos(performance.now() * 0.0012 + i) * dt * 0.6;
                 }
                 this.dustPoints.geometry.attributes.position.needsUpdate = true;
+                this.dustMat.size = partPx * 0.9;
             } else {
                 this.dustPoints.visible = false;
             }
