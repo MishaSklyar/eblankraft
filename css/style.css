@@ -7002,7 +7002,8 @@ body.hud-shooter #btn-break, body.hud-shooter #btn-place { display: none !import
 body.hud-shooter:not(.hold-gun) #btn-scope, body.hud-shooter:not(.hold-gun) #btn-reload { opacity: 0.45 !important; }
 
 /* fixed movement ring with arrows (always visible, instead of the floating joystick) */
-body.hud-shooter:not(.in-main-menu):not(.is-preloading):not(.hud-editing) #joystick-base { display: block !important; }
+body.hud-shooter:not(.is-pc):not(.in-main-menu):not(.is-preloading):not(.hud-editing) #joystick-base,
+body.hud-shooter.force-touch:not(.in-main-menu):not(.is-preloading):not(.hud-editing) #joystick-base { display: block !important; }
 body.hud-shooter #joystick-base {
     left: 11.9% !important; top: 75% !important; width: 30vh; height: 30vh;
     background: rgba(26, 27, 31, 0.8); border: 2px solid rgba(255,255,255,0.14); box-shadow: none; pointer-events: none;
@@ -7016,20 +7017,6 @@ body.hud-shooter #joystick-knob::before, body.hud-shooter #joystick-knob::after 
     content: '◀'; position: absolute; top: 50%; left: -62%; transform: translateY(-50%); font-size: 2.4vh; color: #e9e9ec;
 }
 body.hud-shooter #joystick-knob::after { content: '▶'; left: auto; right: -62%; }
-
-/* current weapon pill, bottom centre */
-#shooter-weapon { display: none; }
-body.hud-shooter:not(.in-main-menu):not(.is-preloading) #shooter-weapon {
-    display: flex; position: fixed; left: 50%; top: 81.25%; transform: translate(-50%, -50%);
-    width: 40vh; height: 12.5vh; border-radius: 6.25vh; align-items: center; justify-content: center;
-    background: rgba(26, 27, 31, 0.88); border: 2px solid rgba(255,255,255,0.16); z-index: 36; touch-action: none; user-select: none;
-}
-#shooter-weapon img { height: 8.5vh; width: auto; image-rendering: pixelated; pointer-events: none; }
-#shooter-weapon span { position: absolute; right: 3.5vh; bottom: 1vh; font-size: 2.2vh; color: #aaa; pointer-events: none; }
-
-/* hotbar is hidden in shooter mode; hold the pill to peek at it */
-body.hud-shooter #hotbar-container { display: none !important; }
-body.hud-shooter.hotbar-peek #hotbar-container { display: flex !important; position: fixed !important; left: 50% !important; top: auto !important; bottom: 24vh !important; transform: translateX(-50%) !important; z-index: 40; }
 
 /* top-right ammo panel */
 body.hud-shooter #gun-hud {
@@ -7046,12 +7033,62 @@ body.hud-shooter #gun-hud #gun-ammo-capacity { display: none; }
 body.hud-shooter #gun-hud #gun-hud-icon { display: block; height: 9vh; width: auto; image-rendering: pixelated; margin-top: 0.5vh; }
 
 /* corner buttons (menu / chat bottom-left, backpack bottom-right-centre), the rest of the top bar is hidden */
-body.hud-shooter #top-buttons .top-btn { display: none !important; }
-body.hud-shooter #top-buttons #btn-menu, body.hud-shooter #top-buttons #btn-chat-toggle, body.hud-shooter #top-buttons #btn-inventory {
+body.hud-shooter:not(.is-pc) #top-buttons .top-btn, body.hud-shooter.force-touch #top-buttons .top-btn { display: none !important; }
+body.hud-shooter:not(.is-pc) #top-buttons #btn-menu, body.hud-shooter:not(.is-pc) #top-buttons #btn-chat-toggle, body.hud-shooter:not(.is-pc) #top-buttons #btn-inventory,
+body.hud-shooter.force-touch #top-buttons #btn-menu, body.hud-shooter.force-touch #top-buttons #btn-chat-toggle, body.hud-shooter.force-touch #top-buttons #btn-inventory {
     display: flex !important; position: fixed !important; top: auto !important; bottom: 0 !important; width: 14.5vh; height: 7.5vh; padding: 0;
     justify-content: center; align-items: center; border-radius: 0; border: 0 !important; background: rgba(26,27,31,0.9) !important; pointer-events: auto;
 }
-body.hud-shooter #top-buttons #btn-menu { left: 0 !important; } body.hud-shooter #top-buttons #btn-chat-toggle { left: 17.5% !important; } body.hud-shooter #top-buttons #btn-inventory { left: 76% !important; }
-body.hud-shooter #top-buttons .top-btn-text { display: none; }
+body.hud-shooter:not(.is-pc) #top-buttons #btn-menu, body.hud-shooter.force-touch #top-buttons #btn-menu { left: 0 !important; }
+body.hud-shooter:not(.is-pc) #top-buttons #btn-chat-toggle, body.hud-shooter.force-touch #top-buttons #btn-chat-toggle { left: 17.5% !important; }
+body.hud-shooter:not(.is-pc) #top-buttons #btn-inventory, body.hud-shooter.force-touch #top-buttons #btn-inventory { left: 76% !important; }
+body.hud-shooter:not(.is-pc) #top-buttons .top-btn-text { display: none; }
 body.hud-shooter .hud-sub-row { display: none; }
 body.hud-shooter #hud-stats-group { background: rgba(26,27,31,0.55); }
+
+/* ---- Shooter HUD pieces shared by touch and PC ---- */
+#shooter-players, #shooter-vitals { display: none; }
+body.hud-shooter:not(.in-main-menu):not(.is-preloading) #shooter-players {
+    display: flex; position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 30; align-items: stretch;
+    background: rgba(24, 22, 20, 0.82); border: 1px solid rgba(255,255,255,0.12); pointer-events: none; font-family: 'Segoe UI', sans-serif; color: #fff;
+}
+.sp-team { display: flex; gap: 2px; padding: 3px; min-width: 20px; }
+.sp-av { position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: #fff; text-shadow: 1px 1px 0 #000; overflow: hidden; }
+.sp-av i { position: absolute; left: 0; bottom: 0; height: 3px; background: #7dff7d; }
+.sp-av.me { outline: 1px solid #ffd54f; }
+.sp-av.dead { filter: grayscale(1) brightness(0.45); }
+.sp-av.dead i { background: #c33; }
+.sp-score { min-width: 26px; display: flex; align-items: center; justify-content: center; font-size: 15px; background: rgba(0,0,0,0.35); padding: 0 6px; }
+.sp-mid { display: flex; align-items: center; justify-content: center; width: 32px; background: rgba(150, 20, 20, 0.7); font-size: 17px; color: #ffb4b4; box-shadow: inset 0 0 8px rgba(255,60,60,0.5); }
+
+body.hud-shooter:not(.in-main-menu):not(.is-preloading) #shooter-vitals {
+    display: flex; position: fixed; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 30; gap: 6px; padding: 3px 8px;
+    background: rgba(24, 22, 20, 0.85); border: 1px solid rgba(255,255,255,0.12); pointer-events: none; color: #fff; font-family: 'Segoe UI', sans-serif;
+}
+.sv-cell { display: flex; align-items: center; gap: 6px; }
+.sv-cell b { min-width: 28px; font-size: 15px; text-align: left; }
+.sv-ico { font-size: 14px; width: 16px; text-align: center; color: #b7c4a8; }
+.sv-plus { font-weight: 900; font-size: 17px; }
+.sv-bar { width: 96px; height: 11px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); }
+.sv-bar i { display: block; height: 100%; width: 100%; background: #dcdcdc; transition: width 0.15s; }
+.sv-bar i.low { background: #e04545; }
+#sv-food-bar { background: #e0b070; }
+
+/* slim hotbar under the player strip's twin: centred, above the health bars */
+body.hud-shooter #hotbar-container {
+    position: fixed !important; left: 50% !important; top: auto !important; bottom: 34px !important;
+    transform: translateX(-50%) !important; padding: 2px 3px !important; border: 0 !important; border-radius: 3px !important;
+    background: rgba(24, 22, 20, 0.72) !important; box-shadow: none !important;
+}
+body.hud-shooter .hotbar-slot { width: 28px !important; height: 28px !important; min-width: 22px !important; min-height: 22px !important; }
+body.hud-shooter .hotbar-slot .slot-icon { width: 19px !important; height: 19px !important; }
+body.hud-shooter #hotbar-slots { gap: 2px !important; }
+/* the old vitals row moves down into the bars */
+body.hud-shooter .hud-vital-row { display: none !important; }
+body.hud-shooter.is-pc .hud-sub-row { display: flex; }
+body.hud-shooter:not(.is-pc) #hud-stats-group, body.hud-shooter.force-touch #hud-stats-group { display: none !important; }
+body.hud-shooter #hud-stats-group { background: rgba(24,22,20,0.55); }
+
+/* PC: ammo panel sits under the regular top buttons, key hints are hidden for a clean shooter HUD */
+body.hud-shooter.is-pc:not(.force-touch) #gun-hud { top: 52px !important; }
+body.hud-shooter #pc-hint-bar { display: none !important; }

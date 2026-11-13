@@ -77,7 +77,7 @@
             });
         }
     </script>
-    <link rel="stylesheet" href="css/style.css?v=5.4-touch">
+    <link rel="stylesheet" href="css/style.css?v=5.5-touch">
     <link rel="stylesheet" href="css/addons.css?v=1">
     <link rel="stylesheet" href="css/ui2.css?v=2">
     <script>
@@ -807,8 +807,18 @@
         </div>
     </div>
 
-    <!-- Shooter layout: current weapon pill (tap = next slot, hold = show hotbar) -->
-    <div id="shooter-weapon"><img id="shooter-weapon-icon" alt=""><span id="shooter-weapon-slot">1</span></div>
+    <!-- Shooter HUD: player strip (top centre) and health / hunger bars (under the hotbar) -->
+    <div id="shooter-players">
+        <div class="sp-team" id="sp-left"></div>
+        <div class="sp-score" id="sp-score-l">0</div>
+        <div class="sp-mid">☠</div>
+        <div class="sp-score" id="sp-score-r">0</div>
+        <div class="sp-team" id="sp-right"></div>
+    </div>
+    <div id="shooter-vitals">
+        <div class="sv-cell"><span class="sv-ico sv-plus">✚</span><b id="sv-hp-num">100</b><div class="sv-bar"><i id="sv-hp-bar"></i></div></div>
+        <div class="sv-cell"><span class="sv-ico">🍗</span><b id="sv-food-num">100</b><div class="sv-bar"><i id="sv-food-bar"></i></div></div>
+    </div>
 
     <!-- Bottom Hotbar -->
     <div id="hotbar-container">
@@ -891,6 +901,17 @@
                             </select>
                         </div>
                         <p class="menu-setting-note">Mode 2 — усі старі діалоги (меню, інвентар, моди, мультиплеєр…) у стилі HUD і налаштувань. Застосовується миттєво.</p>
+                    </div>
+
+                    <div class="menu-card">
+                        <div class="menu-row">
+                            <label for="select-hud-mode">🔫 Режим HUD</label>
+                            <select id="select-hud-mode">
+                                <option value="standard">🎮 Стандартний</option>
+                                <option value="shooter">🔫 Шутер (смуга гравців, тонкий хотбар, HP знизу)</option>
+                            </select>
+                        </div>
+                        <p class="menu-setting-note">Шутер працює і на ПК, і на телефоні. На телефоні також змінює розкладку кнопок.</p>
                     </div>
 
                     <div class="menu-card">
@@ -1453,7 +1474,7 @@
     <script src="js/mobs.js?v=4.7"></script>
     <script src="js/de_eblan2.js?v=1"></script>
     <script src="js/world.js?v=4.6"></script>
-    <script src="js/player.js?v=5.2"></script>
+    <script src="js/player.js?v=5.3"></script>
     <script src="js/controls.js?v=4.9"></script>
     <script src="js/block_editor.js?v=2"></script>
     <script src="js/weather.js?v=3.6"></script>
@@ -1461,7 +1482,7 @@
     <script src="js/shared_world_client.js?v=2"></script>
     <script src="js/multiplayer.js?v=4.5"></script>
     <script src="js/eblan_os.js?v=3.6"></script>
-    <script src="js/ui.js?v=5.5"></script>
+    <script src="js/ui.js?v=5.6"></script>
     <script src="js/addon_package.js?v=1"></script>
     <script src="js/mods.js?v=4.1"></script>
     <script src="js/addons.js?v=1"></script>

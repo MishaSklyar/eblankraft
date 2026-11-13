@@ -3652,6 +3652,7 @@ class UIManager {
 
     update(dt) {
         this.updateDuel();
+        if (this._shooterHud) this.updateShooterHud(performance.now());
         const compactHud = window.innerWidth < 640;
         // Health Hearts & Hunger Display (Responsive & Compact)
         if (this.hudHealth) {
@@ -3904,7 +3905,8 @@ class UIManager {
             parsed = { btnScale: parsed.btnScale, btnOpacity: parsed.btnOpacity, hotbarScale: parsed.hotbarScale, leftHanded: !!parsed.leftHanded };
         }
         document.body.classList.add('hud-free');
-        this.initShooterPill();
+        const hudSel = document.getElementById('select-hud-mode');
+        if (hudSel) hudSel.onchange = () => this.setHudMode(hudSel.value);
         this.applyLayout(this.normalizeLayout(parsed || {}));
 
         let rt = null;
@@ -3965,6 +3967,9 @@ class UIManager {
         this.layout = this.normalizeLayout(layout);
         const L = this.layout;
         document.body.classList.toggle('hud-shooter', L.mode === 'shooter');
+        this._shooterHud = L.mode === 'shooter';
+        const hudSel = document.getElementById('select-hud-mode');
+        if (hudSel) hudSel.value = L.mode;
         for (const b of this.HUD_BUTTONS) {
             const el = document.getElementById(b.id);
             if (!el) continue;
@@ -4210,35 +4215,46 @@ class UIManager {
         this.positionHudHandles();
     }
 
-    // Shooter layout: weapon pill. Tap = next hotbar slot, hold = show / hide the hotbar
-    initShooterPill() {
-        const pill = document.getElementById('shooter-weapon');
-        if (!pill) return;
-        let timer = null, held = false;
-        pill.addEventListener('pointerdown', (e) => {
-            e.preventDefault(); e.stopPropagation();
-            held = false;
-            timer = setTimeout(() => { held = true; document.body.classList.toggle('hotbar-peek'); }, 450);
-        });
-        const end = (e) => {
-            if (timer === null) return;
-            clearTimeout(timer); timer = null;
-            if (!held) this.selectHotbarSlot((this.player.selectedHotbarIndex + 1) % 9);
-        };
-        pill.addEventListener('pointerup', end);
-        pill.addEventListener('pointercancel', () => { clearTimeout(timer); timer = null; });
-        this.refreshShooterPill();
+    // Shooter HUD: CS-style health / hunger bars and the top-centre player strip
+    updateShooterHud(now) {
+        const p = this.player;
+        const hp = Math.max(0, Math.round(p.health)), maxHp = p.maxHealth || 100;
+        const food = Math.max(0, Math.round(p.hunger));
+        const set = (id, txt) => { const el = document.getElementById(id); if (el && el.textContent !== String(txt)) el.textContent = txt; };
+        set('sv-hp-num', hp); set('sv-food-num', food);
+        const hb = document.getElementById('sv-hp-bar'), fb = document.getElementById('sv-food-bar');
+        if (hb) { hb.style.width = Math.min(100, hp / maxHp * 100) + '%'; hb.classList.toggle('low', hp <= maxHp * 0.3); }
+        if (fb) { fb.style.width = Math.min(100, food) + '%'; fb.classList.toggle('low', food <= 20); }
+        if (now - (this._spAt || 0) < 400) return;
+        this._spAt = now;
+        const mp = this.game.multiplayer;
+        const remotes = mp && mp.remotePlayers ? [...mp.remotePlayers.values()] : [];
+        // you + first half of the others on the left, the rest on the right
+        const all = [{ name: mp?.playerName || 'Ти', health: p.health, maxHealth: maxHp, me: true }].concat(remotes.map(r => ({ name: r.name, health: r.health, maxHealth: r.maxHealth || 100 })));
+        const half = Math.ceil(all.length / 2);
+        const left = all.slice(0, half), right = all.slice(half);
+        const key = all.map(x => x.name + ':' + Math.round(x.health)).join('|');
+        if (key === this._spKey) return;
+        this._spKey = key;
+        const hue = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+        const build = (list) => list.map(x => {
+            const dead = !(x.health > 0), pct = Math.max(0, Math.min(100, x.health / x.maxHealth * 100));
+            return `<div class="sp-av${x.me ? ' me' : ''}${dead ? ' dead' : ''}" title="${String(x.name).replace(/"/g, '')}" style="background:hsl(${hue(x.name)},45%,38%)"><span>${String(x.name).trim().charAt(0).toUpperCase() || '?'}</span><i style="width:${pct}%"></i></div>`;
+        }).join('');
+        const el = (id) => document.getElementById(id);
+        if (el('sp-left')) el('sp-left').innerHTML = build(left);
+        if (el('sp-right')) el('sp-right').innerHTML = build(right);
+        const alive = (l) => l.filter(x => x.health > 0).length;
+        set('sp-score-l', alive(left)); set('sp-score-r', alive(right));
     }
 
-    refreshShooterPill() {
-        const icon = document.getElementById('shooter-weapon-icon');
-        if (!icon || !this.player) return;
-        const it = this.player.getSelectedItem?.();
-        const reg = it && ITEM_REGISTRY[it.itemId];
-        const src = reg ? this.textureManager.getIconDataURL(reg.icon || 'stone') : '';
-        if (src) { icon.src = src; icon.style.visibility = 'visible'; } else icon.style.visibility = 'hidden';
-        const n = document.getElementById('shooter-weapon-slot');
-        if (n) n.textContent = String(this.player.selectedHotbarIndex + 1);
+    // Standard / Shooter HUD switch (pause menu); keeps the user's own button positions for the standard mode
+    setHudMode(mode) {
+        const L = JSON.parse(JSON.stringify(this.layout));
+        L.mode = mode === 'shooter' ? 'shooter' : 'standard';
+        L.preset = L.mode === 'shooter' ? 'shooter' : (L.preset === 'shooter' ? 'default' : L.preset);
+        this.applyLayout(L);
+        this.saveLayout();
     }
 
     stopHudDragMode(saveChanges) {
