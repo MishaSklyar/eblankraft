@@ -65,8 +65,8 @@ class Game {
         this.initLights();
         this.initSkyAndAtmosphere();
         this.updateGraphicsLighting();
-        this.rtx = new RTXPipeline(this);
-        if (this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
+        this.rtx = (typeof RTXPipeline !== 'undefined') ? new RTXPipeline(this) : null;
+        if (this.rtx && this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
 
         this.lastTime = performance.now();
         this.animate = this.animate.bind(this);
