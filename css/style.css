@@ -6951,6 +6951,7 @@ body.hud-shooter.hold-gun #hud-block-name { display: none; }
    Reference canvas is 800x400, sizes use vh so it scales with the screen.
    ========================================================================== */
 body.hud-shooter {
+    --ico-shield: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 5l15 5v12c0 10-7 17-15 21C16 39 9 32 9 22V10z'/%3E%3Crect x='18' y='18' width='12' height='12' rx='1.5'/%3E%3Cpath d='M18 24h12M24 18v12' stroke-width='2'/%3E%3C/svg%3E");
     --ico-cross: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='24' cy='24' r='9'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23e9e9ec'/%3E%3Cpath d='M24 5v8M24 35v8M5 24h8M35 24h8'/%3E%3C/svg%3E");
     --ico-bullet: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 40V22c0-6 4-11 8-14 4 3 8 8 8 14v18z'/%3E%3Cpath d='M16 32h16'/%3E%3C/svg%3E");
     --ico-chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 14l15 12 15-12M9 26l15 12 15-12'/%3E%3C/svg%3E");
@@ -6973,13 +6974,14 @@ body.hud-shooter .touch-btn:active, body.hud-shooter .touch-btn.active {
     transform: translate(-50%, -50%) scale(0.93) !important;
     background-color: rgba(70, 72, 80, 0.92) !important;
 }
-body.hud-shooter .btn-attack, body.hud-shooter .btn-scope, body.hud-shooter .btn-reload,
+body.hud-shooter .btn-attack, body.hud-shooter .btn-scope, body.hud-shooter .btn-reload, body.hud-shooter .btn-place,
 body.hud-shooter .btn-jump, body.hud-shooter .btn-buy, body.hud-shooter .btn-tnt {
     font-size: 0 !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 56% !important;
 }
-body.hud-shooter .btn-attack span, body.hud-shooter .btn-scope span, body.hud-shooter .btn-reload span,
+body.hud-shooter .btn-place span, body.hud-shooter .btn-attack span, body.hud-shooter .btn-scope span, body.hud-shooter .btn-reload span,
 body.hud-shooter .btn-jump span, body.hud-shooter .btn-buy span, body.hud-shooter .btn-tnt span { display: none; }
 body.hud-shooter .btn-attack { background-image: var(--ico-fire) !important; }
+body.hud-shooter .btn-place  { background-image: var(--ico-shield) !important; }
 body.hud-shooter .btn-scope  { background-image: var(--ico-cross) !important; }
 body.hud-shooter .btn-reload { background-image: var(--ico-bullet) !important; }
 body.hud-shooter .btn-jump   { background-image: var(--ico-chev) !important; background-size: 52% !important; }
@@ -6994,13 +6996,12 @@ body.hud-shooter #btn-tnt     { left: 29.5% !important; top: 75%   !important; w
 body.hud-shooter #btn-scope   { left: 70.9% !important; top: 75%   !important; width: 20vh !important; height: 20vh !important; }
 body.hud-shooter #btn-reload  { left: 83.4% !important; top: 75%   !important; width: 20vh !important; height: 20vh !important; }
 body.hud-shooter #btn-jump    { left: 94.5% !important; top: 87.5% !important; width: 22vh !important; height: 22vh !important; }
-body.hud-shooter #btn-dodge   { left: 94.5% !important; top: 38.5% !important; width: 14vh !important; height: 14vh !important; }
 body.hud-shooter #btn-inspect { left: 82%   !important; top: 38.5% !important; width: 14vh !important; height: 14vh !important; }
 body.hud-shooter #btn-sprint  { left: 28%   !important; top: 92%   !important; width: 11vh !important; height: 11vh !important; }
 body.hud-shooter #btn-scope, body.hud-shooter #btn-reload { display: flex !important; }
-/* use / place / eat and mine stay available (they used to be hidden, so blocks and food could not be used) */
-body.hud-shooter #btn-place { left: 94.5% !important; top: 57% !important; width: 14vh !important; height: 14vh !important; display: flex !important; }
-body.hud-shooter #btn-break { left: 82%   !important; top: 57% !important; width: 14vh !important; height: 14vh !important; display: flex !important; }
+/* One combined button: place block / eat / use + raise the guard (shield, sword) while held. Mining is not part of the shooter HUD. */
+body.hud-shooter #btn-place { left: 94.5% !important; top: 42% !important; width: 16vh !important; height: 16vh !important; display: flex !important; }
+body.hud-shooter #btn-break { display: none !important; }
 body.hud-shooter:not(.hold-gun) #btn-scope, body.hud-shooter:not(.hold-gun) #btn-reload { opacity: 0.45 !important; }
 
 /* fixed movement ring with arrows (always visible, instead of the floating joystick) */

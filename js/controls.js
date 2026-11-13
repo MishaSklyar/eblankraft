@@ -309,7 +309,12 @@ class Controls {
         this.bindTouchButton('btn-place', (isDown) => {
             this.touchAimPressed = isDown;
             if (this.player.setAiming?.(isDown)) return;
-            if (isDown) this.player.placeBlock();
+            // One button: place block / eat / use, and raise the shield or sword guard while held
+            const held = this.player.getSelectedItem();
+            const reg = (held && window.ITEM_REGISTRY) ? ITEM_REGISTRY[held.itemId] : null;
+            if (!isDown) { this.player.setBlocking(false); return; }
+            if (reg && (reg.isShield || reg.isSword)) this.player.setBlocking(true);
+            this.player.placeBlock();
         });
 
         // Scope: tap to aim down sights / unscope (sticky, so releasing the fire button keeps the zoom)
@@ -400,9 +405,6 @@ class Controls {
             }
         });
 
-        this.bindTouchButton('btn-dodge', (isDown) => {
-            if (isDown) this.player.tryDodgeRoll(this.inputVector);
-        });
     }
 
     bindTouchButton(id, callback) {
@@ -856,12 +858,7 @@ class Controls {
                     if (!e.repeat) this.player.reloadGun?.();
                 } else if (e.shiftKey) {
                     this.player.spawnSafe();
-                } else {
-                    this.player.tryDodgeRoll(this.inputVector);
                 }
-            } else if (e.code === 'AltLeft' || e.code === 'AltRight') {
-                e.preventDefault();
-                this.player.tryDodgeRoll(this.inputVector);
             }
 
             // Hotbar 1..9
