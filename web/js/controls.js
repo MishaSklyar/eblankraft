@@ -10,6 +10,7 @@ class Controls {
         // Input states
         this.inputVector = new THREE.Vector2(0, 0); // x: strafe (-1..1), y: forward (-1..1)
         this.jumpPressed = false;
+        this.touchSprint = false; // toggled by the on-screen sprint button
         this.touchJumpPressed = false;
 
         // Sensitivity
@@ -152,6 +153,9 @@ class Controls {
         const resetJoystick = () => {
             this.joystickTouchId = null;
             this.inputVector.set(0, 0);
+            // Releasing the stick ends a touch sprint
+            this.touchSprint = false;
+            document.getElementById('btn-sprint')?.classList.remove('active');
             if (joystickBase) joystickBase.style.display = 'none';
         };
 
@@ -304,9 +308,9 @@ class Controls {
 
         this.bindTouchButton('btn-sprint', (isDown) => {
             if (isDown) {
-                this.player.isSprinting = !this.player.isSprinting;
+                this.touchSprint = !this.touchSprint;
                 const btn = document.getElementById('btn-sprint');
-                if (btn) btn.classList.toggle('active', this.player.isSprinting);
+                if (btn) btn.classList.toggle('active', this.touchSprint);
             }
         });
 
@@ -948,7 +952,7 @@ class Controls {
 
         const spaceDown = !!(this.keys['Space'] || this.keys['KeySpace'] || this.keys[' ']);
         this.jumpPressed = spaceDown || this.touchJumpPressed;
-        this.player.isSprinting = !!(this.keys['ControlLeft'] || this.keys['ControlRight'] || this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+        this.player.isSprinting = !!(this.keys['ControlLeft'] || this.keys['ControlRight'] || this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.touchSprint);
 
         const flyUpPressed = !!(spaceDown || this.touchFlyUp);
         const flyDownPressed = !!(this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.keys['KeyC'] || this.touchFlyDown);
