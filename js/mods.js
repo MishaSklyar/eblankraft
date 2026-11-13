@@ -191,51 +191,87 @@ class SoundSynthesizer {
             const p = Math.max(0.4, Math.min(2.5, Number(pitch) || 1.0));
             const vol = Math.max(0.05, Math.min(1.0, Number(volume) || 0.35));
 
-            // Layer 1: Sharp noise transient
-            const bufLen = Math.floor(ctx.sampleRate * 0.12);
-            const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-            const out = noiseBuf.getChannelData(0);
-            for (let i = 0; i < bufLen; i++) {
-                out[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.22));
-            }
-            const noise = ctx.createBufferSource();
-            noise.buffer = noiseBuf;
+            // Master bus: loud but limited, so stacked layers hit hard without clipping
+            const bus = ctx.createDynamicsCompressor();
+            bus.threshold.setValueAtTime(-14, now);
+            bus.knee.setValueAtTime(8, now);
+            bus.ratio.setValueAtTime(10, now);
+            bus.attack.setValueAtTime(0.001, now);
+            bus.release.setValueAtTime(0.18, now);
+            const master = ctx.createGain();
+            master.gain.setValueAtTime(1.5, now);
+            bus.connect(master);
+            master.connect(ctx.destination);
 
+            const noiseBuf = (sec, decay) => {
+                const len = Math.floor(ctx.sampleRate * sec);
+                const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+                const d = buf.getChannelData(0);
+                for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len * decay));
+                return buf;
+            };
+
+            // 1. Crack: very sharp, bright transient
+            const crack = ctx.createBufferSource();
+            crack.buffer = noiseBuf(0.05, 0.18);
+            const hp = ctx.createBiquadFilter();
+            hp.type = 'highpass'; hp.frequency.setValueAtTime(1800 * p, now);
+            const crackGain = ctx.createGain();
+            crackGain.gain.setValueAtTime(vol * 1.1, now);
+            crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+            crack.connect(hp); hp.connect(crackGain); crackGain.connect(bus);
+            crack.start(now);
+
+            // 2. Body: mid-range blast
+            const body = ctx.createBufferSource();
+            body.buffer = noiseBuf(0.28, 0.3);
             const bpf = ctx.createBiquadFilter();
-            bpf.type = 'bandpass';
-            bpf.frequency.setValueAtTime(1600 * p, now);
-            bpf.Q.setValueAtTime(1.8, now);
+            bpf.type = 'bandpass'; bpf.frequency.setValueAtTime(900 * p, now); bpf.Q.setValueAtTime(0.9, now);
+            bpf.frequency.exponentialRampToValueAtTime(260 * p, now + 0.25);
+            const bodyGain = ctx.createGain();
+            bodyGain.gain.setValueAtTime(vol * 1.0, now);
+            bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+            body.connect(bpf); bpf.connect(bodyGain); bodyGain.connect(bus);
+            body.start(now);
 
-            const noiseGain = ctx.createGain();
-            noiseGain.gain.setValueAtTime(vol * 0.85, now);
-            noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+            // 3. Sub thump: chest-hitting pressure wave
+            const sub = ctx.createOscillator();
+            const subGain = ctx.createGain();
+            sub.type = 'sine';
+            sub.frequency.setValueAtTime(150 * p, now);
+            sub.frequency.exponentialRampToValueAtTime(34, now + 0.16);
+            subGain.gain.setValueAtTime(vol * 1.4, now);
+            subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+            sub.connect(subGain); subGain.connect(bus);
+            sub.start(now); sub.stop(now + 0.24);
 
-            noise.connect(bpf);
-            bpf.connect(noiseGain);
-            noiseGain.connect(ctx.destination);
-            noise.start(now);
-
-            // Layer 2: Heavy punch body (frequency drop)
+            // 4. Gritty punch (distorted saw drop)
             const osc = ctx.createOscillator();
             const oscGain = ctx.createGain();
             osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(220 * p, now);
-            osc.frequency.exponentialRampToValueAtTime(38 * p, now + 0.09);
-
+            osc.frequency.setValueAtTime(240 * p, now);
+            osc.frequency.exponentialRampToValueAtTime(45 * p, now + 0.1);
             const lpf = ctx.createBiquadFilter();
             lpf.type = 'lowpass';
-            lpf.frequency.setValueAtTime(450 * p, now);
-            lpf.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+            lpf.frequency.setValueAtTime(700 * p, now);
+            lpf.frequency.exponentialRampToValueAtTime(90, now + 0.14);
+            oscGain.gain.setValueAtTime(vol * 0.8, now);
+            oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+            osc.connect(lpf); lpf.connect(oscGain); oscGain.connect(bus);
+            osc.start(now); osc.stop(now + 0.16);
 
-            oscGain.gain.setValueAtTime(vol * 0.9, now);
-            oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-
-            osc.connect(lpf);
-            lpf.connect(oscGain);
-            oscGain.connect(ctx.destination);
-
-            osc.start(now);
-            osc.stop(now + 0.15);
+            // 5. Room tail: delayed, low-passed echo of the blast
+            const tail = ctx.createBufferSource();
+            tail.buffer = noiseBuf(0.6, 0.35);
+            const tailLp = ctx.createBiquadFilter();
+            tailLp.type = 'lowpass'; tailLp.frequency.setValueAtTime(1400, now);
+            tailLp.frequency.exponentialRampToValueAtTime(220, now + 0.55);
+            const tailGain = ctx.createGain();
+            tailGain.gain.setValueAtTime(0.001, now);
+            tailGain.gain.linearRampToValueAtTime(vol * 0.32, now + 0.04);
+            tailGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+            tail.connect(tailLp); tailLp.connect(tailGain); tailGain.connect(bus);
+            tail.start(now + 0.02);
         } catch (e) {}
     }
 
@@ -758,7 +794,8 @@ class WeaponCombatManager {
 
         // Camera trauma / shake
         if (this.game.cameraShakeTrauma !== undefined) {
-            this.game.cameraShakeTrauma = Math.min(1.0, (this.game.cameraShakeTrauma || 0) + 0.12);
+            const shake = Number.isFinite(Number(opts.shake)) ? Number(opts.shake) : 0.12;
+            this.game.cameraShakeTrauma = Math.min(1.0, (this.game.cameraShakeTrauma || 0) + shake);
         }
 
         // Gunshot Sound
