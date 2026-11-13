@@ -962,7 +962,9 @@ class Chunk {
             if (!c) { c = m.clone(); c.vertexColors = true; c.needsUpdate = true; Chunk._shadedMats.set(m, c); }
             return c;
         };
-        const finalMaterials = (isTurboOrA02 ? materials.map(m => (m && m.basicCounterpart) ? m.basicCounterpart : m) : materials).map(shadedMat);
+        const pbrOn = !isTurboOrA02 && textureManager && textureManager.textureX64;
+        const finalMaterials = (isTurboOrA02 ? materials.map(m => (m && m.basicCounterpart) ? m.basicCounterpart : m)
+            : (pbrOn ? materials.map(m => textureManager.getPbrMaterial(m)) : materials)).map(shadedMat);
 
         if (combinedPositions && combinedPositions.length > 0) {
             const geom = new THREE.BufferGeometry();
