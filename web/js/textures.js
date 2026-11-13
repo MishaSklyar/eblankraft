@@ -301,6 +301,34 @@ class TextureManager {
         this.itemDropTextures = {};
         this.itemDropGeometry = new THREE.BoxGeometry(0.32, 0.32, 0.32);
         this.init();
+        let saved = false;
+        try { saved = localStorage.getItem('eblankraft_texture_x64') === '1'; } catch (e) {}
+        this.textureX64 = false;
+        if (saved) this.setTextureX64(true);
+    }
+
+    // Upscales every texture to 64x64 (crisp, nearest-neighbour) or restores the originals.
+    setTextureX64(enabled) {
+        this.textureX64 = !!enabled;
+        try { localStorage.setItem('eblankraft_texture_x64', enabled ? '1' : '0'); } catch (e) {}
+        for (const key in this.threeTextures) {
+            const src = this.canvasCache[key];
+            const tex = this.threeTextures[key];
+            if (!src || !tex) continue;
+            if (enabled && src.width !== 64) {
+                const big = document.createElement('canvas');
+                big.width = 64;
+                big.height = 64;
+                const ctx = big.getContext('2d');
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(src, 0, 0, 64, 64);
+                tex.image = big;
+            } else {
+                tex.image = src;
+            }
+            tex.needsUpdate = true;
+        }
+        if (this.iconDataUrlCache) this.iconDataUrlCache.clear();
     }
 
     createCanvas(w = 16, h = 16) {
