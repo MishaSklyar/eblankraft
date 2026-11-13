@@ -1160,6 +1160,26 @@
             </div>
 
 
+            <section class="mp-room-active-card" aria-label="Спільний світ на сервері">
+                <h3>🌲 Спільний світ</h3>
+                <p>Будуйте, добувайте блоки та грайте з друзями. Введіть однаковий код кімнати.</p>
+                <label for="input-coop-room">Код кімнати (латинські літери, цифри, - або _):</label>
+                <input id="input-coop-room" class="mp-input-code" maxlength="24" placeholder="friends" value="friends">
+                <label for="input-coop-mode">Режим нової кімнати:</label>
+                <select id="input-coop-mode" class="mp-input-code">
+                    <option value="survival">🌲 Виживання</option>
+                    <option value="creative">🧱 Творчість</option>
+                </select>
+                <label for="input-coop-pvp">PvP у новій кімнаті:</label>
+                <select id="input-coop-pvp" class="mp-input-code">
+                    <option value="on">⚔️ Увімкнено (вибухи шкодять усім)</option>
+                    <option value="off">🤝 Вимкнено</option>
+                </select>
+                <button id="btn-coop-join" class="menu-btn btn-success" style="width:100%; margin-top:10px;">🌐 Створити / увійти в спільний світ</button>
+                <button id="btn-coop-leave" class="menu-btn" style="width:100%; margin-top:8px;">Вийти зі спільного світу</button>
+                <p id="coop-room-status" role="status">Оберіть код і режим. Друзі приєднаються до режиму, заданого першим гравцем.</p>
+            </section>
+
             <!-- Status & Player Counter -->
             <div class="mp-status-banner">
                 <span id="mp-status-text">⚪ Не підключено</span>

@@ -113,8 +113,29 @@ class CoopMobs {
         if (!mob) return;
         const client = this.client;
         // Loot from a remote kill is dropped for everyone through the server instead of only at our feet.
+        mob.takeDamage(msg.damage, { x: msg.kx || 0, z: msg.kz || 0 });
+    }
+
+    // Runs `drop` (which calls mgr.spawnItemDrop) so every drop goes out through the server instead.
+    shareLoot(mgr, drop) {
+        if (this.role() !== 'owner' || mgr._lootSink) return drop();
+        const client = this.client;
         mgr._lootSink = (x, y, z, itemId, count) => client.sendRaw({ type: 'mob_loot', itemId: String(itemId), count, x, y, z });
-        try { mob.takeDamage(msg.damage, { x: msg.kx || 0, z: msg.kz || 0 }); } finally { mgr._lootSink = null; }
+        try { drop(); } finally { mgr._lootSink = null; }
+    }
+
+    // An explosion in the room: the owner's mobs take the blast too.
+    blast(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'owner' || !mgr) return;
+        const reach = (msg.radius || 3.8) < 3 ? 5 : 8;
+        for (const m of [...mgr.mobs]) {
+            if (m.isDead || m.isPuppet) continue;
+            const dx = m.position.x - msg.x, dz = m.position.z - msg.z;
+            const d = Math.hypot(dx, m.position.y - msg.y, dz);
+            if (d >= reach) continue;
+            m.takeDamage(Math.max(3, (1 - d / reach) * 55), { x: dx / (d || 1), z: dz / (d || 1) });
+        }
     }
 
     // ---- puppet side ----
@@ -369,7 +390,7 @@ class SharedWorldClient {
         return false;
     }
 
-    joinRoom(roomName = 'pvp_arena', playerName = 'Боєць', skin = 'classic', mode = 'survival') {
+    joinRoom(roomName = 'pvp_arena', playerName = 'Боєць', skin = 'classic', mode = 'survival', pvp = true) {
         this.roomMode = mode;
         this.roomGeneration++;
         this.roomPackets = [];
@@ -380,7 +401,8 @@ class SharedWorldClient {
             room: roomName,
             name: playerName,
             skin: skin,
-            mode: mode
+            mode: mode,
+            pvp: pvp
         });
     }
 
@@ -419,7 +441,7 @@ class SharedWorldClient {
         if (status) status.textContent = 'Ви вийшли з кімнати. Світ тепер локальний.';
     }
 
-    joinCooperativeRoom(code, mode = 'survival') {
+    joinCooperativeRoom(code, mode = 'survival', pvp = true) {
         if (this.loadingRoom) return false;
         code = String(code).trim().toLowerCase();
         if (!/^[a-z0-9_-]{1,24}$/.test(code)) return false;
@@ -439,7 +461,7 @@ class SharedWorldClient {
         const mp = this.game && this.game.multiplayer;
         if (mp && mp.isConnected) mp.disconnect();
         const name = (mp && mp.playerName) || 'Гравець';
-        this.joinRoom('coop_' + code, name, 'classic', mode);
+        this.joinRoom('coop_' + code, name, 'classic', mode, pvp);
         if (!this.isConnected) this.connect();
         return true;
     }
@@ -458,6 +480,7 @@ class SharedWorldClient {
             if (generation !== this.roomGeneration) return;
             this.game.world.id = 'server:' + msg.room;
             this.engineAuthority = msg.world.authority === 'eblan';
+            this.roomPvp = !!msg.world.pvp;
             (this.authorityChunks ||= new Map()).clear();
             this.coopMobs.reset();
             this.dimSpawn = null;
@@ -482,7 +505,7 @@ class SharedWorldClient {
             for (const raw of queued) this.handleMessage(raw);
             const status = document.getElementById('coop-room-status');
             if (status) status.textContent = 'Кімната: ' + msg.room.slice(5) + ' · ' +
-                (msg.world.mode === 'creative' ? 'Творчість' : 'Виживання') + ' · PvP вимкнено';
+                (msg.world.mode === 'creative' ? 'Творчість' : 'Виживання') + (this.roomPvp ? ' · PvP увімкнено' : ' · PvP вимкнено');
         } catch (error) {
             console.error('Cooperative world failed:', error);
             if (generation === this.roomGeneration) this.leaveRoom();
@@ -547,7 +570,7 @@ class SharedWorldClient {
     }
 
     requestAttack(targetId, isCrit = false) {
-        if (this.currentRoom && this.currentRoom.startsWith('coop_')) return false;
+        if (this.currentRoom && this.currentRoom.startsWith('coop_') && !this.roomPvp) return false;
         // Authoritative Combat: Client requests attack; server decides hit, reach, damage and i-frames!
         return this.sendRaw({
             type: 'attack',
@@ -977,7 +1000,15 @@ class SharedWorldClient {
             case 'item_drop': {
                 if (this.game && this.game.mobManager) {
                     const throwVel = new THREE.Vector3(msg.vx || 0, msg.vy || 2, msg.vz || 0);
-                    this.game.mobManager.spawnItemDrop(msg.x, msg.y, msg.z, msg.itemId, msg.count, 0.8, throwVel);
+                    const drop = this.game.mobManager.spawnItemDrop(msg.x, msg.y, msg.z, msg.itemId, msg.count, 0.8, throwVel);
+                    if (drop && msg.drop_id && drop.count === msg.count) drop.netId = msg.drop_id;
+                }
+                break;
+            }
+
+            case 'item_taken': {
+                for (const d of this.game.mobManager?.itemDrops || []) {
+                    if (d.netId === msg.id && !d.pickedUp) { d.pickedUp = true; d.destroy(); }
                 }
                 break;
             }
@@ -1020,6 +1051,7 @@ class SharedWorldClient {
 
             case 'tnt_exploded': {
                 if (this.game) {
+                    this.coopMobs?.blast(msg);
                     const remote = this.game.tntEntities?.find(t => t.serverId === msg.tnt_id);
                     if (remote) { remote.exploded = true; this.game.scene.remove(remote.mesh); }
                     if (this.game.soundManager && this.game.soundManager.playExplosion) {

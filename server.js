@@ -43,10 +43,11 @@ const MAX_CHAIN_EXPLOSIVES = 16;
 const MAX_BLASTS_PER_TICK = 8;
 
 class GameRoom {
-    constructor(name, mode = 'survival') {
+    constructor(name, mode = 'survival', pvp = true) {
         this.name = name;
         this.cooperative = name.startsWith('coop_');
         this.mode = mode === 'creative' ? 'creative' : 'survival';
+        this.pvp = this.cooperative && this.mode === 'survival' && pvp !== false;   // chosen by whoever creates the room
         this.seed = crypto.createHash('sha256').update(name).digest().readUInt32BE() % 899999 + 100000;
         this.clients = new Map();
         this.blocks = new Map();
@@ -135,11 +136,11 @@ class AuthoritativeGameServer {
         const timer = setTimeout(() => { this.timers.delete(timer); fn(); }, ms);
         timer.unref(); this.timers.add(timer); return timer;
     }
-    get_or_create_room(name, mode) {
+    get_or_create_room(name, mode, pvp) {
         if (!this.rooms.has(name)) {
             if (this.canCreateRoom && !this.canCreateRoom(name)) return null;
             if (this.rooms.size >= 64) return null;
-            this.rooms.set(name, new GameRoom(name, mode));
+            this.rooms.set(name, new GameRoom(name, mode, pvp));
         }
         return this.rooms.get(name);
     }
@@ -239,7 +240,13 @@ class AuthoritativeGameServer {
         room.broadcast({ type: 'duel_round_end', winner_id: winner.id, winner_name: winner.name,
             loser_id: loser.id, loser_name: loser.name, reason });
     }
-    damage(room, target, attacker, damage, crit = false, knockback = { x: 0, y: .28, z: 0 }) {
+    damage(room, target, attacker, damage, crit = false, knockback = { x: 0, y: .28, z: 0 }, label = attacker.name) {
+        if (room.cooperative) {
+            // Co-op players keep their own health (fall damage, hunger, regeneration are client side), so the
+            // server only relays the hit; the victim applies it and handles their own death and respawn.
+            return room.broadcast({ type: 'damage_event', target_id: target.id, attacker_id: attacker.id, attacker_name: label,
+                damage, is_crit: crit, knockback }, undefined, dimOf(target));
+        }
         target.health = Math.max(0, round(target.health - damage));
         room.broadcast({ type: 'damage_event', target_id: target.id, attacker_id: attacker.id,
             attacker_name: attacker.name, damage, health_remaining: target.health, is_crit: crit, knockback });
@@ -252,7 +259,7 @@ class AuthoritativeGameServer {
     }
     explode(room, source, tnt) {
         if (!room.tnt.delete(tnt.id)) return;
-        const radius = tnt.kind === 'c4' ? 5.5 : 3.8;
+        const creeper = tnt.kind === 'creeper', radius = tnt.kind === 'c4' ? 5.5 : creeper ? 2.4 : 3.8, reach = creeper ? 5 : 8;
         const dim = room.cooperative ? (tnt.dim || dimOf(source)) : 'overworld';
         if (room.cooperative) {
             const world = room.world(dim);
@@ -274,10 +281,11 @@ class AuthoritativeGameServer {
         }
         room.broadcast({ type: 'tnt_exploded', tnt_id: tnt.id, x: tnt.x, y: tnt.y, z: tnt.z, radius, source_id: source.id }, undefined, room.cooperative ? dim : undefined);
         for (const p of room.clients.values()) {
-            if (!p.is_alive || (room.cooperative && (p !== source || dimOf(p) !== dim))) continue;
+            // Creepers hurt everyone; TNT and C4 hurt other players only where the room allows PvP.
+            if (!p.is_alive || (room.cooperative && (dimOf(p) !== dim || (!creeper && p !== source && !room.pvp)))) continue;
             const d = distance(p, tnt);
-            if (d >= 8) continue;
-            const force = (1 - d / 8) * 22;
+            if (d >= reach) continue;
+            const force = (1 - d / reach) * 22;
             const knockback = { x: round((p.x - tnt.x) / (d || 1) * force, 3),
                 y: round(Math.max(6, (p.y - tnt.y) / (d || 1) * force + 6), 3),
                 z: round((p.z - tnt.z) / (d || 1) * force, 3) };
@@ -286,8 +294,8 @@ class AuthoritativeGameServer {
             const decay = elapsed >= 0 && elapsed < 3 ? Math.exp(-1.5 * elapsed) : 0;
             const velocity = Object.fromEntries(['x', 'y', 'z'].map(k => [k, (previous?.velocity[k] ?? 0) * decay + knockback[k]]));
             p.explosionImpulse = { velocity, at: now, credit: 0 };
-            this.damage(room, p, source, round(Math.max(3, Math.max(8, (1 - d / 8) * 55) * (1 - p.armor_reduction))), false,
-                knockback);
+            this.damage(room, p, source, round(Math.max(3, Math.max(8, (1 - d / reach) * 55) * (1 - p.armor_reduction))), false,
+                knockback, creeper ? 'Кріпер' : source.name);
         }
     }
     spawnExplosive(room, source, state) {
@@ -324,11 +332,19 @@ class AuthoritativeGameServer {
             if (!isOwner || !target || target === client || !target.is_alive || dimOf(target) !== dim || !finite(msg.amount) ||
                 msg.amount <= 0 || msg.amount > 40 || !this.allowAction(client, room, 'mobAttacks')) return;
             target.send_json({ type: 'mob_damage', room: room.name, amount: msg.amount, reason: clean(msg.reason, 80, 'Моб') });
+        } else if (type === 'mob_explode') {
+            if (!isOwner || ![msg.x, msg.y, msg.z].every(finite) || !this.allowAction(client, room, 'mobAttacks')) return;
+            const blast = { id: crypto.randomUUID(), x: msg.x, y: msg.y, z: msg.z, kind: 'creeper', dim, chain: { remaining: 0 } };
+            room.tnt.set(blast.id, blast);
+            this.explode(room, client, blast);
+        } else if (type === 'item_pickup') {
+            if (typeof msg.id !== 'string' || msg.id.length > 64) return;
+            room.broadcast({ type: 'item_taken', id: msg.id }, client.id, dim);
         } else if (type === 'mob_loot') {
             const item = clean(msg.itemId, 32), count = msg.count ?? 1;
             if (!isOwner || !item || !Number.isInteger(count) || count < 1 || count > 64 || ![msg.x, msg.y, msg.z].every(finite) ||
                 !this.allowAction(client, room, 'mobLoot')) return;
-            room.broadcast({ type: 'item_drop', player_id: client.id, itemId: item, count, x: msg.x, y: msg.y, z: msg.z, vx: 0, vy: 2, vz: 0 }, undefined, dim);
+            room.broadcast({ type: 'item_drop', drop_id: crypto.randomUUID(), player_id: client.id, itemId: item, count, x: msg.x, y: msg.y, z: msg.z, vx: 0, vy: 2, vz: 0 }, undefined, dim);
         }
     }
     process_message(client, msg) {
@@ -341,7 +357,7 @@ class AuthoritativeGameServer {
             const name = clean(msg.room, 32, 'pvp_arena');
             if (!/^[A-Za-z0-9_-]{1,32}$/.test(name) || name.startsWith('duel_')) return;
             if (name.startsWith('coop_hosted_') && !this.economy?.canJoin(client, name)) return client.send_json({ type: 'server_error', message: 'Hosted world expired, unavailable, or full.' });
-            const room = this.get_or_create_room(name, name.startsWith('coop_hosted_') ? 'survival' : msg.mode);
+            const room = this.get_or_create_room(name, name.startsWith('coop_hosted_') ? 'survival' : msg.mode, msg.pvp);
             if (!room || (client.room !== room && room.clients.size >= 16)) return client.send_json({ type: 'server_error', message: 'Room is full' });
             const switching = client.room !== room;
             if (switching) {
@@ -351,13 +367,13 @@ class AuthoritativeGameServer {
             }
             Object.assign(client, { room, name: clean(msg.name, 24, 'Боєць'), skin: clean(msg.skin, 32, 'classic') });
             if (switching) {
-                Object.assign(client, { health: 100, is_alive: true, last_move_time: now, armor_reduction: .68, invulnerable_until: now + 1.5 });
+                Object.assign(client, { health: 100, is_alive: true, last_move_time: now, armor_reduction: room.cooperative ? .35 : .68, invulnerable_until: now + 1.5 });
                 client.explosionImpulse = null;
             }
             room.clients.set(client.id, client);
             client.send_json({ type: 'welcome', id: client.id, room: name,
                 players: [...room.clients.values()].filter(p => p !== client && dimOf(p) === dimOf(client)).map(p => this.player(p)),
-                blocks: this.dimensionBlocks(room, dimOf(client)), world: room.cooperative ? { seed: room.seed, mode: room.mode, type: 'normal', authority: 'eblan' } : null,
+                blocks: this.dimensionBlocks(room, dimOf(client)), world: room.cooperative ? { seed: room.seed, mode: room.mode, type: 'normal', authority: 'eblan', pvp: room.pvp } : null,
                 pvp: !room.cooperative, explosives: 'server', health: client.health, spawn: { x: client.x, y: client.y, z: client.z } });
             if (switching) {
                 room.broadcast({ type: 'player_joined', player: this.player(client) }, client.id, room.cooperative ? dimOf(client) : undefined);
@@ -419,9 +435,9 @@ class AuthoritativeGameServer {
             return;
         }
         if (type === 'attack') {
-            if (room.cooperative || !client.is_alive || (duel && room.duel_phase !== 'live')) return;
+            if ((room.cooperative && !room.pvp) || !client.is_alive || (duel && room.duel_phase !== 'live')) return;
             const target = room.clients.get(msg.target_id), spec = duel ? DUEL_KITS[room.duel_kit] : null;
-            if (!target || target === client || !target.is_alive || now - client.last_attack_time < (spec?.cooldown ?? .2) || now < target.invulnerable_until) return;
+            if (!target || target === client || !target.is_alive || (room.cooperative && dimOf(target) !== dim) || now - client.last_attack_time < (spec?.cooldown ?? .2) || now < target.invulnerable_until) return;
             const d = distance(client, target);
             if (d > (duel ? 4.8 : 6.5) || (duel && client.duel_blocking)) return;
             const weaponDamage = Object.hasOwn(WEAPON_DAMAGE, client.held_item) ? WEAPON_DAMAGE[client.held_item] : 5;
@@ -510,7 +526,7 @@ class AuthoritativeGameServer {
             client.last_dimension_time = now;
             return this.changeDimension(room, client, msg.dim);
         }
-        if (room.cooperative && (type === 'mob_sync' || type === 'mob_hit' || type === 'mob_attack' || type === 'mob_loot')) {
+        if (room.cooperative && (type === 'mob_sync' || type === 'mob_hit' || type === 'mob_attack' || type === 'mob_loot' || type === 'mob_explode' || type === 'item_pickup')) {
             return this.process_mob_message(room, client, dim, msg);
         }
         if (type === 'join_duel_queue') return this.enqueue_duel(client, clean(msg.player_name ?? msg.name, 24, client.name), clean(msg.kit, 24, 'classic'));

@@ -83,3 +83,18 @@ test('owner targets the nearest player (local or remote) and routes remote damag
     local.isDead = true;                                                        // dead local player is not targeted
     assert.equal(net.nearestTarget(new THREE.Vector3(1, 0, 0), local).id, 'p2');
 });
+
+test('owner shares mob loot through the server and damages its mobs with room explosions', () => {
+    const { net, mgr, sent } = setup('me');
+    net.handleOwner({ dim: 'overworld', owner_id: 'me', mobs: [] });
+    const dropped = [];
+    mgr.spawnItemDrop = function (x, y, z, id, n) { if (this._lootSink && this._lootSink(x, y, z, id, n)) return null; dropped.push(id); return {}; };
+    net.shareLoot(mgr, () => mgr.spawnItemDrop(1, 2, 3, 'apple', 2));
+    assert.equal(dropped.length, 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'mob_loot', itemId: 'apple', count: 2, x: 1, y: 2, z: 3 });
+    assert.equal(mgr._lootSink, null);                                          // only for the duration of the kill
+
+    const near = mgr.spawnMob('zombie', 1, 0, 0), far = mgr.spawnMob('zombie', 40, 0, 0);
+    net.blast({ x: 0, y: 0, z: 0, radius: 3.8 });
+    assert.ok(near.hit > 3); assert.equal(far.hit, undefined);
+});

@@ -104,6 +104,8 @@ class ItemDrop {
                     const added = player.addItem(this.itemId, this.count);
                     if (added) {
                         this.pickedUp = true;
+                        // Shared room: tell the others this drop is gone so it cannot be picked up twice.
+                        if (this.netId) player.game?.serverClient?.sendRaw({ type: 'item_pickup', id: this.netId });
                         if (this.soundManager) this.soundManager.playPickup();
                         if (player.game && player.game.ui) {
                             const itInfo = ITEM_REGISTRY[this.itemId] || { name: this.itemId };
@@ -1061,8 +1063,15 @@ class MobEntity {
         const cy = Math.floor(this.position.y);
         const cz = Math.floor(this.position.z);
 
-        // Break blocks around creeper (not in a shared room: the server would never hear about it)
-        const r = this.game.serverClient?.engineAuthority ? -1 : 2;
+        // Shared room: the server owns the blast (terrain, damage to every player), we only show it.
+        const net = this.game.serverClient;
+        if (net?.engineAuthority) {
+            net.sendRaw({ type: 'mob_explode', x: this.position.x, y: this.position.y, z: this.position.z });
+            this.die(false);
+            return;
+        }
+        // Break blocks around creeper
+        const r = 2;
         for (let dx = -r; dx <= r; dx++) {
             for (let dy = -r; dy <= r; dy++) {
                 for (let dz = -r; dz <= r; dz++) {
@@ -1115,7 +1124,11 @@ class MobEntity {
     }
 
     dropMobLoot() {
-        if (this.def.loot) this.def.loot(this.game.mobManager, this.position.x, this.position.y + 0.5, this.position.z);
+        if (!this.def.loot) return;
+        const net = this.game.serverClient?.coopMobs;
+        const drop = () => this.def.loot(this.game.mobManager, this.position.x, this.position.y + 0.5, this.position.z);
+        // Shared room: loot is dropped for everyone through the server, not just at the mob owner's feet.
+        if (net) net.shareLoot(this.game.mobManager, drop); else drop();
     }
 
     interact(player) {

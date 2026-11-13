@@ -463,8 +463,9 @@ class MultiplayerManager {
         if (coopJoin) coopJoin.onclick = () => {
             const code = document.getElementById('input-coop-room').value;
             const mode = document.getElementById('input-coop-mode').value;
+            const pvp = document.getElementById('input-coop-pvp')?.value !== 'off';
             const sc = this.game && this.game.serverClient;
-            if (!sc || !sc.joinCooperativeRoom(code, mode)) {
+            if (!sc || !sc.joinCooperativeRoom(code, mode, pvp)) {
                 this.showToast(sc && sc.loadingRoom ? 'Зачекайте завантаження світу.' : 'Перевірте адресу сервера (ws:// або wss://) та код кімнати.');
                 return;
             }
@@ -1472,7 +1473,7 @@ class MultiplayerManager {
         if (this.game.arenaClient?.isActive) return this.game.arenaClient.attack();
         const sc = this.game.serverClient;
         if ((!this.isConnected && !sc?.currentRoom) || this.remotePlayers.size === 0) return false;
-        if (sc?.currentRoom?.startsWith('coop_')) return false;
+        if (sc?.currentRoom?.startsWith('coop_') && !sc.roomPvp) return false;
         if (this.game.ui?.isDuelActive && (this.game.ui.duelLoading || this.game.ui.duelCountdown > 0 || this.game.ui.duelFinished)) return false;
 
         let hit = false;
@@ -1487,7 +1488,7 @@ class MultiplayerManager {
                 const perpDist = toRemote.sub(dir.clone().multiplyScalar(distAlongRay)).length();
                 const hitboxRadius = 0.72; // Precision cylinder hitbox
                 if (perpDist <= hitboxRadius) {
-                    if (sc?.isConnected && sc.currentRoom?.startsWith('duel_')) {
+                    if (sc?.isConnected && (sc.currentRoom?.startsWith('duel_') || sc.currentRoom?.startsWith('coop_'))) {
                         return sc.requestAttack(peerId, isCrit);
                     }
                     const kbObj = knockback ? { x: knockback.x, y: knockback.y, z: knockback.z } : null;
