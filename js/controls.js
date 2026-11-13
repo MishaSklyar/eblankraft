@@ -327,9 +327,27 @@ class Controls {
             if (isDown) window.game?.ui?.toggleInventory?.(true);
         });
 
-        // Reload the held gun
+        // Bullet button. Shooter layout: secondary fire (hold = scope in, release = shoot and scope out).
+        // Other layouts: plain reload.
         this.bindTouchButton('btn-reload', (isDown) => {
-            if (isDown) this.player.reloadGun?.();
+            if (!document.body.classList.contains('hud-shooter')) {
+                if (isDown) this.player.reloadGun?.();
+                return;
+            }
+            if (isDown) {
+                this.secondaryFireHeld = true;
+                this.touchAimPressed = true;
+                this.player.setAiming?.(true);
+            } else if (this.secondaryFireHeld) {
+                this.secondaryFireHeld = false;
+                if (this.player.isAiming) {
+                    this.player.tryShootGun?.();      // shoot while still scoped, so the shot uses the scoped aim
+                    this.player.releaseGunTrigger?.();
+                }
+                this.touchAimPressed = false;
+                if (!this.mouseRightDown) this.player.setAiming?.(false);
+                document.getElementById('btn-scope')?.classList.remove('active');
+            }
         });
 
         // Inspect the held knife
@@ -891,6 +909,12 @@ class Controls {
             document.body.appendChild(hud);
             const btn = document.getElementById('gun-reload-btn');
             if (btn) btn.onclick = () => this.player.reloadGun?.();
+            // Shooter layout: the whole ammo panel is the reload button
+            hud.addEventListener('pointerdown', (e) => {
+                if (!document.body.classList.contains('hud-shooter') || e.target.closest('#gun-reload-btn')) return;
+                e.preventDefault(); e.stopPropagation();
+                this.player.reloadGun?.();
+            });
         }
         if (!hud) return;
         hud.style.display = 'flex';

@@ -7101,3 +7101,7 @@ body.hud-shooter #btn-attack::after {
     padding: 1vh 1.5vh; font-size: 1.8vh; letter-spacing: 1px; color: rgba(255,255,255,0.35); text-align: left;
     background: rgba(255, 255, 255, 0.035); border: 1px dashed rgba(255, 255, 255, 0.16); border-radius: 0 0 2vh 0;
 }
+
+/* Shooter: tapping the ammo panel reloads */
+body.hud-shooter #gun-hud { cursor: pointer; touch-action: manipulation; }
+body.hud-shooter #gun-hud:active { filter: brightness(1.3); }
