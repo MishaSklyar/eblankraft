@@ -115,6 +115,20 @@ class Controls {
 
         const handleJoystickStart = (touch) => {
             if (this.joystickTouchId !== null) return;
+            // Shooter layout: the joystick is a fixed ring, only touches on/near it steer
+            const fixedRing = document.body.classList.contains('hud-shooter') && joystickBase;
+            if (fixedRing) {
+                const rr = joystickBase.getBoundingClientRect();
+                const cx = rr.left + rr.width / 2, cy = rr.top + rr.height / 2;
+                if (Math.hypot(touch.clientX - cx, touch.clientY - cy) > rr.width * 0.9) return;
+                this.joystickTouchId = touch.identifier;
+                this.joystickOrigin.set(cx, cy);
+                this.joystickCurrent.set(touch.clientX, touch.clientY);
+                this.joystickMaxRadius = rr.width * 0.42;
+                handleJoystickMove(touch);
+                return;
+            }
+            this.joystickMaxRadius = 45;
             this.joystickTouchId = touch.identifier;
             this.joystickOrigin.set(touch.clientX, touch.clientY);
             this.joystickCurrent.set(touch.clientX, touch.clientY);
@@ -152,7 +166,9 @@ class Controls {
         const resetJoystick = () => {
             this.joystickTouchId = null;
             this.inputVector.set(0, 0);
-            if (joystickBase) joystickBase.style.display = 'none';
+            if (document.body.classList.contains('hud-shooter')) {
+                if (joystickKnob) joystickKnob.style.transform = 'translate(-50%, -50%)';
+            } else if (joystickBase) joystickBase.style.display = 'none';
         };
 
         const handleLookStart = (touch) => {
@@ -294,6 +310,80 @@ class Controls {
             this.touchAimPressed = isDown;
             if (this.player.setAiming?.(isDown)) return;
             if (isDown) this.player.placeBlock();
+        });
+
+        // Scope: tap to aim down sights / unscope (sticky, so releasing the fire button keeps the zoom)
+        this.bindTouchButton('btn-scope', (isDown) => {
+            if (!isDown) return;
+            const aim = !this.player.isAiming;
+            this.player.setAiming?.(aim);
+            this.touchAimPressed = !!this.player.isAiming;
+            const btn = document.getElementById('btn-scope');
+            if (btn) btn.classList.toggle('active', !!this.player.isAiming);
+        });
+
+        // Backpack (shooter layout "buy" slot)
+        this.bindTouchButton('btn-buy', (isDown) => {
+            if (isDown) window.game?.ui?.toggleInventory?.(true);
+        });
+
+        // Bullet button. Shooter layout: secondary fire (hold = scope in, release = shoot and scope out).
+        // Other layouts: plain reload.
+        this.bindTouchButton('btn-reload', (isDown) => {
+            if (!document.body.classList.contains('hud-shooter')) {
+                if (isDown) this.player.reloadGun?.();
+                return;
+            }
+            if (isDown) {
+                this.secondaryFireHeld = true;
+                this.touchAimPressed = true;
+                this.player.setAiming?.(true);
+            } else if (this.secondaryFireHeld) {
+                this.secondaryFireHeld = false;
+                if (this.player.isAiming) {
+                    this.player.tryShootGun?.();      // shoot while still scoped, so the shot uses the scoped aim
+                    this.player.releaseGunTrigger?.();
+                }
+                this.touchAimPressed = false;
+                if (!this.mouseRightDown) this.player.setAiming?.(false);
+                document.getElementById('btn-scope')?.classList.remove('active');
+            }
+        });
+
+        // Shooter layout: a finger held on the fire zone / bullet / scope button keeps steering the camera when it slides,
+        // so the buttons never block aiming. (The button's own press / release behaviour is unchanged.)
+        for (const btnId of ['btn-reload', 'btn-attack', 'btn-scope']) {
+            const el = document.getElementById(btnId);
+            if (!el) continue;
+            let tid = null, px = 0, py = 0;
+            el.addEventListener('touchstart', (e) => {
+                if (tid !== null || !document.body.classList.contains('hud-shooter')) return;
+                const t = e.changedTouches[0];
+                tid = t.identifier; px = t.clientX; py = t.clientY;
+            }, { passive: true });
+            el.addEventListener('touchmove', (e) => {
+                if (tid === null || this.middleClickMenu || this.blockEditor) return;
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier !== tid) continue;
+                    const dx = t.clientX - px, dy = t.clientY - py;
+                    px = t.clientX; py = t.clientY;
+                    const aimScale = this.player.isAiming ? (this.player.camera?.fov || 72) / (this.player.aimBaseFov || 72) : 1;
+                    this.player.yaw -= dx * this.touchLookSensitivity * aimScale;
+                    this.player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, this.player.pitch - dy * this.touchLookSensitivity * aimScale));
+                }
+                e.preventDefault();
+            }, { passive: false });
+            const end = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === tid) tid = null;
+            };
+            el.addEventListener('touchend', end);
+            el.addEventListener('touchcancel', end);
+        }
+
+        // Inspect the held knife
+        this.bindTouchButton('btn-inspect', (isDown) => {
+            if (isDown) this.player.inspectKnife?.();
         });
 
         this.bindTouchButton('btn-tnt', (isDown) => {
@@ -834,6 +924,7 @@ class Controls {
             hud = document.createElement('div');
             hud.id = 'gun-hud';
             hud.innerHTML = `
+                <img id="gun-hud-icon" alt="">
                 <div class="eblan-gun-info">
                     <div id="gun-name-badge" class="eblan-gun-title">🔫 СТВОЛ</div>
                     <div class="eblan-gun-ammo-row">
@@ -849,12 +940,25 @@ class Controls {
             document.body.appendChild(hud);
             const btn = document.getElementById('gun-reload-btn');
             if (btn) btn.onclick = () => this.player.reloadGun?.();
+            // Shooter layout: the whole ammo panel is the reload button
+            hud.addEventListener('pointerdown', (e) => {
+                if (!document.body.classList.contains('hud-shooter') || e.target.closest('#gun-reload-btn')) return;
+                e.preventDefault(); e.stopPropagation();
+                this.player.reloadGun?.();
+            });
         }
         if (!hud) return;
         hud.style.display = 'flex';
         const label = document.getElementById('gun-ammo-label');
         if (label) label.textContent = `${state.gunType.toUpperCase()} · ${state.ammo}/${state.capacity} · ${Number.isFinite(state.reserve) ? state.reserve : '∞'}${state.reloading ? ` · ↻ ${state.reloadRemaining.toFixed(1)}с` : ''}${performance.now() < (this.player.gunHitUntil || 0) ? ' · × HIT' : ''}`;
 
+        const hudIcon = document.getElementById('gun-hud-icon');
+        if (hudIcon) {
+            const held = this.player.getSelectedItem?.();
+            const reg = held && window.ITEM_REGISTRY?.[held.itemId];
+            const src = reg && window.game?.ui?.textureManager?.getIconDataURL?.(reg.icon);
+            if (src && hudIcon.getAttribute('src') !== src) hudIcon.src = src;
+        }
         const nameBadge = document.getElementById('gun-name-badge');
         if (nameBadge) nameBadge.textContent = `🔫 ${state.gunType.toUpperCase()}`;
         const mainCount = document.getElementById('gun-ammo-main');

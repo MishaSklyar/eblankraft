@@ -156,10 +156,10 @@ const CASES_CONFIG = {
     [ITEM_TYPES.CASE_HOBO]: {
         id: ITEM_TYPES.CASE_HOBO,
         name: 'Бомж-Кейс 📦',
-        desc: 'Простий кейс за мусорні жетони або безкоштовно щохвилини!',
-        cost: { itemId: ITEM_TYPES.JUNK_TOKEN, count: 2 },
+        desc: 'Простий кейс за залізо або безкоштовно щохвилини!',
+        cost: { itemId: ITEM_TYPES.IRON_INGOT, count: 2 },
         items: [
-            { item: ITEM_TYPES.JUNK_SOCK, count: 3, weight: 30, isSkin: false },
+            { item: ITEM_TYPES.COBBLESTONE, count: 16, weight: 30, isSkin: false },
             { item: ITEM_TYPES.WOOD, count: 8, weight: 25, isSkin: false },
             { item: ITEM_TYPES.APPLE, count: 4, weight: 20, isSkin: false },
             { item: ITEM_TYPES.STONE_PICKAXE, count: 1, weight: 12, isSkin: false },
@@ -221,9 +221,9 @@ const UPGRADES_CONFIG = {
         icon: '⛏️',
         desc: '+35% до швидкості за кожен рівень',
         maxLevel: 10,
-        baseCost: 2, // Junk Tokens or Iron
-        costType: ITEM_TYPES.JUNK_TOKEN,
-        costTypeAlt: ITEM_TYPES.IRON_INGOT,
+        baseCost: 2, // Iron or Gold
+        costType: ITEM_TYPES.IRON_INGOT,
+        costTypeAlt: ITEM_TYPES.GOLD_INGOT,
         getMultiplier: (lvl) => 1 + lvl * 0.35
     },
     damage: {
@@ -255,8 +255,8 @@ const UPGRADES_CONFIG = {
         desc: '+1 метр до радіусу підбору предметів',
         maxLevel: 8,
         baseCost: 2,
-        costType: ITEM_TYPES.JUNK_TOKEN,
-        costTypeAlt: ITEM_TYPES.GOLD_INGOT,
+        costType: ITEM_TYPES.GOLD_INGOT,
+        costTypeAlt: ITEM_TYPES.DIAMOND_ITEM,
         getValue: (lvl) => 2.2 + lvl * 0.8
     },
     fortune: {
@@ -1001,7 +1001,6 @@ const GG_HOUSE_EDGE = 0.95;
 const GG_MAX_CHANCE = 0.9;
 const GG_MIN_CHANCE = 0.01;
 const ITEM_VALUE_TABLE = {
-    junk_sock: 1, junk_beer: 2, junk_cig: 1, junk_nut: 1, junk_token: 3,
     stick: 1, coal: 3, iron_ingot: 8, gold_ingot: 20, emerald: 30, diamond_item: 60, redstone_dust: 4,
     netherite_scrap: 150, ender_eye: 40, blaze_rod: 15, gunpowder: 4, rotten_flesh: 1,
     ammo_pistol: 5, ammo_rifle: 5, ammo_sniper: 8, ammo_shotgun: 5, ammo_rocket: 15,
@@ -1032,7 +1031,7 @@ function getUpgradeTargets(stakeValue, search = '', onlyKnives = false) {
     const out = [];
     for (const id in window.ITEM_REGISTRY) {
         const reg = window.ITEM_REGISTRY[id];
-        if (reg.category === 'block' || reg.category === 'junk' || !reg.icon) continue;
+        if (reg.category === 'block' || !reg.icon) continue;
         if (onlyKnives && !reg.isKnife) continue;
         if (q && !String(reg.name).toLowerCase().includes(q)) continue;
         const value = getItemValue(id);

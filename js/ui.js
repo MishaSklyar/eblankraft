@@ -11,7 +11,7 @@ class UIManager {
 
         this.inventoryOpen = false;
         this.menuOpen = false;
-        this.currentTab = 'backpack';
+        this.currentTab = 'inventory';
         this.selectedInventorySlot = null;
 
         this.fpsHistory = [];
@@ -402,7 +402,7 @@ class UIManager {
             closeBtn.addEventListener('click', () => this.toggleInventory(false));
         }
 
-        const tabs = ['backpack', 'catalog', 'crafting', 'cases', 'gg', 'upgrader', 'trash', 'skins'];
+        const tabs = ['inventory', 'catalog', 'cases', 'skins'];
 
         // Tab Navigation Arrows (◀ / ▶)
         const btnNavPrev = document.getElementById('tab-nav-prev');
@@ -498,28 +498,17 @@ class UIManager {
         if (!contentContainer) return;
         contentContainer.innerHTML = '';
         contentContainer.scrollTop = 0;
+        this.hideInvWindows();
 
         switch (this.currentTab) {
-            case 'backpack':
-                this.renderBackpackTab(contentContainer);
+            case 'inventory':
+                this.renderInventoryTab(contentContainer);
                 break;
             case 'catalog':
                 this.renderCatalogTab(contentContainer);
                 break;
-            case 'crafting':
-                this.renderCraftingTab(contentContainer);
-                break;
             case 'cases':
                 this.renderCasesTab(contentContainer);
-                break;
-            case 'gg':
-                this.renderUpgraderGGTab(contentContainer);
-                break;
-            case 'upgrader':
-                this.renderUpgraderTab(contentContainer);
-                break;
-            case 'trash':
-                this.renderTrashTab(contentContainer);
                 break;
             case 'skins':
                 this.renderSkinsTab(contentContainer);
@@ -527,71 +516,297 @@ class UIManager {
         }
     }
 
-    // 1. Backpack Tab (27 slots)
-    renderBackpackTab(container) {
+    // Floating window helpers for the Craft / Upgrader panels
+    getInvWindow(key, title, cls) {
+        this.invWins = this.invWins || {};
+        if (this.invWins[key] && this.invWins[key].isConnected) return this.invWins[key].body;
+        const modal = document.getElementById('inventory-modal');
+        const win = document.createElement('div');
+        win.className = 'inv2-window ' + cls;
+        win.innerHTML = `<div class="inv2-win-head"><span>${title}</span><button class="btn-close" title="Закрити">✖</button></div><div class="inv2-win-body"></div>`;
+        const body = win.querySelector('.inv2-win-body');
+        win.body = body;
+        win.querySelector('.btn-close').onclick = () => {
+            (this.invPanels || {})[key] = false;
+            this.renderCurrentTab();
+        };
+        const head = win.querySelector('.inv2-win-head');
+        head.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button')) return;
+            const r = win.getBoundingClientRect();
+            const dx = e.clientX - r.left, dy = e.clientY - r.top;
+            win.style.left = r.left + 'px'; win.style.top = r.top + 'px'; win.style.right = 'auto'; win.style.transform = 'none';
+            const move = (ev) => {
+                win.style.left = Math.max(0, Math.min(window.innerWidth - 80, ev.clientX - dx)) + 'px';
+                win.style.top = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - dy)) + 'px';
+            };
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+            e.preventDefault();
+        });
+        (modal || document.body).appendChild(win);
+        this.invWins[key] = win;
+        return body;
+    }
+
+    setInvWindowOpen(key, open) {
+        const win = this.invWins && this.invWins[key];
+        if (win) win.style.display = open ? 'flex' : 'none';
+    }
+
+    hideInvWindows() {
+        this.setInvWindowOpen('craft', false);
+        this.setInvWindowOpen('upgrader', false);
+    }
+
+    // 1. Inventory tab: armor + totem slots, 3x3 crafting grid, backpack, recipe list and the Upgrader wheel
+    renderInventoryTab(container) {
+        const player = this.player;
+        const panels = this.invPanels || (this.invPanels = { craft: false, upgrader: false });
+        const icon = (id) => this.textureManager.getIconDataURL((ITEM_REGISTRY[id] || {}).icon || 'stone');
+
         const wrapper = document.createElement('div');
-        wrapper.className = 'tab-backpack-wrapper';
+        wrapper.className = 'tab-backpack-wrapper inv2-wrap';
+        // Toolbar: buttons that open the Craft / Upgrader windows
+        const bar = document.createElement('div');
+        bar.className = 'inv2-bar';
+        const mkBtn = (key, label) => {
+            const b = document.createElement('button');
+            b.className = 'menu-btn inv2-panel-btn' + (panels[key] ? ' btn-primary' : '');
+            b.textContent = label;
+            b.onclick = () => { panels[key] = !panels[key]; this.renderCurrentTab(); };
+            return b;
+        };
+        bar.appendChild(mkBtn('craft', '🔨 Крафт'));
+        bar.appendChild(mkBtn('upgrader', '🎰 Upgrader'));
+        wrapper.appendChild(bar);
+        const top = document.createElement('div');
+        top.className = 'inv2-main';
+        wrapper.appendChild(top);
 
-        const title = document.createElement('div');
-        title.className = 'backpack-section-title';
-        title.innerHTML = '🎒 ХОТБАР (1-9) &amp; ОСНОВНИЙ РЮКЗАК:';
-        wrapper.appendChild(title);
+        // Craft and Upgrader live in their own floating windows (draggable, closable)
+        const craftSide = this.getInvWindow('craft', '🔨 Крафт', 'inv2-win-left');
+        const upgSide = this.getInvWindow('upgrader', '🎰 Upgrader', 'inv2-win-right');
+        this.setInvWindowOpen('craft', !!panels.craft);
+        this.setInvWindowOpen('upgrader', !!panels.upgrader);
+        craftSide.innerHTML = '';
+        upgSide.innerHTML = '';
+        const craftHolder = document.createElement('div');
+        if (panels.craft) craftSide.appendChild(craftHolder);
 
-        const grid = document.createElement('div');
-        grid.className = 'backpack-grid';
+        // --- slot access helpers: ref = { kind: 'inv'|'grid'|'armor'|'totem'|'out', idx } ---
+        const refKey = (r) => r ? r.kind + ':' + r.idx : '';
+        const get = (r) => {
+            if (r.kind === 'inv') return player.inventory[r.idx];
+            if (r.kind === 'grid') return player.craftGrid[r.idx];
+            if (r.kind === 'armor') return player.armor[r.idx] ? { itemId: player.armor[r.idx], count: 1 } : null;
+            if (r.kind === 'totem') return player.totemSlot ? { itemId: player.totemSlot, count: 1 } : null;
+            return null;
+        };
+        const set = (r, st) => {
+            if (r.kind === 'inv') player.inventory[r.idx] = st;
+            else if (r.kind === 'grid') player.craftGrid[r.idx] = st;
+            else if (r.kind === 'armor') player.armor[r.idx] = st ? st.itemId : null;
+            else if (r.kind === 'totem') player.totemSlot = st ? st.itemId : null;
+        };
+        const accepts = (r, st) => {
+            if (!st) return true;
+            const reg = ITEM_REGISTRY[st.itemId] || {};
+            if (r.kind === 'armor') return reg.armorSlot === r.idx;
+            if (r.kind === 'totem') return !!reg.isTotem;
+            return r.kind !== 'out';
+        };
+        const changed = () => {
+            player.saveInventory();
+            player.updateHeldBlock();
+            this.initHotbar();
+            renderTop();
+        };
+        const sameRef = (a, b) => a && b && a.kind === b.kind && a.idx === b.idx;
 
-        for (let i = 0; i < 27; i++) {
-            const slotEl = document.createElement('div');
-            slotEl.className = `backpack-slot ${i < 9 ? 'is-hotbar' : ''} ${this.selectedInventorySlot === i ? 'selected' : ''}`;
-
-            const item = this.player.inventory[i];
-            if (item) {
-                const img = document.createElement('img');
-                const reg = ITEM_REGISTRY[item.itemId];
-                img.src = this.textureManager.getIconDataURL(reg ? reg.icon : 'stone');
-                slotEl.appendChild(img);
-
-                if (item.count > 1) {
-                    const countEl = document.createElement('span');
-                    countEl.className = 'slot-count';
-                    countEl.textContent = item.count;
-                    slotEl.appendChild(countEl);
+        // Move/swap/merge a stack from one slot to another
+        const moveTo = (from, to) => {
+            const a = get(from), b = get(to);
+            if (!a) return false;
+            if (!accepts(to, a)) { this.showToast('❌ Цей предмет сюди не підходить'); return false; }
+            const regA = ITEM_REGISTRY[a.itemId] || {};
+            if (b && b.itemId === a.itemId && (regA.maxStack || 64) > 1 && (to.kind === 'inv' || to.kind === 'grid') && (from.kind === 'inv' || from.kind === 'grid')) {
+                const room = (regA.maxStack || 64) - b.count;
+                const mv = Math.min(room, a.count);
+                if (mv > 0) {
+                    b.count += mv; a.count -= mv;
+                    if (a.count <= 0) set(from, null);
+                    return true;
                 }
             }
+            if (b && !accepts(from, b)) {
+                // can't swap into a restricted slot: fall back to a free backpack slot for b if the source is restricted
+                this.showToast('❌ Предмет не можна поміняти місцями');
+                return false;
+            }
+            set(from, b || null);
+            set(to, a);
+            return true;
+        };
 
-            slotEl.addEventListener('click', () => {
-                if (this.selectedInventorySlot === null) {
-                    if (this.player.inventory[i]) {
-                        this.selectedInventorySlot = i;
-                        this.renderCurrentTab();
-                    }
-                } else {
-                    // Swap slots
-                    const fromIdx = this.selectedInventorySlot;
-                    const toIdx = i;
-                    const temp = this.player.inventory[fromIdx];
-                    this.player.inventory[fromIdx] = this.player.inventory[toIdx];
-                    this.player.inventory[toIdx] = temp;
+        // Right-click / long action: quick equip or unequip
+        const quick = (ref) => {
+            const st = get(ref);
+            if (!st) return;
+            const reg = ITEM_REGISTRY[st.itemId] || {};
+            if (ref.kind === 'armor' || ref.kind === 'totem') {
+                const idx = player.inventory.findIndex(x => !x);
+                if (idx === -1) { this.showToast('🎒 Немає вільного місця'); return; }
+                if (moveTo(ref, { kind: 'inv', idx })) changed();
+                return;
+            }
+            let target = null;
+            if (reg.armorSlot) target = { kind: 'armor', idx: reg.armorSlot };
+            else if (reg.isTotem) target = { kind: 'totem', idx: 0 };
+            if (target && moveTo(ref, target)) { this.soundManager.playClick(); changed(); }
+        };
 
-                    this.selectedInventorySlot = null;
-                    this.player.saveInventory();
-                    this.player.updateHeldBlock();
-                    this.initHotbar();
-                    this.renderCurrentTab();
-                    this.soundManager.playClick();
+        const onSlot = (ref) => {
+            const sel = this.invSel;
+            if (!sel) {
+                if (get(ref)) { this.invSel = ref; renderTop(); }
+                return;
+            }
+            if (sameRef(sel, ref)) { this.invSel = null; renderTop(); return; }
+            this.invSel = null;
+            if (moveTo(sel, ref)) { this.soundManager.playClick(); changed(); }
+            else renderTop();
+        };
+
+        const makeSlot = (ref, extraClass = '', placeholder = '') => {
+            const el = document.createElement('div');
+            el.className = `backpack-slot ${extraClass} ${sameRef(this.invSel, ref) ? 'selected' : ''}`;
+            const st = get(ref);
+            if (st) {
+                const reg = ITEM_REGISTRY[st.itemId];
+                const img = document.createElement('img');
+                img.src = icon(st.itemId);
+                el.appendChild(img);
+                el.title = reg ? reg.name + (reg.defense ? ` (+${reg.defense} броні)` : '') : st.itemId;
+                if (st.count > 1) {
+                    const c = document.createElement('span');
+                    c.className = 'slot-count';
+                    c.textContent = st.count;
+                    el.appendChild(c);
                 }
+            } else if (placeholder) {
+                const ph = document.createElement('span');
+                ph.className = 'inv2-ph';
+                ph.textContent = placeholder;
+                el.appendChild(ph);
+            }
+            // highlight valid targets for the selected item
+            const selSt = this.invSel ? get(this.invSel) : null;
+            if (selSt && !sameRef(this.invSel, ref) && (ref.kind === 'armor' || ref.kind === 'totem') && accepts(ref, selSt)) el.classList.add('inv2-target');
+            el.addEventListener('click', () => onSlot(ref));
+            el.addEventListener('contextmenu', (e) => { e.preventDefault(); quick(ref); });
+            el.addEventListener('dblclick', () => { this.invSel = null; quick(ref); });
+            return el;
+        };
+
+        const renderTop = () => {
+            top.innerHTML = '';
+
+            // --- Equipment column ---
+            const equip = document.createElement('div');
+            equip.className = 'inv2-equip';
+            equip.innerHTML = '<div class="backpack-section-title">🛡️ БРОНЯ</div>';
+            const eqCol = document.createElement('div');
+            eqCol.className = 'inv2-equip-col';
+            ARMOR_SLOTS.forEach(sl => eqCol.appendChild(makeSlot({ kind: 'armor', idx: sl.id }, 'inv2-equip-slot', sl.icon)));
+            equip.appendChild(eqCol);
+            const totemRow = document.createElement('div');
+            totemRow.className = 'inv2-totem-row';
+            totemRow.innerHTML = '<span>Тотем</span>';
+            totemRow.appendChild(makeSlot({ kind: 'totem', idx: 0 }, 'inv2-equip-slot inv2-totem', '✨'));
+            equip.appendChild(totemRow);
+            const def = player.getArmorDefense();
+            const stats = document.createElement('div');
+            stats.className = 'inv2-armor-stats';
+            stats.innerHTML = `🛡️ ${def} · −${Math.round(player.getArmorReduction() * 100)}% шкоди`;
+            equip.appendChild(stats);
+            top.appendChild(equip);
+
+            // --- Crafting grid ---
+            const craft = document.createElement('div');
+            craft.className = 'inv2-craft';
+            craft.innerHTML = '<div class="backpack-section-title">🔨 КРАФТ</div>';
+            const row = document.createElement('div');
+            row.className = 'inv2-craft-row';
+            const grid = document.createElement('div');
+            grid.className = 'inv2-craft-grid';
+            for (let i = 0; i < 9; i++) grid.appendChild(makeSlot({ kind: 'grid', idx: i }));
+            row.appendChild(grid);
+            const arrow = document.createElement('div');
+            arrow.className = 'inv2-arrow';
+            arrow.textContent = '➜';
+            row.appendChild(arrow);
+
+            const match = matchCraftingGrid(player.craftGrid);
+            const out = document.createElement('div');
+            out.className = 'backpack-slot inv2-out' + (match ? ' inv2-out-ready' : '');
+            if (match) {
+                const oReg = ITEM_REGISTRY[match.recipe.output.itemId];
+                const img = document.createElement('img');
+                img.src = icon(match.recipe.output.itemId);
+                out.appendChild(img);
+                out.title = oReg ? oReg.name : '';
+                if (match.recipe.output.count > 1) {
+                    const c = document.createElement('span');
+                    c.className = 'slot-count';
+                    c.textContent = match.recipe.output.count;
+                    out.appendChild(c);
+                }
+            }
+            out.addEventListener('click', () => {
+                const m = matchCraftingGrid(player.craftGrid);
+                if (!m) return;
+                for (const [idx, n] of m.consume) {
+                    const st = player.craftGrid[idx];
+                    st.count -= n;
+                    if (st.count <= 0) player.craftGrid[idx] = null;
+                }
+                const o = m.recipe.output;
+                if (!player.addItem(o.itemId, o.count) && this.game.mobManager) {
+                    this.game.mobManager.spawnItemDrop(player.position.x, player.position.y + 1, player.position.z, o.itemId, o.count);
+                }
+                this.soundManager.playClick();
+                this.soundManager.speakRandomMeme?.(["Скрафтив!", "Красава!", "Оце річ!"]);
+                changed();
             });
+            row.appendChild(out);
+            craft.appendChild(row);
+            const hint = document.createElement('div');
+            hint.className = 'backpack-hint';
+            hint.textContent = match ? `✔ ${match.recipe.name}` : 'Розкладіть предмети у сітці. Броню збирають формою (шолом, нагрудник…), інше — у будь-якому порядку.';
+            craft.appendChild(hint);
+            const btnClearGrid = document.createElement('button');
+            btnClearGrid.className = 'menu-btn';
+            btnClearGrid.textContent = '↩ Забрати з сітки';
+            btnClearGrid.onclick = () => { player.returnCraftGrid(); changed(); };
+            craft.appendChild(btnClearGrid);
+            craftHolder.innerHTML = '';
+            craftHolder.appendChild(craft);
 
-            grid.appendChild(slotEl);
-        }
-        wrapper.appendChild(grid);
+            // --- Backpack ---
+            const pack = document.createElement('div');
+            pack.className = 'inv2-pack';
+            pack.innerHTML = '<div class="backpack-section-title">🎒 ХОТБАР (1-9) &amp; РЮКЗАК:</div>';
+            const bg = document.createElement('div');
+            bg.className = 'backpack-grid';
+            for (let i = 0; i < 27; i++) bg.appendChild(makeSlot({ kind: 'inv', idx: i }, i < 9 ? 'is-hotbar' : ''));
+            pack.appendChild(bg);
 
-        // Actions toolbar
-        const actions = document.createElement('div');
-        actions.className = 'backpack-actions';
-
-        if (this.selectedInventorySlot !== null) {
-            const selItem = this.player.inventory[this.selectedInventorySlot];
+            const actions = document.createElement('div');
+            actions.className = 'backpack-actions';
+            const sel = this.invSel;
+            const selItem = sel ? get(sel) : null;
             if (selItem) {
                 const reg = ITEM_REGISTRY[selItem.itemId];
                 const infoText = document.createElement('div');
@@ -599,71 +814,91 @@ class UIManager {
                 infoText.textContent = `Вибрано: ${reg ? reg.name : selItem.itemId} (${selItem.count} шт.)`;
                 actions.appendChild(infoText);
 
-                const btnDrop = document.createElement('button');
-                btnDrop.className = 'menu-btn btn-danger';
-                btnDrop.textContent = '🗑️ Викинути (1 шт)';
-                btnDrop.onclick = () => {
-                    this.player.dropItem(this.selectedInventorySlot, 1);
-                    this.renderCurrentTab();
-                };
-                actions.appendChild(btnDrop);
-
-                if (reg && reg.category === 'food') {
-                    const btnEat = document.createElement('button');
-                    btnEat.className = 'menu-btn btn-success';
-                    btnEat.textContent = '🍗 З’їсти';
-                    btnEat.onclick = () => {
-                        this.player.selectedHotbarIndex = this.selectedInventorySlot < 9 ? this.selectedInventorySlot : 0;
-                        this.player.eatFood();
-                        this.renderCurrentTab();
-                    };
-                    actions.appendChild(btnEat);
+                if (sel.kind === 'inv') {
+                    const btnDrop = document.createElement('button');
+                    btnDrop.className = 'menu-btn btn-danger';
+                    btnDrop.textContent = '🗑️ Викинути (1 шт)';
+                    btnDrop.onclick = () => { player.dropItem(sel.idx, 1); renderTop(); };
+                    actions.appendChild(btnDrop);
+                    if (reg && reg.category === 'food') {
+                        const btnEat = document.createElement('button');
+                        btnEat.className = 'menu-btn btn-success';
+                        btnEat.textContent = '🍗 З’їсти';
+                        btnEat.onclick = () => {
+                            player.selectedHotbarIndex = sel.idx < 9 ? sel.idx : 0;
+                            player.eatFood();
+                            renderTop();
+                        };
+                        actions.appendChild(btnEat);
+                    }
                 }
+                if (reg && (reg.armorSlot || reg.isTotem) && sel.kind !== 'armor' && sel.kind !== 'totem') {
+                    const btnEq = document.createElement('button');
+                    btnEq.className = 'menu-btn btn-primary';
+                    btnEq.textContent = reg.isTotem ? '✨ У слот тотема' : '🛡️ Одягнути';
+                    btnEq.onclick = () => { this.invSel = null; quick(sel); };
+                    actions.appendChild(btnEq);
+                }
+            } else {
+                const h = document.createElement('div');
+                h.className = 'backpack-hint';
+                h.textContent = '💡 Клік по предмету, потім по слоту — перемістити. ПКМ / подвійний клік — одягнути чи зняти броню й тотем.';
+                actions.appendChild(h);
             }
-        } else {
-            const hint = document.createElement('div');
-            hint.className = 'backpack-hint';
-            hint.textContent = '💡 Клікніть на предмет, потім на інший слот, щоб поміняти місцями!';
-            actions.appendChild(hint);
+            pack.appendChild(actions);
+
+            const manage = document.createElement('div');
+            manage.className = 'backpack-manage-toolbar';
+            const btnStarter = document.createElement('button');
+            btnStarter.className = 'menu-btn btn-primary';
+            btnStarter.innerHTML = '🔄 Стартовий набір';
+            btnStarter.title = 'Повернути стандартний набір виживання';
+            btnStarter.onclick = () => {
+                if (confirm("Скинути інвентар до стандартного набору виживання?")) {
+                    this.invSel = null;
+                    player.returnCraftGrid();
+                    player.resetToStarterInventory();
+                    this.initHotbar();
+                    renderTop();
+                    this.showToast("🎒 Стартовий набір отримано!");
+                }
+            };
+            const btnClear = document.createElement('button');
+            btnClear.className = 'menu-btn btn-danger';
+            btnClear.innerHTML = '🧹 Очистити все';
+            btnClear.title = 'Повністю очистити інвентар, броню та сітку крафту';
+            btnClear.onclick = () => {
+                if (confirm("Повністю очистити весь інвентар, броню та тотем?")) {
+                    this.invSel = null;
+                    player.clearInventory();
+                    this.initHotbar();
+                    renderTop();
+                    this.showToast("🧹 Інвентар повністю очищено!");
+                }
+            };
+            manage.appendChild(btnStarter);
+            manage.appendChild(btnClear);
+            pack.appendChild(manage);
+            top.appendChild(pack);
+        };
+        this.invTopRefresh = renderTop;
+        renderTop();
+
+        if (panels.craft) {
+            const rd = document.createElement('details');
+            rd.className = 'inv2-section';
+            rd.innerHTML = '<summary>📖 Список рецептів</summary>';
+            const rb = document.createElement('div');
+            rb.className = 'inv2-section-body';
+            rd.appendChild(rb);
+            let built = false;
+            const ensure = () => { if (!built) { built = true; this.renderCraftingTab(rb); } };
+            rd.addEventListener('toggle', () => { this.invRecipesOpen = rd.open; if (rd.open) ensure(); });
+            rd.open = !!this.invRecipesOpen;
+            if (rd.open) ensure();
+            craftSide.appendChild(rd);
         }
-
-        wrapper.appendChild(actions);
-
-        // Inventory Management Toolbar (Reset / Clear)
-        const manageToolbar = document.createElement('div');
-        manageToolbar.className = 'backpack-manage-toolbar';
-
-        const btnStarter = document.createElement('button');
-        btnStarter.className = 'menu-btn btn-primary';
-        btnStarter.innerHTML = '🔄 Стартовий набір';
-        btnStarter.title = 'Повернути стандартний набір виживання';
-        btnStarter.onclick = () => {
-            if (confirm("Скинути інвентар до стандартного набору виживання?")) {
-                this.selectedInventorySlot = null;
-                this.player.resetToStarterInventory();
-                this.initHotbar();
-                this.renderCurrentTab();
-                this.showToast("🎒 Стартовий набір отримано!");
-            }
-        };
-
-        const btnClear = document.createElement('button');
-        btnClear.className = 'menu-btn btn-danger';
-        btnClear.innerHTML = '🧹 Очистити все';
-        btnClear.title = 'Повністю очистити весь інвентар';
-        btnClear.onclick = () => {
-            if (confirm("Повністю очистити весь інвентар (усі 27 слотів)?")) {
-                this.selectedInventorySlot = null;
-                this.player.clearInventory();
-                this.initHotbar();
-                this.renderCurrentTab();
-                this.showToast("🧹 Інвентар повністю очищено!");
-            }
-        };
-
-        manageToolbar.appendChild(btnStarter);
-        manageToolbar.appendChild(btnClear);
-        wrapper.appendChild(manageToolbar);
+        if (panels.upgrader) this.renderUpgraderGGTab(upgSide);
 
         container.appendChild(wrapper);
     }
@@ -711,7 +946,7 @@ class UIManager {
             if (this.catalogFilter === 'vehicle') return item.category === 'vehicle' || item.isVehicle;
             if (this.catalogFilter === 'tool') return item.category === 'tool' || item.category === 'pickaxe';
             if (this.catalogFilter === 'food') return item.category === 'food';
-            if (this.catalogFilter === 'material') return item.category === 'material' || item.category === 'junk';
+            if (this.catalogFilter === 'material') return item.category === 'material';
             return true;
         });
 
@@ -730,7 +965,8 @@ class UIManager {
 
             card.onclick = () => {
                 const isSingle = (reg.category === 'tool' || reg.category === 'pickaxe' || reg.category === 'weapon' || reg.category === 'vehicle' || reg.isGun || reg.isVehicle);
-                const addCount = isSingle ? 1 : 64;
+                // one full stack at most: unstackable items (armor, totems, shields…) give exactly 1 instead of flooding the backpack
+                const addCount = isSingle ? 1 : Math.max(1, Math.min(64, reg.maxStack || 64));
                 const added = this.player.addItem(reg.id, addCount);
                 if (added) {
                     this.soundManager.playClick();
@@ -859,51 +1095,7 @@ class UIManager {
         container.appendChild(grid);
     }
 
-    // 4. Upgrader Tab
-    renderUpgraderTab(container) {
-        const list = document.createElement('div');
-        list.className = 'upgrader-list';
-
-        Object.keys(UPGRADES_CONFIG).forEach(upgKey => {
-            const cfg = UPGRADES_CONFIG[upgKey];
-            const curLvl = this.game.upgrader.upgrades[upgKey] || 0;
-            const isMax = curLvl >= cfg.maxLevel;
-            const cost = cfg.baseCost * (curLvl + 1);
-
-            const card = document.createElement('div');
-            card.className = 'upgrade-card';
-
-            const left = document.createElement('div');
-            left.className = 'upg-left';
-            left.innerHTML = `
-                <div class="upg-icon">${cfg.icon}</div>
-                <div class="upg-details">
-                    <div class="upg-name">${cfg.name} <span class="upg-level">Рівень: ${curLvl}/${cfg.maxLevel}</span></div>
-                    <div class="upg-desc">${cfg.desc}</div>
-                    <div class="upg-cost">${isMax ? 'МАКСИМАЛЬНИЙ РІВЕНЬ!' : `Ціна: <b>${cost} Жетонів / Злитків</b>`}</div>
-                </div>
-            `;
-            card.appendChild(left);
-
-            const btnUpg = document.createElement('button');
-            const canAfford = this.game.upgrader.canAffordUpgrade(upgKey);
-            btnUpg.className = `menu-btn ${!isMax && canAfford ? 'btn-success' : 'btn-disabled'}`;
-            btnUpg.textContent = isMax ? '✔ МАКС' : '⚡ Прокачати';
-            btnUpg.disabled = isMax || !canAfford;
-            btnUpg.onclick = () => {
-                if (this.game.upgrader.purchaseUpgrade(upgKey)) {
-                    this.renderCurrentTab();
-                }
-            };
-            card.appendChild(btnUpg);
-
-            list.appendChild(card);
-        });
-
-        container.appendChild(list);
-    }
-
-    // 4b. Upgrader.gg-style tab: stake items, pick a target, spin the wheel
+    // Upgrader.gg-style section: stake items, pick a target, spin the wheel
     renderUpgraderGGTab(container) {
         const player = this.player;
         const stake = this.ggStake || (this.ggStake = {});
@@ -1023,6 +1215,7 @@ class UIManager {
                 if (!given && this.game.mobManager) this.game.mobManager.spawnItemDrop(player.position.x, player.position.y + 1, player.position.z, targetId, 1);
             }
             for (const id of Object.keys(stake)) delete stake[id];
+            if (this.invTopRefresh) this.invTopRefresh();
 
             state.spinning = true;
             const turns = 5 + Math.floor(Math.random() * 3);
@@ -1044,65 +1237,12 @@ class UIManager {
                     this.soundManager?.playHurt?.();
                     this.showToast(`💀 Не пощастило... ${name} не випав`);
                 }
-                if (this.currentTab === 'gg' && wrap.isConnected) this.renderCurrentTab();
+                if (this.currentTab === 'inventory' && wrap.isConnected) this.renderCurrentTab();
             }, 5200);
             refresh();
         };
 
         refresh();
-    }
-
-    // 5. Trash & Recycler Tab
-    renderTrashTab(container) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'trash-wrapper';
-
-        wrapper.innerHTML = `
-            <div class="trash-header">
-                <h2>🗑️ МУСОРОПРОВІД ТА УТИЛІЗАТОР ЄБЛАНА</h2>
-                <p>Знайшов у шахті старий носок, бичок або банку пива? Здай у переробку та отримай Мусорні Жетони ♻️ для Апгрейдера!</p>
-            </div>
-        `;
-
-        // Count junk in player's inventory
-        let totalJunk = 0;
-        JUNK_ITEMS_POOL.forEach(jId => {
-            totalJunk += this.player.getItemCount(jId);
-        });
-
-        const status = document.createElement('div');
-        status.className = 'trash-status';
-        status.innerHTML = `У вашому інвентарі знайдено мусору: <b>${totalJunk} шт.</b>`;
-        wrapper.appendChild(status);
-
-        const btnRecycle = document.createElement('button');
-        btnRecycle.className = `menu-btn ${totalJunk > 0 ? 'btn-success' : 'btn-disabled'}`;
-        btnRecycle.style.padding = '14px 20px';
-        btnRecycle.style.fontSize = '16px';
-        btnRecycle.textContent = `♻️ Переробити весь мусор (Отримати ~${Math.ceil(totalJunk / 2)} Жетонів)`;
-        btnRecycle.disabled = totalJunk === 0;
-
-        btnRecycle.onclick = () => {
-            let tokensToAdd = 0;
-            JUNK_ITEMS_POOL.forEach(jId => {
-                const count = this.player.getItemCount(jId);
-                if (count > 0) {
-                    this.player.removeItem(jId, count);
-                    tokensToAdd += Math.max(1, Math.floor(count / 2));
-                }
-            });
-
-            if (tokensToAdd > 0) {
-                this.player.addItem(ITEM_TYPES.JUNK_TOKEN, tokensToAdd);
-                this.soundManager.playClick();
-                this.soundManager.speakRandomMeme(["Мусор перероблено!", "Оце ти еколог!"]);
-                this.showToast(`♻️ Отримано +${tokensToAdd} Мусорних Жетонів!`);
-                this.renderCurrentTab();
-            }
-        };
-        wrapper.appendChild(btnRecycle);
-
-        container.appendChild(wrapper);
     }
 
     // 6. Skins Tab
@@ -1483,6 +1623,12 @@ class UIManager {
         if (!modal) return;
         this.inventoryOpen = forceState !== null ? forceState : !this.inventoryOpen;
         modal.style.display = this.inventoryOpen ? 'flex' : 'none';
+        if (!this.inventoryOpen) {
+            this.hideInvWindows();
+            this.invSel = null;
+            this.player.returnCraftGrid();
+            this.initHotbar();
+        }
         this.soundManager.playClick();
         if (this.inventoryOpen) {
             if (document.pointerLockElement) document.exitPointerLock();
@@ -3506,6 +3652,7 @@ class UIManager {
 
     update(dt) {
         this.updateDuel();
+        if (this._shooterHud) this.updateShooterHud(performance.now());
         const compactHud = window.innerWidth < 640;
         // Health Hearts & Hunger Display (Responsive & Compact)
         if (this.hudHealth) {
@@ -3720,623 +3867,411 @@ class UIManager {
         }
     }
 
-    // --- HUD LAYOUT CUSTOMIZER & DRAG-AND-DROP ---
+    // --- TOUCH HUD LAYOUT (v2): every control is its own freely placed, scalable element ---
     initLayoutCustomizer() {
-        const DEFAULT_HUD_LAYOUT = {
-            preset: 'default',
-            btnScale: 1.0,
-            btnOpacity: 0.95,
-            hotbarScale: 1.0,
-            leftHanded: false,
-            splitButtons: false,
-            buttonsPos: null,
-            buttonPositions: {},
-            hotbarPos: null
-        };
+        this.HUD_BUTTONS = [
+            { id: 'btn-attack',  label: '⚔️ Атака' },
+            { id: 'btn-break',   label: '⛏️ Копати' },
+            { id: 'btn-place',   label: '🧱 Блок / приціл' },
+            { id: 'btn-jump',    label: '🦘 Стрибок' },
+            { id: 'btn-sprint',  label: '🏃 Біг' },
+            { id: 'btn-dodge',   label: '💨 Кувирок' },
+            { id: 'btn-tnt',     label: '💣 ТНТ' },
+            { id: 'btn-scope',   label: '🔭 Приціл' },
+            { id: 'btn-reload',  label: '🔄 Перезарядка' },
+            { id: 'btn-buy',     label: '🛒 Рюкзак' },
+            { id: 'btn-inspect', label: '🔍 Огляд ножа' }
+        ];
+        this.DEFAULT_HUD_LAYOUT = { version: 2, mode: 'standard', preset: 'default', btnScale: 1, btnOpacity: 0.9, hotbarScale: 1, leftHanded: false, snap: true, hotbar: null, buttons: {} };
 
-        const HUD_LAYOUT_PRESETS = {
-            default: {
-                preset: 'default',
-                btnScale: 1.0,
-                btnOpacity: 0.95,
-                hotbarScale: 1.0,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: null,
-                buttonPositions: {},
-                hotbarPos: null
-            },
-            left_handed: {
-                preset: 'left_handed',
-                btnScale: 1.0,
-                btnOpacity: 0.95,
-                hotbarScale: 1.0,
-                leftHanded: true,
-                splitButtons: false,
-                buttonsPos: { left: '12px', right: 'auto', bottom: '56px', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: null
-            },
-            claw: {
-                preset: 'claw',
-                btnScale: 1.1,
-                btnOpacity: 0.85,
-                hotbarScale: 0.9,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: { right: '16px', bottom: '110px', left: 'auto', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: { bottom: '4px', left: '50%', right: 'auto', top: 'auto' }
-            },
-            compact: {
-                preset: 'compact',
-                btnScale: 0.8,
-                btnOpacity: 0.8,
-                hotbarScale: 0.85,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: { right: '8px', bottom: '45px', left: 'auto', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: { bottom: '4px', left: '50%', right: 'auto', top: 'auto' }
-            },
-            giant: {
-                preset: 'giant',
-                btnScale: 1.35,
-                btnOpacity: 0.98,
-                hotbarScale: 1.15,
-                leftHanded: false,
-                splitButtons: false,
-                buttonsPos: { right: '14px', bottom: '60px', left: 'auto', top: 'auto' },
-                buttonPositions: {},
-                hotbarPos: { bottom: '10px', left: '50%', right: 'auto', top: 'auto' }
-            }
+        // A preset only chooses sizes / handedness; button positions are generated from the screen size
+        const mk = (o) => Object.assign({}, this.DEFAULT_HUD_LAYOUT, { buttons: {} }, o);
+        this.HUD_LAYOUT_PRESETS = {
+            default:     mk({ preset: 'default' }),
+            left_handed: mk({ preset: 'left_handed', leftHanded: true }),
+            claw: mk({ preset: 'claw', btnScale: 1.05, btnOpacity: 0.8, buttons: {
+                'btn-attack': { x: 0.94, y: 0.40 }, 'btn-break': { x: 0.06, y: 0.40 }, 'btn-scope': { x: 0.94, y: 0.58 }
+            } }),
+            compact:     mk({ preset: 'compact', btnScale: 0.8, btnOpacity: 0.8, hotbarScale: 0.85 }),
+            giant:       mk({ preset: 'giant', btnScale: 1.35, btnOpacity: 0.95, hotbarScale: 1.15 }),
+            // Shooter: a fixed, hand-built layout (see body.hud-shooter in style.css) that ignores the editor's grid / clamps
+            shooter:     mk({ preset: 'shooter', mode: 'shooter', btnOpacity: 0.95 })
         };
-
-        this.DEFAULT_HUD_LAYOUT = DEFAULT_HUD_LAYOUT;
-        this.HUD_LAYOUT_PRESETS = HUD_LAYOUT_PRESETS;
 
         let parsed = null;
-        try {
-            const saved = localStorage.getItem('eblankraft_hud_layout');
-            if (saved) parsed = JSON.parse(saved);
-        } catch(e) {}
-
-        this.layout = Object.assign({}, DEFAULT_HUD_LAYOUT, parsed || {});
-        if (!this.layout.buttonPositions) this.layout.buttonPositions = {};
-
-        const closeBtn = document.getElementById('layout-close');
-        const btnSave = document.getElementById('btn-save-layout');
-        const btnReset = document.getElementById('btn-reset-layout');
-        const btnStartDrag = document.getElementById('btn-start-drag-mode');
-
-        const sliderBtnScale = document.getElementById('slider-btn-scale');
-        const sliderBtnOpacity = document.getElementById('slider-btn-opacity');
-        const sliderHotbarScale = document.getElementById('slider-hotbar-scale');
-        const chkLeftHanded = document.getElementById('chk-left-handed');
-        const chkSplitButtons = document.getElementById('chk-split-buttons');
-
-        if (closeBtn) closeBtn.onclick = () => this.toggleLayoutModal(false);
-
-        // Preset buttons
-        const presetBtns = document.querySelectorAll('.layout-preset-btn');
-        presetBtns.forEach(btn => {
-            btn.onclick = () => {
-                const presetKey = btn.dataset.preset;
-                if (this.HUD_LAYOUT_PRESETS[presetKey]) {
-                    this.applyLayout(this.HUD_LAYOUT_PRESETS[presetKey]);
-                    this.saveLayout();
-                    this.soundManager.playClick();
-                    this.showToast(`📐 Розкладка: ${btn.textContent.trim()}`);
-                }
-            };
-        });
-
-        // Sliders
-        if (sliderBtnScale) {
-            sliderBtnScale.oninput = (e) => {
-                const val = parseInt(e.target.value, 10) / 100;
-                this.layout.btnScale = val;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-            };
-            sliderBtnScale.onchange = () => this.saveLayout();
+        try { parsed = JSON.parse(localStorage.getItem('eblankraft_hud_layout') || 'null'); } catch (e) {}
+        // Layouts saved by the old editor (no version) only keep their simple settings
+        if (parsed && parsed.version !== 2) {
+            parsed = { btnScale: parsed.btnScale, btnOpacity: parsed.btnOpacity, hotbarScale: parsed.hotbarScale, leftHanded: !!parsed.leftHanded };
         }
+        document.body.classList.add('hud-free');
+        const hudSel = document.getElementById('select-hud-mode');
+        if (hudSel) hudSel.onchange = () => this.setHudMode(hudSel.value);
+        this.applyLayout(this.normalizeLayout(parsed || {}));
 
-        if (sliderBtnOpacity) {
-            sliderBtnOpacity.oninput = (e) => {
-                const val = parseInt(e.target.value, 10) / 100;
-                this.layout.btnOpacity = val;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-            };
-            sliderBtnOpacity.onchange = () => this.saveLayout();
+        let rt = null;
+        window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { this.applyLayout(this.layout); if (this.dragModeOpen) this.refreshHudEditor(); }, 120); });
+    }
+
+    normalizeLayout(l) {
+        const out = Object.assign({}, this.DEFAULT_HUD_LAYOUT, l || {});
+        const num = (v, d, lo, hi) => (typeof v === 'number' && isFinite(v)) ? Math.min(hi, Math.max(lo, v)) : d;
+        out.btnScale = num(out.btnScale, 1, 0.5, 2);
+        out.btnOpacity = num(out.btnOpacity, 0.9, 0.25, 1);
+        out.hotbarScale = num(out.hotbarScale, 1, 0.5, 1.6);
+        out.leftHanded = !!out.leftHanded;
+        out.mode = out.mode === 'shooter' ? 'shooter' : 'standard';
+        out.snap = out.snap !== false;
+        const src = (l && l.buttons) || {};
+        out.buttons = {};
+        for (const b of this.HUD_BUTTONS) {
+            const c = src[b.id];
+            if (c && typeof c === 'object') {
+                const e = {};
+                if (typeof c.x === 'number' && typeof c.y === 'number') { e.x = num(c.x, 0.5, 0, 1); e.y = num(c.y, 0.5, 0, 1); }
+                if (typeof c.s === 'number') e.s = num(c.s, 1, 0.5, 2);
+                if (c.hidden) e.hidden = true;
+                if (Object.keys(e).length) out.buttons[b.id] = e;
+            }
         }
+        const h = out.hotbar;
+        out.hotbar = (h && typeof h.x === 'number' && typeof h.y === 'number') ? { x: num(h.x, 0.5, 0, 1), y: num(h.y, 0.9, 0, 1) } : null;
+        return out;
+    }
 
-        if (sliderHotbarScale) {
-            sliderHotbarScale.oninput = (e) => {
-                const val = parseInt(e.target.value, 10) / 100;
-                this.layout.hotbarScale = val;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-            };
-            sliderHotbarScale.onchange = () => this.saveLayout();
-        }
+    // Default centre (in pixels) of every control for the current screen, right-handed grid in the bottom corner
+    hudDefaultPositions(leftHanded) {
+        const W = window.innerWidth, H = window.innerHeight;
+        const m = 12, r = 32, pitch = 70;
+        const cx = [W - m - r - 4, W - m - r - 4 - pitch, W - m - r - 4 - 2 * pitch];
+        const bottom = H <= 520 ? 10 : 56;
+        const cy = [H - bottom - r, H - bottom - r - pitch, H - bottom - r - 2 * pitch, H - bottom - r - 3 * pitch];
+        const p = {
+            'btn-jump': [cx[0], cy[0]], 'btn-place': [cx[1], cy[0]], 'btn-sprint': [cx[2], cy[0]],
+            'btn-attack': [cx[0], cy[1]], 'btn-break': [cx[1], cy[1]], 'btn-dodge': [cx[2], cy[1]],
+            'btn-scope': [cx[0], cy[2]], 'btn-inspect': [cx[1], cy[2]], 'btn-tnt': [cx[2], cy[2]],
+            'btn-reload': [cx[2], cy[3]], 'btn-buy': [cx[1], cy[3]]
+        };
+        const out = {};
+        for (const id in p) out[id] = { x: (leftHanded ? W - p[id][0] : p[id][0]) / W, y: p[id][1] / H };
+        return out;
+    }
 
-        if (chkLeftHanded) {
-            chkLeftHanded.onchange = (e) => {
-                this.layout.leftHanded = e.target.checked;
-                this.layout.preset = 'custom';
-                if (!this.layout.splitButtons && !this.layout.buttonsPos) {
-                    if (this.layout.leftHanded) {
-                        this.layout.buttonsPos = { left: '12px', right: 'auto', bottom: '56px', top: 'auto' };
-                    } else {
-                        this.layout.buttonsPos = null;
-                    }
-                }
-                this.applyLayout(this.layout);
-                this.saveLayout();
-            };
-        }
-
-        if (chkSplitButtons) {
-            chkSplitButtons.onchange = (e) => {
-                this.layout.splitButtons = e.target.checked;
-                this.layout.preset = 'custom';
-                this.applyLayout(this.layout);
-                this.saveLayout();
-                this.showToast(this.layout.splitButtons ? "🔀 Режим розділених кнопок увімкнено!" : "📦 Кнопки згруповано в один блок");
-            };
-        }
-
-        if (btnSave) {
-            btnSave.onclick = () => {
-                this.saveLayout();
-                this.toggleLayoutModal(false);
-                this.showToast("💾 Розкладку збережено!");
-            };
-        }
-
-        if (btnReset) {
-            btnReset.onclick = () => {
-                if (confirm("Скинути розкладку кнопок до стандартної?")) {
-                    this.applyLayout(this.DEFAULT_HUD_LAYOUT);
-                    this.saveLayout();
-                    this.showToast("🔄 Розкладку скинуто до стандартної!");
-                }
-            };
-        }
-
-        if (btnStartDrag) {
-            btnStartDrag.onclick = () => {
-                this.startHudDragMode();
-            };
-        }
-
-        // Apply on initial load
-        this.applyLayout(this.layout);
+    hudButtonCfg(id) {
+        const def = this.hudDefaultPositions(this.layout.leftHanded)[id] || { x: 0.5, y: 0.5 };
+        const c = this.layout.buttons[id] || {};
+        return { x: c.x ?? def.x, y: c.y ?? def.y, s: c.s ?? 1, hidden: !!c.hidden, moved: c.x !== undefined };
     }
 
     applyLayout(layout) {
-        this.layout = Object.assign({}, this.DEFAULT_HUD_LAYOUT, layout);
-        if (!this.layout.buttonPositions) this.layout.buttonPositions = {};
-
-        const buttonsEl = document.getElementById('touch-action-buttons');
-        const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
-
-        // Split buttons handling
-        if (this.layout.splitButtons) {
-            if (buttonsEl) {
-                buttonsEl.style.pointerEvents = 'none';
-                buttonsEl.style.transform = 'none';
-                buttonsEl.style.position = 'static';
-            }
-
-            const isLeft = !!this.layout.leftHanded;
-            actionButtonIds.forEach(btnId => {
-                const btn = document.getElementById(btnId);
-                if (!btn) return;
-                btn.classList.add('is-split');
-                btn.style.pointerEvents = 'auto';
-                btn.style.transform = `scale(${this.layout.btnScale || 1.0})`;
-                btn.style.opacity = `${this.layout.btnOpacity || 0.95}`;
-
-                const pos = this.layout.buttonPositions[btnId];
-                if (pos) {
-                    btn.style.left = pos.left || 'auto';
-                    btn.style.top = pos.top || 'auto';
-                    btn.style.right = pos.right || 'auto';
-                    btn.style.bottom = pos.bottom || 'auto';
-                } else {
-                    const defaults = {
-                        'btn-attack': isLeft ? { left: '130px', bottom: '130px' } : { right: '130px', bottom: '130px' },
-                        'btn-break':  isLeft ? { left: '25px',  bottom: '130px' } : { right: '25px',  bottom: '130px' },
-                        'btn-place':  isLeft ? { left: '130px', bottom: '50px' }  : { right: '130px', bottom: '50px' },
-                        'btn-jump':   isLeft ? { left: '25px',  bottom: '50px' }  : { right: '25px',  bottom: '50px' },
-                        'btn-sprint': isLeft ? { left: '130px', bottom: '215px' } : { right: '130px', bottom: '215px' },
-                        'btn-tnt':    isLeft ? { left: '25px',  bottom: '215px' } : { right: '25px',  bottom: '215px' }
-                    };
-                    const def = defaults[btnId] || {};
-                    btn.style.left = def.left || 'auto';
-                    btn.style.top = 'auto';
-                    btn.style.right = def.right || 'auto';
-                    btn.style.bottom = def.bottom || 'auto';
-                }
-            });
-        } else {
-            // Grouped cluster mode
-            actionButtonIds.forEach(btnId => {
-                const btn = document.getElementById(btnId);
-                if (!btn) return;
-                btn.classList.remove('is-split');
-                btn.style.pointerEvents = '';
-                btn.style.position = '';
-                btn.style.left = '';
-                btn.style.top = '';
-                btn.style.right = '';
-                btn.style.bottom = '';
-                btn.style.transform = '';
-                btn.style.opacity = '';
-            });
-
-            if (buttonsEl) {
-                buttonsEl.style.pointerEvents = '';
-                buttonsEl.style.transform = `scale(${this.layout.btnScale || 1.0})`;
-                buttonsEl.style.opacity = `${this.layout.btnOpacity || 0.95}`;
-
-                if (this.layout.buttonsPos) {
-                    buttonsEl.style.position = 'fixed';
-                    buttonsEl.style.left = this.layout.buttonsPos.left || 'auto';
-                    buttonsEl.style.right = this.layout.buttonsPos.right || 'auto';
-                    buttonsEl.style.top = this.layout.buttonsPos.top || 'auto';
-                    buttonsEl.style.bottom = this.layout.buttonsPos.bottom || 'auto';
-                    buttonsEl.style.transformOrigin = this.layout.leftHanded ? 'bottom left' : 'bottom right';
-                } else {
-                    buttonsEl.style.position = 'absolute';
-                    if (this.layout.leftHanded) {
-                        buttonsEl.style.left = '12px';
-                        buttonsEl.style.right = 'auto';
-                        buttonsEl.style.bottom = '56px';
-                        buttonsEl.style.top = 'auto';
-                        buttonsEl.style.transformOrigin = 'bottom left';
-                    } else {
-                        buttonsEl.style.left = 'auto';
-                        buttonsEl.style.right = '12px';
-                        buttonsEl.style.bottom = '56px';
-                        buttonsEl.style.top = 'auto';
-                        buttonsEl.style.transformOrigin = 'bottom right';
-                    }
-                }
-            }
+        this.layout = this.normalizeLayout(layout);
+        const L = this.layout;
+        document.body.classList.toggle('hud-shooter', L.mode === 'shooter');
+        this._shooterHud = L.mode === 'shooter';
+        const hudSel = document.getElementById('select-hud-mode');
+        if (hudSel) hudSel.value = L.mode;
+        for (const b of this.HUD_BUTTONS) {
+            const el = document.getElementById(b.id);
+            if (!el) continue;
+            const c = this.hudButtonCfg(b.id);
+            el.style.left = (Math.min(0.97, Math.max(0.03, c.x)) * 100) + '%';
+            el.style.top = (Math.min(0.97, Math.max(0.05, c.y)) * 100) + '%';
+            el.style.setProperty('--hs', String(L.btnScale * c.s));
+            el.style.opacity = String(L.btnOpacity);
+            el.classList.toggle('hud-hidden', c.hidden);
         }
-
-        // Hotbar positioning
-        if (hotbarEl) {
-            hotbarEl.style.opacity = `${Math.min(1.0, (this.layout.btnOpacity || 0.95) + 0.05)}`;
-
-            if (this.layout.hotbarPos) {
-                hotbarEl.style.position = 'fixed';
-                hotbarEl.style.left = this.layout.hotbarPos.left || 'auto';
-                hotbarEl.style.right = this.layout.hotbarPos.right || 'auto';
-                hotbarEl.style.top = this.layout.hotbarPos.top || 'auto';
-                hotbarEl.style.bottom = this.layout.hotbarPos.bottom || 'auto';
-                hotbarEl.style.transform = `scale(${this.layout.hotbarScale || 1.0})`;
-                hotbarEl.style.transformOrigin = 'center center';
+        const hotbar = document.getElementById('hotbar-container');
+        if (hotbar) {
+            hotbar.style.setProperty('--hbs', String(L.hotbarScale));
+            if (L.hotbar) {
+                hotbar.classList.add('hud-moved');
+                hotbar.style.left = (L.hotbar.x * 100) + '%';
+                hotbar.style.top = (L.hotbar.y * 100) + '%';
             } else {
-                hotbarEl.style.position = 'absolute';
-                hotbarEl.style.left = '50%';
-                hotbarEl.style.right = 'auto';
-                hotbarEl.style.top = 'auto';
-                hotbarEl.style.bottom = '8px';
-                hotbarEl.style.transform = `translateX(-50%) scale(${this.layout.hotbarScale || 1.0})`;
-                hotbarEl.style.transformOrigin = 'bottom center';
+                hotbar.classList.remove('hud-moved');
+                hotbar.style.left = hotbar.style.top = '';
             }
+            hotbar.style.opacity = String(Math.min(1, L.btnOpacity + 0.08));
         }
-
-        if (this.game && this.game.controls) {
-            this.game.controls.setLayout(this.layout);
-        }
-
-        this.syncLayoutUIControls();
-    }
-
-    syncLayoutUIControls() {
-        if (!this.layout) return;
-        const sliderBtnScale = document.getElementById('slider-btn-scale');
-        const sliderBtnOpacity = document.getElementById('slider-btn-opacity');
-        const sliderHotbarScale = document.getElementById('slider-hotbar-scale');
-        const chkLeftHanded = document.getElementById('chk-left-handed');
-        const chkSplitButtons = document.getElementById('chk-split-buttons');
-        const lblBtnScale = document.getElementById('lbl-btn-scale');
-        const lblBtnOpacity = document.getElementById('lbl-btn-opacity');
-        const lblHotbarScale = document.getElementById('lbl-hotbar-scale');
-
-        if (sliderBtnScale) sliderBtnScale.value = Math.round((this.layout.btnScale || 1.0) * 100);
-        if (sliderBtnOpacity) sliderBtnOpacity.value = Math.round((this.layout.btnOpacity || 0.95) * 100);
-        if (sliderHotbarScale) sliderHotbarScale.value = Math.round((this.layout.hotbarScale || 1.0) * 100);
-        if (chkLeftHanded) chkLeftHanded.checked = !!this.layout.leftHanded;
-        if (chkSplitButtons) chkSplitButtons.checked = !!this.layout.splitButtons;
-
-        if (lblBtnScale) lblBtnScale.textContent = `${Math.round((this.layout.btnScale || 1.0) * 100)}%`;
-        if (lblBtnOpacity) lblBtnOpacity.textContent = `${Math.round((this.layout.btnOpacity || 0.95) * 100)}%`;
-        if (lblHotbarScale) lblHotbarScale.textContent = `${Math.round((this.layout.hotbarScale || 1.0) * 100)}%`;
-
-        const presetBtns = document.querySelectorAll('.layout-preset-btn');
-        presetBtns.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.preset === this.layout.preset);
-        });
+        if (this.game && this.game.controls) this.game.controls.setLayout(L);
     }
 
     saveLayout() {
-        try {
-            localStorage.setItem('eblankraft_hud_layout', JSON.stringify(this.layout));
-        } catch(e) {}
+        try { localStorage.setItem('eblankraft_hud_layout', JSON.stringify(this.layout)); } catch (e) {}
     }
 
+    // The pause-menu / HUD buttons open the editor directly
     toggleLayoutModal(forceState = null) {
-        const modal = document.getElementById('layout-modal');
-        if (!modal) return;
-        this.layoutModalOpen = forceState !== null ? forceState : (modal.style.display !== 'flex');
-        modal.style.display = this.layoutModalOpen ? 'flex' : 'none';
-        this.soundManager.playClick();
-        if (this.layoutModalOpen) {
-            if (document.pointerLockElement) document.exitPointerLock();
-            this.syncLayoutUIControls();
-        }
+        const open = forceState !== null ? forceState : !this.dragModeOpen;
+        if (open) this.startHudDragMode(); else this.stopHudDragMode(false);
     }
 
     startHudDragMode() {
-        this.toggleLayoutModal(false);
-
-        const overlay = document.getElementById('hud-drag-overlay');
-        const buttonsEl = document.getElementById('touch-action-buttons');
-        const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
-
-        if (!overlay) return;
-
+        if (this.dragModeOpen) return;
         this.dragModeOpen = true;
-        overlay.style.display = 'flex';
-
+        this.layoutModalOpen = false;
+        if (document.pointerLockElement) document.exitPointerLock();
+        document.body.classList.add('hud-editing');
         this._preDragLayout = JSON.parse(JSON.stringify(this.layout));
-        this._dragCleanups = [];
-        this._elementCleanups = [];
+        this.hudSel = null;
 
-        const attachDrag = (el, isHotbar = false) => {
-            let isDragging = false;
-            let startPointerX = 0, startPointerY = 0;
-            let origLeft = 0, origTop = 0;
+        const root = document.createElement('div');
+        root.id = 'hud-editor';
+        root.innerHTML = `
+            <div class="hude-grid"></div>
+            <div class="hude-zones"><span class="hz-l">🕹️ Рух</span><span class="hz-r">👁️ Огляд / стрільба</span></div>
+            <div class="hude-handles"></div>
+            <div class="hude-panel">
+                <div class="hude-bar">
+                    <b>📐 Розкладка кнопок</b>
+                    <span class="hude-spacer"></span>
+                    <button class="hude-btn" data-act="collapse" title="Згорнути панель">▾</button>
+                </div>
+                <div class="hude-body">
+                    <div class="hude-sel" id="hude-sel"></div>
+                    <div class="hude-row hude-presets">
+                        <button class="hude-chip" data-preset="default">🎮 Стандарт</button>
+                        <button class="hude-chip" data-preset="shooter">🔫 Шутер</button>
+                        <button class="hude-chip" data-preset="left_handed">🖐️ Шульга</button>
+                        <button class="hude-chip" data-preset="claw">🦅 Клешня</button>
+                        <button class="hude-chip" data-preset="compact">📱 Компакт</button>
+                        <button class="hude-chip" data-preset="giant">🔍 Великі</button>
+                    </div>
+                    <div class="hude-row hude-sliders">
+                        <label>Усі кнопки <b id="hude-v-scale"></b><input id="hude-scale" type="range" min="50" max="200" step="5"></label>
+                        <label>Прозорість <b id="hude-v-op"></b><input id="hude-op" type="range" min="25" max="100" step="5"></label>
+                        <label>Хотбар <b id="hude-v-hb"></b><input id="hude-hb" type="range" min="50" max="160" step="5"></label>
+                    </div>
+                    <div class="hude-row">
+                        <button class="hude-chip" id="hude-mirror">⇆ Віддзеркалити</button>
+                        <button class="hude-chip" id="hude-snap">🧲 Сітка</button>
+                        <button class="hude-chip hude-danger" id="hude-reset">↺ Скинути все</button>
+                    </div>
+                    <div class="hude-row hude-final">
+                        <button class="hude-big hude-cancel" data-act="cancel">✖ Скасувати</button>
+                        <button class="hude-big hude-save" data-act="save">💾 Зберегти</button>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(root);
+        this._hudRoot = root;
+        const $ = (sel) => root.querySelector(sel);
+        const handles = $('.hude-handles');
 
-            const onStart = (e) => {
-                if (e.button !== undefined && e.button !== 0) return;
-                e.preventDefault();
-                e.stopPropagation();
-                isDragging = true;
-                const touch = e.touches ? e.touches[0] : e;
-                startPointerX = touch.clientX;
-                startPointerY = touch.clientY;
+        // One transparent handle per control sits on top of the real element and takes all pointer input
+        const targets = this.HUD_BUTTONS.concat([{ id: 'hotbar-container', label: '🎒 Хотбар', hotbar: true }]);
+        this._hudHandles = {};
+        for (const t of targets) {
+            const h = document.createElement('div');
+            h.className = 'hude-handle';
+            h.dataset.id = t.id;
+            h.innerHTML = `<span>${t.label}</span>`;
+            handles.appendChild(h);
+            this._hudHandles[t.id] = h;
+            this.bindHudHandle(h, t);
+        }
 
-                const rect = el.getBoundingClientRect();
-                origLeft = rect.left;
-                origTop = rect.top;
-
-                el.style.position = 'fixed';
-                el.style.left = `${origLeft}px`;
-                el.style.top = `${origTop}px`;
-                el.style.right = 'auto';
-                el.style.bottom = 'auto';
-                if (isHotbar) {
-                    el.style.transform = `scale(${this.layout.hotbarScale || 1.0})`;
-                } else if (this.layout.splitButtons) {
-                    el.style.transform = `scale(${this.layout.btnScale || 1.0})`;
-                }
-
-                window.addEventListener('pointermove', onMove, { passive: false });
-                window.addEventListener('pointerup', onEnd);
-                window.addEventListener('touchmove', onMove, { passive: false });
-                window.addEventListener('touchend', onEnd);
-                window.addEventListener('touchcancel', onEnd);
-            };
-
-            const onMove = (e) => {
-                if (!isDragging) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const touch = e.touches ? e.touches[0] : e;
-                const dx = touch.clientX - startPointerX;
-                const dy = touch.clientY - startPointerY;
-
-                const rect = el.getBoundingClientRect();
-                const maxLeft = window.innerWidth - rect.width;
-                const maxTop = window.innerHeight - rect.height;
-
-                const newLeft = Math.max(0, Math.min(origLeft + dx, Math.max(0, maxLeft)));
-                const newTop = Math.max(0, Math.min(origTop + dy, Math.max(0, maxTop)));
-
-                el.style.left = `${newLeft}px`;
-                el.style.top = `${newTop}px`;
-            };
-
-            const onEnd = (e) => {
-                if (!isDragging) return;
-                isDragging = false;
-                window.removeEventListener('pointermove', onMove);
-                window.removeEventListener('pointerup', onEnd);
-                window.removeEventListener('touchmove', onMove);
-                window.removeEventListener('touchend', onEnd);
-                window.removeEventListener('touchcancel', onEnd);
-            };
-
-            el.addEventListener('pointerdown', onStart);
-            el.addEventListener('touchstart', onStart, { passive: false });
-
-            const cleanupFn = () => {
-                el.removeEventListener('pointerdown', onStart);
-                el.removeEventListener('touchstart', onStart);
-                window.removeEventListener('pointermove', onMove);
-                window.removeEventListener('pointerup', onEnd);
-                window.removeEventListener('touchmove', onMove);
-                window.removeEventListener('touchend', onEnd);
-                window.removeEventListener('touchcancel', onEnd);
-            };
-            this._elementCleanups.push(cleanupFn);
-        };
-
-        const setupDraggables = () => {
-            if (this._elementCleanups) {
-                this._elementCleanups.forEach(c => {
-                    try { c(); } catch(e) {}
-                });
-            }
-            this._elementCleanups = [];
-
-            if (buttonsEl) buttonsEl.classList.remove('hud-draggable-active');
-            actionButtonIds.forEach(id => {
-                const btn = document.getElementById(id);
-                if (btn) btn.classList.remove('hud-draggable-active');
-            });
-
-            if (hotbarEl) {
-                hotbarEl.classList.add('hud-draggable-active');
-                attachDrag(hotbarEl, true);
-            }
-
-            if (this.layout.splitButtons) {
-                actionButtonIds.forEach(id => {
-                    const btn = document.getElementById(id);
-                    if (btn) {
-                        btn.classList.add('hud-draggable-active');
-                        attachDrag(btn, false);
-                    }
-                });
-            } else {
-                if (buttonsEl) {
-                    buttonsEl.classList.add('hud-draggable-active');
-                    attachDrag(buttonsEl, false);
-                }
-            }
-        };
-
-        setupDraggables();
-
-        // Overlay control buttons
-        const btnCancel = document.getElementById('btn-drag-cancel');
-        const btnSave = document.getElementById('btn-drag-save');
-        const btnEmergencyExit = document.getElementById('btn-drag-emergency-exit');
-        const btnToggleSplit = document.getElementById('btn-drag-toggle-split');
-
-        const bindButtonAction = (el, action) => {
-            if (!el) return;
-            const handler = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                action();
-            };
-            el.addEventListener('click', handler);
-            el.addEventListener('touchstart', handler, { passive: false });
-            this._dragCleanups.push(() => {
-                el.removeEventListener('click', handler);
-                el.removeEventListener('touchstart', handler);
-            });
-        };
-
-        bindButtonAction(btnEmergencyExit, () => this.stopHudDragMode(false));
-        bindButtonAction(btnCancel, () => this.stopHudDragMode(false));
-        bindButtonAction(btnSave, () => this.stopHudDragMode(true));
-
-        bindButtonAction(btnToggleSplit, () => {
-            this.layout.splitButtons = !this.layout.splitButtons;
-            this.applyLayout(this.layout);
-            setupDraggables();
-            this.showToast(this.layout.splitButtons ? "🔀 Кнопки розділено! Перетягуйте кожну окремо" : "📦 Кнопки згруповано в один блок!");
+        root.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.hude-handle') || e.target.closest('.hude-panel')) return;
+            this.hudSel = null; this.refreshHudEditor();
         });
 
-        // Escape key exit
-        const onKeydown = (e) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                this.stopHudDragMode(false);
-            }
+        const act = (a) => {
+            if (a === 'save') this.stopHudDragMode(true);
+            else if (a === 'cancel') this.stopHudDragMode(false);
+            else if (a === 'collapse') { root.classList.toggle('collapsed'); this.refreshHudEditor(); }
         };
-        window.addEventListener('keydown', onKeydown);
-        this._dragCleanups.push(() => window.removeEventListener('keydown', onKeydown));
+        root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); act(b.dataset.act); }));
+        root.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+            const p = this.HUD_LAYOUT_PRESETS[b.dataset.preset];
+            if (!p) return;
+            const keepSnap = this.layout.snap;
+            this.applyLayout(Object.assign(JSON.parse(JSON.stringify(p)), { snap: keepSnap }));
+            this.hudSel = null; this.refreshHudEditor();
+        }));
+        const setGlobal = (key, scale) => (e) => { this.layout[key] = parseInt(e.target.value, 10) / scale; this.layout.preset = 'custom'; this.applyLayout(this.layout); this.refreshHudEditor(true); };
+        $('#hude-scale').oninput = setGlobal('btnScale', 100);
+        $('#hude-op').oninput = setGlobal('btnOpacity', 100);
+        $('#hude-hb').oninput = setGlobal('hotbarScale', 100);
+        $('#hude-mirror').onclick = () => {
+            // flip every control (moved ones and defaults alike) to the other side of the screen
+            const L = this.layout;
+            L.leftHanded = !L.leftHanded;
+            for (const id in L.buttons) if (L.buttons[id].x !== undefined) L.buttons[id].x = 1 - L.buttons[id].x;
+            L.preset = 'custom';
+            this.applyLayout(L); this.refreshHudEditor();
+        };
+        $('#hude-snap').onclick = () => { this.layout.snap = !this.layout.snap; this.refreshHudEditor(); };
+        $('#hude-reset').onclick = () => {
+            if (!confirm('Скинути розкладку до стандартної?')) return;
+            this.applyLayout(JSON.parse(JSON.stringify(this.DEFAULT_HUD_LAYOUT)));
+            this.hudSel = null; this.refreshHudEditor();
+        };
+
+        this._hudKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); this.stopHudDragMode(false); } };
+        window.addEventListener('keydown', this._hudKey);
+        this.refreshHudEditor();
+    }
+
+    // Drag a handle: moves its control (snapped to a 2.5% grid when enabled); a tap just selects it
+    bindHudHandle(h, t) {
+        h.addEventListener('pointerdown', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            this.hudSel = t.id; this.refreshHudEditor();
+            const el = document.getElementById(t.id);
+            if (!el) return;
+            const startX = e.clientX, startY = e.clientY;
+            const r0 = el.getBoundingClientRect();
+            const ox = (r0.left + r0.width / 2) / window.innerWidth, oy = (r0.top + r0.height / 2) / window.innerHeight;
+            let moved = false;
+            try { h.setPointerCapture(e.pointerId); } catch (err) {}
+            const move = (ev) => {
+                const dx = ev.clientX - startX, dy = ev.clientY - startY;
+                if (!moved && Math.hypot(dx, dy) < 5) return;
+                moved = true;
+                let x = ox + dx / window.innerWidth, y = oy + dy / window.innerHeight;
+                if (this.layout.snap) { x = Math.round(x / 0.025) * 0.025; y = Math.round(y / 0.025) * 0.025; }
+                x = Math.min(0.97, Math.max(0.03, x)); y = Math.min(0.96, Math.max(0.05, y));
+                if (t.hotbar) this.layout.hotbar = { x, y };
+                else this.layout.buttons[t.id] = Object.assign({}, this.layout.buttons[t.id], { x, y });
+                this.layout.preset = 'custom';
+                this.applyLayout(this.layout);
+                this.positionHudHandles();
+            };
+            const up = () => {
+                h.removeEventListener('pointermove', move);
+                h.removeEventListener('pointerup', up);
+                h.removeEventListener('pointercancel', up);
+            };
+            h.addEventListener('pointermove', move);
+            h.addEventListener('pointerup', up);
+            h.addEventListener('pointercancel', up);
+        });
+    }
+
+    positionHudHandles() {
+        if (!this._hudHandles) return;
+        if (this.layout.mode === 'shooter') { for (const id in this._hudHandles) this._hudHandles[id].style.display = 'none'; return; }
+        for (const id in this._hudHandles) {
+            const el = document.getElementById(id), h = this._hudHandles[id];
+            if (!el) { h.style.display = 'none'; continue; }
+            const r = el.getBoundingClientRect();
+            h.style.display = (r.width === 0) ? 'none' : 'flex';
+            h.style.left = r.left + 'px'; h.style.top = r.top + 'px';
+            h.style.width = r.width + 'px'; h.style.height = r.height + 'px';
+            h.classList.toggle('selected', this.hudSel === id);
+            h.classList.toggle('is-hotbar', id === 'hotbar-container');
+        }
+    }
+
+    refreshHudEditor(fromSlider = false) {
+        const root = this._hudRoot;
+        if (!root) return;
+        const L = this.layout;
+        const $ = (s) => root.querySelector(s);
+        $('#hude-v-scale').textContent = Math.round(L.btnScale * 100) + '%';
+        $('#hude-v-op').textContent = Math.round(L.btnOpacity * 100) + '%';
+        $('#hude-v-hb').textContent = Math.round(L.hotbarScale * 100) + '%';
+        if (!fromSlider) {
+            $('#hude-scale').value = Math.round(L.btnScale * 100);
+            $('#hude-op').value = Math.round(L.btnOpacity * 100);
+            $('#hude-hb').value = Math.round(L.hotbarScale * 100);
+        }
+        root.classList.toggle('dock-right', L.leftHanded);
+        $('#hude-snap').classList.toggle('on', L.snap);
+        root.classList.toggle('snap', L.snap);
+        root.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('on', b.dataset.preset === L.preset));
+
+        // selected control: its own size / visibility / reset
+        const sel = $('#hude-sel');
+        const id = this.hudSel;
+        if (L.mode === 'shooter') {
+            sel.innerHTML = '<span class="hude-hint">🔫 Режим «Шутер» має фіксовану розкладку (як у Standoff 2). Оберіть інший пресет, щоб розставляти кнопки вручну.</span>';
+        } else if (!id) {
+            sel.innerHTML = '<span class="hude-hint">Торкніться кнопки, щоб вибрати її. Перетягніть, щоб перемістити.</span>';
+        } else if (id === 'hotbar-container') {
+            sel.innerHTML = '<b>🎒 Хотбар</b> <span class="hude-hint">— розмір змінюється повзунком «Хотбар»</span> <button class="hude-chip" id="hude-reset-one">↺ На місце</button>';
+            $('#hude-reset-one').onclick = () => { this.layout.hotbar = null; this.applyLayout(this.layout); this.refreshHudEditor(); };
+        } else {
+            const b = this.HUD_BUTTONS.find(x => x.id === id);
+            const c = this.hudButtonCfg(id);
+            sel.innerHTML = `<b>${b.label}</b>
+                <label class="hude-inl">Розмір <b id="hude-v-one">${Math.round(c.s * 100)}%</b><input id="hude-one" type="range" min="50" max="200" step="5" value="${Math.round(c.s * 100)}"></label>
+                <button class="hude-chip" id="hude-hide">${c.hidden ? '👁 Показати' : '🙈 Сховати'}</button>
+                <button class="hude-chip" id="hude-reset-one">↺ На місце</button>`;
+            $('#hude-one').oninput = (e) => {
+                const s = parseInt(e.target.value, 10) / 100;
+                this.layout.buttons[id] = Object.assign({}, this.layout.buttons[id], { s });
+                $('#hude-v-one').textContent = Math.round(s * 100) + '%';
+                this.applyLayout(this.layout); this.positionHudHandles();
+            };
+            $('#hude-hide').onclick = () => {
+                const cur = this.layout.buttons[id] || {};
+                this.layout.buttons[id] = Object.assign({}, cur, { hidden: !c.hidden });
+                this.applyLayout(this.layout); this.refreshHudEditor();
+            };
+            $('#hude-reset-one').onclick = () => { delete this.layout.buttons[id]; this.applyLayout(this.layout); this.refreshHudEditor(); };
+        }
+        this.positionHudHandles();
+    }
+
+    // Shooter HUD: CS-style health / hunger bars and the top-centre player strip
+    updateShooterHud(now) {
+        const p = this.player;
+        const hp = Math.max(0, Math.round(p.health)), maxHp = p.maxHealth || 100;
+        const food = Math.max(0, Math.round(p.hunger));
+        const set = (id, txt) => { const el = document.getElementById(id); if (el && el.textContent !== String(txt)) el.textContent = txt; };
+        set('sv-hp-num', hp); set('sv-food-num', food);
+        const hb = document.getElementById('sv-hp-bar'), fb = document.getElementById('sv-food-bar');
+        if (hb) { hb.style.width = Math.min(100, hp / maxHp * 100) + '%'; hb.classList.toggle('low', hp <= maxHp * 0.3); }
+        if (fb) { fb.style.width = Math.min(100, food) + '%'; fb.classList.toggle('low', food <= 20); }
+        if (now - (this._spAt || 0) < 400) return;
+        this._spAt = now;
+        const mp = this.game.multiplayer;
+        const remotes = mp && mp.remotePlayers ? [...mp.remotePlayers.values()] : [];
+        // you + first half of the others on the left, the rest on the right
+        const all = [{ name: mp?.playerName || 'Ти', health: p.health, maxHealth: maxHp, me: true }].concat(remotes.map(r => ({ name: r.name, health: r.health, maxHealth: r.maxHealth || 100 })));
+        const half = Math.ceil(all.length / 2);
+        const left = all.slice(0, half), right = all.slice(half);
+        const key = all.map(x => x.name + ':' + Math.round(x.health)).join('|');
+        if (key === this._spKey) return;
+        this._spKey = key;
+        const hue = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+        const build = (list) => list.map(x => {
+            const dead = !(x.health > 0), pct = Math.max(0, Math.min(100, x.health / x.maxHealth * 100));
+            return `<div class="sp-av${x.me ? ' me' : ''}${dead ? ' dead' : ''}" title="${String(x.name).replace(/"/g, '')}" style="background:hsl(${hue(x.name)},45%,38%)"><span>${String(x.name).trim().charAt(0).toUpperCase() || '?'}</span><i style="width:${pct}%"></i></div>`;
+        }).join('');
+        const el = (id) => document.getElementById(id);
+        if (el('sp-left')) el('sp-left').innerHTML = build(left);
+        if (el('sp-right')) el('sp-right').innerHTML = build(right);
+        const alive = (l) => l.filter(x => x.health > 0).length;
+        set('sp-score-l', alive(left)); set('sp-score-r', alive(right));
+    }
+
+    // Standard / Shooter HUD switch (pause menu); keeps the user's own button positions for the standard mode
+    setHudMode(mode) {
+        const L = JSON.parse(JSON.stringify(this.layout));
+        L.mode = mode === 'shooter' ? 'shooter' : 'standard';
+        L.preset = L.mode === 'shooter' ? 'shooter' : (L.preset === 'shooter' ? 'default' : L.preset);
+        this.applyLayout(L);
+        this.saveLayout();
     }
 
     stopHudDragMode(saveChanges) {
+        if (!this.dragModeOpen) return;
         this.dragModeOpen = false;
-
-        const overlay = document.getElementById('hud-drag-overlay');
-        const buttonsEl = document.getElementById('touch-action-buttons');
-        const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
-
-        if (overlay) overlay.style.display = 'none';
-        if (buttonsEl) buttonsEl.classList.remove('hud-draggable-active');
-        if (hotbarEl) hotbarEl.classList.remove('hud-draggable-active');
-        actionButtonIds.forEach(id => {
-            const btn = document.getElementById(id);
-            if (btn) btn.classList.remove('hud-draggable-active');
-        });
-
-        if (this._elementCleanups) {
-            this._elementCleanups.forEach(cleanup => {
-                try { cleanup(); } catch(e) {}
-            });
-            this._elementCleanups = [];
-        }
-
-        if (this._dragCleanups) {
-            this._dragCleanups.forEach(cleanup => {
-                try { cleanup(); } catch(e) {}
-            });
-            this._dragCleanups = [];
-        }
-
+        window.removeEventListener('keydown', this._hudKey);
+        if (this._hudRoot) { this._hudRoot.remove(); this._hudRoot = null; }
+        this._hudHandles = null;
+        document.body.classList.remove('hud-editing');
         if (saveChanges) {
-            if (this.layout.splitButtons) {
-                this.layout.buttonPositions = this.layout.buttonPositions || {};
-                actionButtonIds.forEach(id => {
-                    const btn = document.getElementById(id);
-                    if (btn) {
-                        const rect = btn.getBoundingClientRect();
-                        this.layout.buttonPositions[id] = {
-                            left: `${Math.round(rect.left)}px`,
-                            top: `${Math.round(rect.top)}px`,
-                            right: 'auto',
-                            bottom: 'auto'
-                        };
-                    }
-                });
-            } else {
-                if (buttonsEl) {
-                    const bRect = buttonsEl.getBoundingClientRect();
-                    this.layout.buttonsPos = {
-                        left: `${Math.round(bRect.left)}px`,
-                        top: `${Math.round(bRect.top)}px`,
-                        right: 'auto',
-                        bottom: 'auto'
-                    };
-                }
-            }
-
-            if (hotbarEl) {
-                const hRect = hotbarEl.getBoundingClientRect();
-                this.layout.hotbarPos = {
-                    left: `${Math.round(hRect.left)}px`,
-                    top: `${Math.round(hRect.top)}px`,
-                    right: 'auto',
-                    bottom: 'auto'
-                };
-            }
-            this.layout.preset = 'custom';
+            this.layout.preset = this.layout.preset || 'custom';
             this.saveLayout();
             this.applyLayout(this.layout);
-            this.showToast("💾 Розкладку кнопок успішно збережено!");
+            this.showToast("💾 Розкладку збережено!");
         } else {
-            if (this._preDragLayout) {
-                this.applyLayout(this._preDragLayout);
-            }
-            this.showToast("Розстановку скасовано");
+            if (this._preDragLayout) this.applyLayout(this._preDragLayout);
+            this.showToast("Зміни скасовано");
         }
     }
 

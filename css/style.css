@@ -6753,3 +6753,355 @@ body.is-preloading #mining-progress-container {
 #rtx-parts.rtx-off .toggle-item { opacity: .45; pointer-events: none; }
 #rtx-parts .menu-toggles-grid { grid-template-columns: 1fr; }
 .rtx-part small { white-space: normal; }
+
+/* Merged inventory tab: backpack + armor in the middle, Craft / Upgrader panels open on the sides */
+.inv2-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+.inv2-panel-btn { flex: 1; }
+.inv2-main { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.inv2-main .backpack-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.inv2-pack { min-width: 0; }
+.inv2-equip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.inv2-equip .backpack-section-title { width: 100%; }
+.inv2-equip-col { display: flex; flex-direction: row; gap: 4px; }
+.inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 48px; height: 48px; min-width: 48px; }
+.inv2-totem-row { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: #ffd54f; }
+.inv2-totem { border-color: #b8860b; }
+.inv2-armor-stats { font-size: 12px; color: #9ad; }
+.inv2-ph { font-size: 20px; opacity: 0.3; pointer-events: none; }
+.inv2-target { border-color: #4caf50 !important; box-shadow: 0 0 8px #4caf50; }
+.inv2-craft-row { display: flex; align-items: center; gap: 8px; }
+.inv2-craft-grid { display: grid; grid-template-columns: repeat(3, 48px); gap: 3px; }
+.inv2-arrow { font-size: 24px; color: #ffd700; }
+.inv2-out { width: 56px !important; height: 56px !important; min-width: 56px !important; border-color: #555; }
+.inv2-out-ready { border-color: #4caf50; box-shadow: 0 0 10px #4caf50; }
+.inv2-craft .backpack-hint { margin: 6px 0; }
+.inv2-section { margin-top: 10px; border: 1px solid #383844; border-radius: 6px; padding: 4px 8px; }
+.inv2-section > summary { cursor: pointer; font-weight: bold; color: #ffd700; padding: 4px 0; user-select: none; }
+.inv2-section-body { margin-top: 8px; }
+@media (max-width: 800px) {
+            .inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 42px; height: 42px; min-width: 42px; }
+    .inv2-craft-grid { grid-template-columns: repeat(3, 42px); }
+}
+
+/* Floating Craft / Upgrader windows */
+.inv2-window { position: fixed; top: 50%; transform: translateY(-50%); z-index: 10001; display: none; flex-direction: column; max-height: 88vh; background: rgba(20,20,25,0.98); border: 2px solid #555566; border-radius: 10px; box-shadow: 0 0 35px rgba(0,0,0,0.85); }
+.inv2-win-left { left: 8px; width: 300px; }
+.inv2-win-right { right: 8px; width: min(560px, 46vw); }
+.inv2-win-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; cursor: move; font-weight: bold; color: #ffd700; border-bottom: 1px solid #383844; user-select: none; touch-action: none; }
+.inv2-win-body { padding: 10px; overflow-y: auto; touch-action: pan-y; }
+.inv2-window .gg-wrap { grid-template-columns: 1fr; }
+.inv2-window .gg-center { order: -1; }
+@media (max-width: 800px) {
+    .inv2-window { left: 4px !important; right: 4px !important; width: auto; top: 6vh !important; transform: none !important; }
+}
+
+/* ==========================================================================
+   Touch HUD v2: every control is a free-floating element (see UIManager.applyLayout)
+   ========================================================================== */
+body.hud-free #touch-action-buttons,
+body.hud-free .row-aux,
+body.hud-free .action-grid-main { display: contents; }
+body.hud-free .touch-btn {
+    position: fixed;
+    margin: 0;
+    z-index: 35;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(var(--hs, 1));
+}
+body.hud-free .touch-btn:active, body.hud-free .touch-btn.active {
+    transform: translate(-50%, -50%) scale(calc(var(--hs, 1) * 0.92));
+}
+body.hud-free .touch-btn.hud-hidden { display: none !important; }
+body.hud-free #hotbar-container.hud-moved {
+    position: fixed; bottom: auto;
+    transform: translate(-50%, -50%) scale(var(--hbs, 1));
+}
+body.hud-free #hotbar-container:not(.hud-moved) {
+    transform: translateX(-50%) scale(var(--hbs, 1));
+    transform-origin: bottom center;
+}
+
+/* New context buttons: scope shows with a gun in hand, inspect with a knife */
+.btn-scope, .btn-inspect {
+    display: none;
+    width: 48px; height: 48px;
+    font-size: 15px; line-height: 1.05;
+    border: 2px solid rgba(255, 255, 255, 0.55);
+}
+.btn-scope span, .btn-inspect span { font-size: 9px; margin-top: 1px; }
+.btn-scope { background: rgba(0, 150, 136, 0.82); border-color: #4db6ac; }
+.btn-inspect { background: rgba(123, 31, 162, 0.82); border-color: #ba68c8; }
+.btn-scope.active { background: #26a69a !important; border-color: #fff; }
+body.hold-gun .btn-scope, body.hold-knife .btn-inspect,
+body.hud-editing .btn-scope, body.hud-editing .btn-inspect { display: flex; }
+body.hud-editing .touch-btn.hud-hidden { display: flex !important; opacity: 0.3 !important; }
+body.hud-editing #hud-top { opacity: 0.35; pointer-events: none; }
+
+/* HUD layout editor */
+#hud-editor { position: fixed; inset: 0; z-index: 99990; touch-action: none; user-select: none; -webkit-user-select: none; background: rgba(0, 0, 0, 0.35); }
+.hude-grid { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    background-image: linear-gradient(rgba(255,255,255,0.10) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.10) 1px, transparent 1px);
+    background-size: 2.5vw 2.5vh; }
+#hud-editor.snap .hude-grid { opacity: 1; }
+.hude-handles { position: absolute; inset: 0; }
+.hude-handle { position: fixed; box-sizing: border-box; border: 2px dashed rgba(255, 215, 0, 0.9); border-radius: 12px;
+    display: flex; align-items: flex-end; justify-content: center; cursor: grab; touch-action: none;
+    background: rgba(255, 215, 0, 0.08); }
+.hude-handle span { transform: translateY(100%); margin-top: 2px; font-size: 10px; line-height: 1.1; white-space: nowrap; color: #fff;
+    background: rgba(0,0,0,0.7); border-radius: 4px; padding: 1px 4px; pointer-events: none; }
+.hude-handle.selected { border-style: solid; border-color: #4fc3f7; background: rgba(79, 195, 247, 0.18); box-shadow: 0 0 14px #4fc3f7; }
+.hude-handle.is-hotbar { border-radius: 10px; }
+.hude-panel { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 16px));
+    max-height: calc(100dvh - 16px); overflow-y: auto; background: rgba(18, 18, 24, 0.96); border: 2px solid #ffd700; border-radius: 12px;
+    padding: 8px 10px; color: #fff; font: 12px/1.3 system-ui, sans-serif; box-shadow: 0 6px 24px rgba(0,0,0,0.8); z-index: 2; touch-action: pan-y; }
+.hude-bar { display: flex; align-items: center; gap: 8px; }
+.hude-spacer { flex: 1; }
+.hude-btn { background: #333344; color: #ffd700; border: 1.5px solid #555566; border-radius: 6px; width: 34px; height: 30px; font-size: 14px; cursor: pointer; }
+#hud-editor.collapsed .hude-body { display: none; }
+.hude-body { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.hude-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.hude-sel { min-height: 34px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: rgba(79,195,247,0.10); border: 1px solid #355; border-radius: 8px; padding: 5px 8px; }
+.hude-hint { color: #aab; }
+.hude-inl { display: flex; align-items: center; gap: 6px; }
+.hude-inl input { width: 110px; }
+.hude-sliders label { flex: 1 1 140px; display: flex; flex-direction: column; gap: 2px; color: #ccd; }
+.hude-sliders input { width: 100%; min-height: 28px; }
+.hude-chip { background: #2b2b38; color: #fff; border: 1.5px solid #555566; border-radius: 16px; padding: 7px 11px; font-size: 12px; cursor: pointer; touch-action: manipulation; }
+.hude-chip.on { background: #1565c0; border-color: #64b5f6; }
+.hude-danger { border-color: #b33; color: #ff8a80; }
+.hude-final { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; position: sticky; bottom: -8px; padding: 6px 0 2px; background: rgba(18,18,24,0.97); }
+.hude-big { min-height: 44px; border-radius: 10px; border: 2px solid; font-size: 14px; font-weight: bold; cursor: pointer; touch-action: manipulation; }
+.hude-cancel { background: #3a2222; border-color: #a44; color: #fff; }
+.hude-save { background: #1b5e20; border-color: #66bb6a; color: #fff; }
+@media (max-height: 460px) {
+    /* short landscape screens: dock the panel on the side opposite the buttons so they stay visible */
+    .hude-panel { top: 4px; left: 4px; transform: none; width: min(470px, 60vw); max-height: calc(100dvh - 8px); padding: 5px 8px; }
+    #hud-editor.dock-right .hude-panel { left: auto; right: 4px; }
+    .hude-body { gap: 4px; margin-top: 4px; }
+    .hude-chip { padding: 4px 8px; font-size: 11px; }
+    .hude-sel { min-height: 28px; padding: 3px 6px; }
+    .hude-sliders { flex-wrap: nowrap; gap: 8px; }
+    .hude-sliders label { flex: 1 1 0; font-size: 11px; }
+    .hude-sliders input { min-height: 20px; }
+    .hude-big { min-height: 36px; font-size: 13px; }
+}
+}
+
+/* ==========================================================================
+   Short / narrow screens: the main menu must never clip its top, and fits landscape phones
+   ========================================================================== */
+.main-menu-overlay { height: 100dvh; align-items: flex-start; }
+.main-menu-content { margin: auto; min-height: 0; }
+@media (max-height: 560px) {
+    .main-menu-overlay { padding: 8px 12px; }
+    .main-menu-content { max-width: 760px; padding: 4px 0; justify-content: flex-start; gap: 6px; }
+    .main-menu-header { margin: 34px 0 6px; }
+    .mm-logo-title .mm-title-text { font-size: 28px !important; }
+    .mm-splash-text, .mm-edition-subtitle, .main-menu-footer { display: none !important; }
+    .main-menu-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; max-width: 100%; margin: 0; }
+    .main-menu-nav .mc-menu-btn { height: 42px; font-size: 13px; padding: 0 10px; gap: 8px; }
+    .main-menu-nav .mc-btn-sub { display: none; }
+    .main-menu-nav .mc-btn-quickplay { grid-column: 1 / -1; }
+    .main-menu-topbar { transform: scale(0.85); transform-origin: top left; }
+}
+@media (max-width: 480px) and (min-height: 561px) {
+    .main-menu-overlay { padding: 10px; }
+    .main-menu-nav .mc-menu-btn { height: 48px; font-size: 14px; }
+}
+
+/* Gun HUD on touch screens: compact strip above the hotbar, never on top of the action buttons */
+@media (pointer: coarse) {
+    #gun-hud { right: auto; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 4px 10px; gap: 8px; border-width: 2px; max-width: 46vw; }
+    #gun-hud .eblan-gun-title { font-size: 10px; }
+    #gun-hud .eblan-gun-count-big { font-size: 17px; }
+    #gun-hud .eblan-gun-reserve { font-size: 11px; }
+    #gun-hud .eblan-gun-status { display: none; }
+    #gun-hud .eblan-gun-reload-btn { font-size: 11px; padding: 6px 9px; min-height: 36px; }
+}
+body.force-touch #gun-hud { right: auto; left: 50%; bottom: 62px; transform: translateX(-50%); padding: 4px 10px; gap: 8px; border-width: 2px; max-width: 46vw; }
+body.force-touch #gun-hud .eblan-gun-title { font-size: 10px; }
+body.force-touch #gun-hud .eblan-gun-count-big { font-size: 17px; }
+body.force-touch #gun-hud .eblan-gun-reserve { font-size: 11px; }
+body.force-touch #gun-hud .eblan-gun-status { display: none; }
+body.force-touch #gun-hud .eblan-gun-reload-btn { font-size: 11px; padding: 6px 9px; min-height: 36px; }
+body.in-main-menu #gun-hud, body.hud-editing #gun-hud { display: none !important; }
+
+/* Reload button: shown with a gun in hand */
+.btn-reload { display: none; width: 48px; height: 48px; font-size: 15px; line-height: 1.05; background: rgba(60, 60, 70, 0.85); border: 2px solid rgba(255,255,255,0.55); }
+.btn-reload span { font-size: 9px; margin-top: 1px; }
+body.hold-gun .btn-reload, body.hud-editing .btn-reload { display: flex; }
+
+/* Editor zone guides (movement | look / shoot) */
+.hude-zones { position: absolute; inset: 0; pointer-events: none; border-left: 0; }
+.hude-zones::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 2px dashed rgba(255,255,255,0.28); }
+.hude-zones span { position: absolute; bottom: 6px; font-size: 11px; color: rgba(255,255,255,0.55); }
+.hz-l { left: 10px; } .hz-r { right: 10px; }
+
+/* Shooter mode: flat dark round buttons, ammo panel at the top-right (like a competitive shooter) */
+body.hud-shooter .touch-btn { background: rgba(28, 28, 34, 0.82); border: 2px solid rgba(255, 255, 255, 0.4); box-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+body.hud-shooter .btn-jump { width: 66px; height: 66px; }
+body.hud-shooter .btn-attack { background: rgba(120, 28, 28, 0.85); border-color: rgba(255, 150, 150, 0.7); }
+body.hud-shooter .btn-scope.active { background: rgba(0, 120, 110, 0.9); }
+body.hud-shooter #gun-hud { left: auto; right: 8px; top: 56px; bottom: auto; transform: none; max-width: 40vw; }
+body.hud-shooter.hold-gun #hud-block-name { display: none; }
+
+/* ==========================================================================
+   SHOOTER layout (hand-built, matches a competitive-shooter touch HUD 1:1).
+   Everything is pinned with !important, so the editor's grid / clamps / per-button size don't apply.
+   Reference canvas is 800x400, sizes use vh so it scales with the screen.
+   ========================================================================== */
+body.hud-shooter {
+    --ico-cross: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='24' cy='24' r='9'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23e9e9ec'/%3E%3Cpath d='M24 5v8M24 35v8M5 24h8M35 24h8'/%3E%3C/svg%3E");
+    --ico-bullet: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 40V22c0-6 4-11 8-14 4 3 8 8 8 14v18z'/%3E%3Cpath d='M16 32h16'/%3E%3C/svg%3E");
+    --ico-chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 14l15 12 15-12M9 26l15 12 15-12'/%3E%3C/svg%3E");
+    --ico-cart: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 8h6l5 22h20l4-15H13'/%3E%3Ccircle cx='19' cy='38' r='3'/%3E%3Ccircle cx='33' cy='38' r='3'/%3E%3Cpath d='M24 20v6m-3-3h6' stroke-width='2'/%3E%3C/svg%3E");
+    --ico-pliers: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 6l7 17M31 6l-7 17'/%3E%3Cpath d='M24 23l-8 19M24 23l8 19'/%3E%3Ccircle cx='24' cy='23' r='2.5' fill='%23e9e9ec'/%3E%3C/svg%3E");
+    --ico-fire: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='24' cy='24' r='14'/%3E%3Ccircle cx='24' cy='24' r='5' fill='%23ffb4b4' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* dark flat round buttons with line icons */
+body.hud-shooter .touch-btn {
+    transform: translate(-50%, -50%) !important;
+    --hs: 1 !important;
+    opacity: 1 !important;
+    background-color: rgba(26, 27, 31, 0.86) !important;
+    border: 2px solid rgba(255, 255, 255, 0.16) !important;
+    box-shadow: none !important;
+    color: #e9e9ec;
+}
+body.hud-shooter .touch-btn:active, body.hud-shooter .touch-btn.active {
+    transform: translate(-50%, -50%) scale(0.93) !important;
+    background-color: rgba(70, 72, 80, 0.92) !important;
+}
+body.hud-shooter .btn-attack, body.hud-shooter .btn-scope, body.hud-shooter .btn-reload,
+body.hud-shooter .btn-jump, body.hud-shooter .btn-buy, body.hud-shooter .btn-tnt {
+    font-size: 0 !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 56% !important;
+}
+body.hud-shooter .btn-attack span, body.hud-shooter .btn-scope span, body.hud-shooter .btn-reload span,
+body.hud-shooter .btn-jump span, body.hud-shooter .btn-buy span, body.hud-shooter .btn-tnt span { display: none; }
+body.hud-shooter .btn-attack { background-image: var(--ico-fire) !important; }
+body.hud-shooter .btn-scope  { background-image: var(--ico-cross) !important; }
+body.hud-shooter .btn-reload { background-image: var(--ico-bullet) !important; }
+body.hud-shooter .btn-jump   { background-image: var(--ico-chev) !important; background-size: 52% !important; }
+body.hud-shooter .btn-buy    { background-image: var(--ico-cart) !important; }
+body.hud-shooter .btn-tnt    { background-image: var(--ico-pliers) !important; }
+body.hud-shooter .btn-scope.active { border-color: #4dd0c4 !important; }
+
+/* exact positions (percent of the screen) and sizes (vh) */
+body.hud-shooter #btn-attack  { left: 26.4% !important; top: 40%   !important; width: 17vh !important; height: 17vh !important; border-color: rgba(255,120,120,0.5) !important; }
+body.hud-shooter #btn-buy     { left: 29.5% !important; top: 64%   !important; width: 18vh !important; height: 18vh !important; display: flex !important; }
+body.hud-shooter #btn-tnt     { left: 29.5% !important; top: 75%   !important; width: 18vh !important; height: 18vh !important; }
+body.hud-shooter #btn-scope   { left: 70.9% !important; top: 75%   !important; width: 20vh !important; height: 20vh !important; }
+body.hud-shooter #btn-reload  { left: 83.4% !important; top: 75%   !important; width: 20vh !important; height: 20vh !important; }
+body.hud-shooter #btn-jump    { left: 94.5% !important; top: 87.5% !important; width: 22vh !important; height: 22vh !important; }
+body.hud-shooter #btn-dodge   { left: 94.5% !important; top: 38.5% !important; width: 14vh !important; height: 14vh !important; }
+body.hud-shooter #btn-inspect { left: 82%   !important; top: 38.5% !important; width: 14vh !important; height: 14vh !important; }
+body.hud-shooter #btn-sprint  { left: 28%   !important; top: 92%   !important; width: 11vh !important; height: 11vh !important; }
+body.hud-shooter #btn-scope, body.hud-shooter #btn-reload { display: flex !important; }
+body.hud-shooter #btn-break, body.hud-shooter #btn-place { display: none !important; }
+body.hud-shooter:not(.hold-gun) #btn-scope, body.hud-shooter:not(.hold-gun) #btn-reload { opacity: 0.45 !important; }
+
+/* fixed movement ring with arrows (always visible, instead of the floating joystick) */
+body.hud-shooter:not(.is-pc):not(.in-main-menu):not(.is-preloading):not(.hud-editing) #joystick-base,
+body.hud-shooter.force-touch:not(.in-main-menu):not(.is-preloading):not(.hud-editing) #joystick-base { display: block !important; }
+body.hud-shooter #joystick-base {
+    left: 11.9% !important; top: 75% !important; width: 30vh; height: 30vh;
+    background: rgba(26, 27, 31, 0.8); border: 2px solid rgba(255,255,255,0.14); box-shadow: none; pointer-events: none;
+}
+body.hud-shooter #joystick-base::before, body.hud-shooter #joystick-base::after {
+    content: '▲'; position: absolute; left: 50%; top: 3%; transform: translateX(-50%); font-size: 2.4vh; color: #e9e9ec;
+}
+body.hud-shooter #joystick-base::after { content: '▼'; top: auto; bottom: 3%; }
+body.hud-shooter #joystick-knob { width: 12vh; height: 12vh; background: rgba(60,60,66,0.95); border: 2px solid rgba(255,255,255,0.25); box-shadow: none; }
+body.hud-shooter #joystick-knob::before, body.hud-shooter #joystick-knob::after {
+    content: '◀'; position: absolute; top: 50%; left: -62%; transform: translateY(-50%); font-size: 2.4vh; color: #e9e9ec;
+}
+body.hud-shooter #joystick-knob::after { content: '▶'; left: auto; right: -62%; }
+
+/* top-right ammo panel */
+body.hud-shooter #gun-hud {
+    top: 0 !important; right: 0 !important; left: auto !important; bottom: auto !important; transform: none !important; max-width: none; width: 24vh; min-width: 150px;
+    flex-direction: column; align-items: flex-end; gap: 0; padding: 1.2vh 2vh 1vh; border: 0 !important; border-radius: 0 0 0 1.5vh;
+    background: linear-gradient(to left, rgba(26,27,31,0.95), rgba(26,27,31,0.55)); box-shadow: none;
+}
+body.hud-shooter #gun-hud .eblan-gun-title, body.hud-shooter #gun-hud .eblan-gun-status, body.hud-shooter #gun-hud .eblan-gun-reload-btn { display: none !important; }
+body.hud-shooter #gun-hud .eblan-gun-count-big { font-size: 4.5vh; color: #ff9d2e; }
+body.hud-shooter #gun-hud .eblan-gun-count-big.low { color: #ff4444; }
+body.hud-shooter #gun-hud .eblan-gun-reserve { font-size: 3.6vh; color: #fff; }
+body.hud-shooter #gun-hud #gun-ammo-capacity { display: none; }
+#gun-hud-icon { display: none; }
+body.hud-shooter #gun-hud #gun-hud-icon { display: block; height: 9vh; width: auto; image-rendering: pixelated; margin-top: 0.5vh; }
+
+/* corner buttons (menu / chat bottom-left, backpack bottom-right-centre), the rest of the top bar is hidden */
+body.hud-shooter:not(.is-pc) #top-buttons .top-btn, body.hud-shooter.force-touch #top-buttons .top-btn { display: none !important; }
+body.hud-shooter:not(.is-pc) #top-buttons #btn-menu, body.hud-shooter:not(.is-pc) #top-buttons #btn-chat-toggle, body.hud-shooter:not(.is-pc) #top-buttons #btn-inventory,
+body.hud-shooter.force-touch #top-buttons #btn-menu, body.hud-shooter.force-touch #top-buttons #btn-chat-toggle, body.hud-shooter.force-touch #top-buttons #btn-inventory {
+    display: flex !important; position: fixed !important; top: auto !important; bottom: 0 !important; width: 14.5vh; height: 7.5vh; padding: 0;
+    justify-content: center; align-items: center; border-radius: 0; border: 0 !important; background: rgba(26,27,31,0.9) !important; pointer-events: auto;
+}
+body.hud-shooter:not(.is-pc) #top-buttons #btn-menu, body.hud-shooter.force-touch #top-buttons #btn-menu { left: 0 !important; }
+body.hud-shooter:not(.is-pc) #top-buttons #btn-chat-toggle, body.hud-shooter.force-touch #top-buttons #btn-chat-toggle { left: 17.5% !important; }
+body.hud-shooter:not(.is-pc) #top-buttons #btn-inventory, body.hud-shooter.force-touch #top-buttons #btn-inventory { left: 76% !important; }
+body.hud-shooter:not(.is-pc) #top-buttons .top-btn-text { display: none; }
+body.hud-shooter .hud-sub-row { display: none; }
+body.hud-shooter #hud-stats-group { background: rgba(26,27,31,0.55); }
+
+/* ---- Shooter HUD pieces shared by touch and PC ---- */
+#shooter-players, #shooter-vitals { display: none; }
+body.hud-shooter:not(.in-main-menu):not(.is-preloading) #shooter-players {
+    display: flex; position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 30; align-items: stretch;
+    background: rgba(24, 22, 20, 0.82); border: 1px solid rgba(255,255,255,0.12); pointer-events: none; font-family: 'Segoe UI', sans-serif; color: #fff;
+}
+.sp-team { display: flex; gap: 2px; padding: 3px; min-width: 20px; }
+.sp-av { position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: #fff; text-shadow: 1px 1px 0 #000; overflow: hidden; }
+.sp-av i { position: absolute; left: 0; bottom: 0; height: 3px; background: #7dff7d; }
+.sp-av.me { outline: 1px solid #ffd54f; }
+.sp-av.dead { filter: grayscale(1) brightness(0.45); }
+.sp-av.dead i { background: #c33; }
+.sp-score { min-width: 26px; display: flex; align-items: center; justify-content: center; font-size: 15px; background: rgba(0,0,0,0.35); padding: 0 6px; }
+.sp-mid { display: flex; align-items: center; justify-content: center; width: 32px; background: rgba(150, 20, 20, 0.7); font-size: 17px; color: #ffb4b4; box-shadow: inset 0 0 8px rgba(255,60,60,0.5); }
+
+body.hud-shooter:not(.in-main-menu):not(.is-preloading) #shooter-vitals {
+    display: flex; position: fixed; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 30; gap: 6px; padding: 3px 8px;
+    background: rgba(24, 22, 20, 0.85); border: 1px solid rgba(255,255,255,0.12); pointer-events: none; color: #fff; font-family: 'Segoe UI', sans-serif;
+}
+.sv-cell { display: flex; align-items: center; gap: 6px; }
+.sv-cell b { min-width: 28px; font-size: 15px; text-align: left; }
+.sv-ico { font-size: 14px; width: 16px; text-align: center; color: #b7c4a8; }
+.sv-plus { font-weight: 900; font-size: 17px; }
+.sv-bar { width: 96px; height: 11px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); }
+.sv-bar i { display: block; height: 100%; width: 100%; background: #dcdcdc; transition: width 0.15s; }
+.sv-bar i.low { background: #e04545; }
+#sv-food-bar { background: #e0b070; }
+
+/* slim hotbar under the player strip's twin: centred, above the health bars */
+body.hud-shooter #hotbar-container {
+    position: fixed !important; left: 50% !important; top: auto !important; bottom: 34px !important;
+    transform: translateX(-50%) !important; padding: 2px 3px !important; border: 0 !important; border-radius: 3px !important;
+    background: rgba(24, 22, 20, 0.72) !important; box-shadow: none !important;
+}
+body.hud-shooter .hotbar-slot { width: 28px !important; height: 28px !important; min-width: 22px !important; min-height: 22px !important; }
+body.hud-shooter .hotbar-slot .slot-icon { width: 19px !important; height: 19px !important; }
+body.hud-shooter #hotbar-slots { gap: 2px !important; }
+/* the old vitals row moves down into the bars */
+body.hud-shooter .hud-vital-row { display: none !important; }
+body.hud-shooter.is-pc .hud-sub-row { display: flex; }
+body.hud-shooter:not(.is-pc) #hud-stats-group, body.hud-shooter.force-touch #hud-stats-group { display: none !important; }
+body.hud-shooter #hud-stats-group { background: rgba(24,22,20,0.55); }
+
+/* PC: ammo panel sits under the regular top buttons, key hints are hidden for a clean shooter HUD */
+body.hud-shooter.is-pc:not(.force-touch) #gun-hud { top: 52px !important; }
+body.hud-shooter #pc-hint-bar { display: none !important; }
+
+/* Shooter: the whole top-left corner is the fire zone (the ring is just its marker). The zone is a child of the
+   button, so every touch inside it fires. It is positioned from the button's centre (26.4% / 40%, 17vh wide). */
+body.hud-shooter #btn-attack::after {
+    content: 'ЗОНА СТРІЛЬБИ'; position: absolute; box-sizing: border-box;
+    left: calc(-26.4vw + 8.5vh); top: calc(-40vh + 8.5vh); width: 50vw; height: 54vh;
+    padding: 1vh 1.5vh; font-size: 1.8vh; letter-spacing: 1px; color: rgba(255,255,255,0.35); text-align: left;
+    background: rgba(255, 255, 255, 0.035); border: 1px dashed rgba(255, 255, 255, 0.16); border-radius: 0 0 2vh 0;
+}
+
+/* Shooter: tapping the ammo panel reloads */
+body.hud-shooter #gun-hud { cursor: pointer; touch-action: manipulation; }
+body.hud-shooter #gun-hud:active { filter: brightness(1.3); }

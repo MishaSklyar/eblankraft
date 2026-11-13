@@ -571,10 +571,12 @@ class Game {
 
     initControls() {
         this.controls = new Controls(this.player, this.renderer.domElement);
+        if (this.ui && this.ui.layout) this.controls.setLayout(this.ui.layout);
     }
 
     initUI() {
         this.ui = new UIManager(this);
+        if (this.controls && this.ui.layout) this.controls.setLayout(this.ui.layout);
     }
 
     resetWorld(worldType = 'normal') {
