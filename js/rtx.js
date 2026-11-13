@@ -185,15 +185,16 @@ class RTXPipeline {
 
         this.ssr = null;
         try {
-            // half resolution: reflections are blurred anyway and SSR re-renders the scene several times
-            this.ssr = new THREE.SSRPass({ renderer: r, scene: g.scene, camera: g.camera, width: Math.max(2, w >> 1), height: Math.max(2, h >> 1), selects: [], groundReflector: null });
-            const ssrSetSize = this.ssr.setSize.bind(this.ssr);
-            this.ssr.setSize = (sw, sh) => ssrSetSize(Math.max(2, sw >> 1), Math.max(2, sh >> 1));
-            this.ssr.enabled = false;          // switched on by updateWater() when water is near
-            this.ssr.maxDistance = 40;
-            this.ssr.thickness = 0.04;
-            this.ssr.opacity = 0.55;
-            this.ssr.output = THREE.SSRPass.OUTPUT.Default;
+            // SSRPass re-renders the scene itself and, in its default output mode, REPLACES the frame with that copy (no AO, and half
+            // resolution here), which made the whole image soft whenever water was near. So it only produces the reflection layer
+            // (OUTPUT.SSR, half resolution) and RTXSSR blends that onto the full-resolution frame coming from the scene pass.
+            const inner = new THREE.SSRPass({ renderer: r, scene: g.scene, camera: g.camera, width: Math.max(2, w >> 1), height: Math.max(2, h >> 1), selects: [], groundReflector: null });
+            inner.maxDistance = 40;
+            inner.thickness = 0.04;
+            inner.opacity = 0.55;
+            inner.output = THREE.SSRPass.OUTPUT.SSR;
+            this.ssr = RTXPipeline.makeSSRComposite(inner, w, h);
+            this.ssr.enabled = false;          // switched on by updateWaterMeshes() when water is near
             composer.addPass(this.ssr);
         } catch (e) { console.warn('[RTX] SSR unavailable:', e.message); this.ssr = null; }
 
@@ -694,6 +695,40 @@ RTXPipeline.loadCfg = function () {
     return o;
 };
 window.RTX_POM = window.RTX_POM || { value: 1 };
+
+RTXPipeline.makeSSRComposite = function (inner, w, h) {
+    class RTXSSR extends THREE.Pass {
+        constructor() {
+            super();
+            this.inner = inner;
+            this.needsSwap = true;
+            this.quad = new THREE.FullScreenQuad(new THREE.ShaderMaterial({
+                uniforms: { tColor: { value: null }, tRefl: { value: null } },
+                vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+                fragmentShader: 'uniform sampler2D tColor, tRefl; varying vec2 vUv; void main(){ vec4 c = texture2D(tColor, vUv); vec4 r = texture2D(tRefl, vUv); gl_FragColor = vec4(mix(c.rgb, r.rgb, clamp(r.a, 0.0, 1.0)), c.a); }',
+                depthTest: false, depthWrite: false
+            }));
+            this.rt = new THREE.WebGLRenderTarget(Math.max(2, w >> 1), Math.max(2, h >> 1), { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+        }
+        get selects() { return inner.selects; } set selects(v) { inner.selects = v; }
+        get opacity() { return inner.opacity; } set opacity(v) { inner.opacity = v; }
+        get maxDistance() { return inner.maxDistance; } set maxDistance(v) { inner.maxDistance = v; }
+        setSize(sw, sh) {
+            inner.setSize(Math.max(2, sw >> 1), Math.max(2, sh >> 1));
+            this.rt.setSize(Math.max(2, sw >> 1), Math.max(2, sh >> 1));
+        }
+        dispose() { try { inner.dispose(); } catch (e) {} this.rt.dispose(); this.quad.material.dispose(); this.quad.dispose(); }
+        render(renderer, writeBuffer, readBuffer) {
+            inner.renderToScreen = false;
+            inner.render(renderer, this.rt, readBuffer);                 // reflection layer (rgb = reflected colour, a = strength)
+            const u = this.quad.material.uniforms;
+            u.tColor.value = readBuffer.texture; u.tRefl.value = this.rt.texture;
+            renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+            this.quad.render(renderer);
+        }
+    }
+    return new RTXSSR();
+};
 
 RTXPipeline.depthSupported = function (r) {
     try { return !!(r.capabilities.isWebGL2 || r.extensions.has('WEBGL_depth_texture')); } catch (e) { return false; }
