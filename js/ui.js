@@ -1505,6 +1505,19 @@ class UIManager {
         const sliderSens = document.getElementById('slider-sensitivity');
         const chkVoice = document.getElementById('chk-voice');
 
+        // Tabs
+        const tabs = menu ? menu.querySelectorAll('.menu-tab') : [];
+        const panels = menu ? menu.querySelectorAll('.menu-panel') : [];
+        const showTab = (name) => {
+            tabs.forEach(t => t.classList.toggle('active', t.dataset.menuTab === name));
+            panels.forEach(p => p.classList.toggle('active', p.dataset.menuPanel === name));
+            const body = menu.querySelector('.menu-body');
+            if (body) body.scrollTop = 0;
+            try { localStorage.setItem('eblankraft_menu_tab', name); } catch (e) {}
+        };
+        tabs.forEach(t => t.addEventListener('click', () => { this.soundManager && this.soundManager.playClick(); showTab(t.dataset.menuTab); }));
+        try { const saved = localStorage.getItem('eblankraft_menu_tab'); if (saved && menu.querySelector(`[data-menu-panel="${saved}"]`)) showTab(saved); } catch (e) {}
+
         const hideMenu = () => this.togglePauseMenu(false);
         if (closeBtn) closeBtn.onclick = hideMenu;
         if (btnResume) btnResume.onclick = hideMenu;
@@ -1848,7 +1861,7 @@ class UIManager {
         this.soundManager.playClick();
         if (this.menuOpen) {
             if (document.pointerLockElement) document.exitPointerLock();
-            const box = menu.querySelector('.menu-modal') || menu;
+            const box = menu.querySelector('.menu-body') || menu.querySelector('.menu-modal') || menu;
             this.enableModalTouchScroll(box);
 
             const btnResume = document.getElementById('btn-resume');

@@ -884,116 +884,153 @@
         <div class="modal-content menu-modal">
             <div class="modal-header">
                 <span class="modal-title">⚙️ Меню Гри 2.5</span>
-                <button id="menu-close" class="btn-close">✖</button>
+                <button id="menu-close" class="btn-close" aria-label="Закрити">✖</button>
             </div>
-            
-            <div class="menu-row">
-                <label for="select-world-type">Тип світу:</label>
-                <select id="select-world-type">
-                    <option value="normal">🌲 Звичайний</option>
-                    <option value="mountains">🏔️ Гори</option>
-                    <option value="flat">🟩 Плоский</option>
-                    <option value="race_track">🏎️ Гоночний Трек F1</option>
-                    <option value="highway_city">🏙️ Шосе та Місто</option>
+
+            <nav class="menu-tabs" role="tablist">
+                <button class="menu-tab active" data-menu-tab="game" role="tab"><span>🎮</span><em>Гра</em></button>
+                <button class="menu-tab" data-menu-tab="graphics" role="tab"><span>🖼️</span><em>Графіка</em></button>
+                <button class="menu-tab" data-menu-tab="controls" role="tab"><span>🕹️</span><em>Керування</em></button>
+                <button class="menu-tab" data-menu-tab="tools" role="tab"><span>🧰</span><em>Інструменти</em></button>
+            </nav>
+
+            <div class="menu-body">
+                <!-- GAME -->
+                <section class="menu-panel active" data-menu-panel="game">
+                    <div class="menu-card">
+                        <div class="menu-row">
+                            <label for="select-world-type">🌍 Тип світу</label>
+                            <select id="select-world-type">
+                                <option value="normal">🌲 Звичайний</option>
+                                <option value="mountains">🏔️ Гори</option>
+                                <option value="flat">🟩 Плоский</option>
+                                <option value="race_track">🏎️ Гоночний Трек F1</option>
+                                <option value="highway_city">🏙️ Шосе та Місто</option>
                                 <option value="de_eblan2">🏜️ de_eblan2 (Dust2)</option>
-                    <option value="tnt_paradise">💣 ТНТ Рай</option>
-                </select>
+                                <option value="tnt_paradise">💣 ТНТ Рай</option>
+                            </select>
+                        </div>
+                        <div class="menu-row menu-row-stack">
+                            <label for="slider-creative-break-interval">⛏️ Інтервал ламання в креативі <b id="lbl-creative-break-interval">0 мс</b></label>
+                            <input id="slider-creative-break-interval" type="range" min="0" max="1000" step="25" value="0">
+                        </div>
+                        <label class="toggle-item"><input id="chk-creative-mobs" type="checkbox"> 🐾 Моби в креативі</label>
+                        <p class="menu-setting-note">Діє лише в креативі. 0 мс — ламання без затримки.</p>
+                    </div>
+
+                    <div class="menu-section-label">Світ</div>
+                    <div class="menu-buttons-grid">
+                        <button id="btn-save-world" class="menu-btn btn-success">💾 Зберегти</button>
+                        <button id="btn-load-world" class="menu-btn btn-primary">📂 Завантажити</button>
+                        <button id="btn-respawn" class="menu-btn btn-secondary">📍 Спавн</button>
+                        <button id="btn-reset-world" class="menu-btn btn-danger">🔄 Новий світ</button>
+                    </div>
+                </section>
+
+                <!-- GRAPHICS -->
+                <section class="menu-panel" data-menu-panel="graphics">
+                    <div class="menu-card">
+                        <div class="menu-row">
+                            <label for="select-graphics-preset">✨ Пресет графіки</label>
+                            <select id="select-graphics-preset">
+                                <option value="low">Низька — більше FPS</option>
+                                <option value="medium">Середня — баланс</option>
+                                <option value="high">Висока — більше деталей</option>
+                            </select>
+                        </div>
+                        <div class="menu-row">
+                            <label for="select-render-scale">🔍 Роздільність рендера</label>
+                            <select id="select-render-scale">
+                                <option value="1.5">150% (Підвищена чіткість)</option>
+                                <option value="1.25">125% (Підвищена чіткість)</option>
+                                <option value="1.0" selected>100% (Рідна роздільність)</option>
+                                <option value="0.75">75% (Знижена роздільність)</option>
+                                <option value="0.6">60% (Знижена роздільність)</option>
+                                <option value="0.5">50% (Половина роздільності)</option>
+                                <option value="0.38">38% (Низька роздільність)</option>
+                                <option value="0.25">25% (Низька роздільність)</option>
+                            </select>
+                        </div>
+                        <div class="menu-row">
+                            <label for="select-upscaler">⚡ Апскейлер FSR-style</label>
+                            <select id="select-upscaler">
+                                <option value="off">Вимкнено</option>
+                                <option value="quality">Якість (77%)</option>
+                                <option value="balanced">Збалансований (67%)</option>
+                                <option value="performance">Продуктивність (50%)</option>
+                                <option value="ultra">Ультра-FPS (40%)</option>
+                            </select>
+                        </div>
+                        <p class="menu-setting-note">Менша роздільність знижує навантаження на GPU; генерація світу та фізика залежать від CPU.</p>
+                        <div class="menu-row menu-row-stack">
+                            <label for="slider-view-distance">🌐 Дальність (чанки) <b id="lbl-view-distance">2</b></label>
+                            <input id="slider-view-distance" type="range" min="1" max="4" step="1" value="2">
+                        </div>
+                    </div>
+
+                    <div class="menu-section-label">Ефекти</div>
+                    <div class="menu-toggles-grid">
+                        <label class="toggle-item"><input id="chk-shadows" type="checkbox" checked> 🌑 Тіні</label>
+                        <label class="toggle-item"><input id="chk-clouds" type="checkbox" checked> ☁️ Воксельні хмари</label>
+                        <label class="toggle-item"><input id="chk-fancy-water" type="checkbox" checked> 🌊 Хвилі води</label>
+                        <label class="toggle-item"><input id="chk-texture-x64" type="checkbox"> ✨ RTX ON</label>
+                    </div>
+                </section>
+
+                <!-- CONTROLS -->
+                <section class="menu-panel" data-menu-panel="controls">
+                    <div class="menu-card">
+                        <div class="menu-row menu-row-stack">
+                            <label for="slider-sensitivity">🖱️ Чутливість</label>
+                            <input id="slider-sensitivity" type="range" min="0.5" max="2.5" step="0.1" value="1.0">
+                        </div>
+                        <div class="menu-row">
+                            <label for="select-pc-hints">⌨️ Підказки [WASD]</label>
+                            <select id="select-pc-hints" class="menu-select">
+                                <option value="bottom-left" selected>Внизу зліва (рекомендовано)</option>
+                                <option value="bottom-right">Внизу справа</option>
+                                <option value="above-hotbar">Над хотбаром (центр)</option>
+                                <option value="top-right">Зверху справа</option>
+                                <option value="hidden">Приховати підказки</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="menu-section-label">Інше</div>
+                    <div class="menu-toggles-grid">
+                        <label class="toggle-item"><input id="chk-voice" type="checkbox" checked> 🗣️ Мем-голос</label>
+                        <label class="toggle-item"><input id="chk-debug" type="checkbox"> 🐞 Дебаг</label>
+                    </div>
+
+                    <div class="menu-buttons-grid">
+                        <button id="btn-open-layout-modal" class="menu-btn btn-primary menu-btn-wide">📐 Змінити розкладку на екрані</button>
+                        <button id="btn-menu-reset-inv" class="menu-btn btn-warning menu-btn-wide">🎒 Скинути інвентар</button>
+                    </div>
+                </section>
+
+                <!-- TOOLS -->
+                <section class="menu-panel" data-menu-panel="tools">
+                    <div class="menu-extra-actions">
+                        <button id="btn-pause-blockly" class="menu-btn menu-btn-feature menu-btn-blockly">🧩 Blockly Студія (PRO)</button>
+                        <button id="btn-pause-multiplayer" class="menu-btn menu-btn-feature menu-btn-pvp">🌐 PvP-арена</button>
+                    </div>
+
+                    <div class="menu-section-label">Швидкий доступ</div>
+                    <div class="menu-buttons-grid" id="pause-quick-actions">
+                        <button class="menu-btn btn-primary" data-proxy="btn-warp">🌀 Портали</button>
+                        <button class="menu-btn btn-primary" data-proxy="quick-mods-btn">🧩 Моди ⚡</button>
+                        <button class="menu-btn btn-primary" data-proxy="btn-mods-manager">📜 Редактор</button>
+                        <button class="menu-btn btn-primary" data-proxy="btn-dev-console-top">💻 Консоль</button>
+                        <button class="menu-btn btn-primary" data-proxy="btn-open-multiplayer">🌐 Онлайн</button>
+                        <button class="menu-btn btn-primary" data-proxy="btn-hud-layout">📐 Розкладка</button>
+                    </div>
+                </section>
             </div>
 
-            <div class="menu-row">
-                <label for="select-graphics-preset">Graphics presets:</label>
-                <select id="select-graphics-preset">
-                    <option value="low">Низька — більше FPS</option>
-                    <option value="medium">Середня — баланс</option>
-                    <option value="high">Висока — більше деталей</option>
-                </select>
+            <div class="menu-footer">
+                <button id="btn-resume" class="menu-btn btn-resume">▶ Продовжити гру</button>
+                <button id="btn-menu-to-main" class="menu-btn btn-secondary menu-btn-home">🏠 Головне меню</button>
             </div>
-            <div class="menu-row">
-                <label for="select-render-scale">🔍 Масштаб рендера (Роздільність):</label>
-                <select id="select-render-scale">
-                    <option value="1.5">150% (Підвищена чіткість)</option>
-                    <option value="1.25">125% (Підвищена чіткість)</option>
-                    <option value="1.0" selected>100% (Рідна роздільність)</option>
-                    <option value="0.75">75% (Знижена роздільність)</option>
-                    <option value="0.6">60% (Знижена роздільність)</option>
-                    <option value="0.5">50% (Половина роздільності)</option>
-                    <option value="0.38">38% (Низька роздільність)</option>
-                    <option value="0.25">25% (Низька роздільність)</option>
-                </select>
-                <label for="select-upscaler" style="margin-top:6px;">⚡ Апскейлер FSR-style (працює на будь-чому):</label>
-                <select id="select-upscaler">
-                    <option value="off">Вимкнено</option>
-                    <option value="quality">Якість (77%)</option>
-                    <option value="balanced">Збалансований (67%)</option>
-                    <option value="performance">Продуктивність (50%)</option>
-                    <option value="ultra">Ультра-FPS (40%)</option>
-                </select>
-            </div>
-
-            <p class="menu-setting-note">Менша роздільність знижує навантаження на GPU; генерація світу та фізика залежать від CPU.</p>
-
-            <div class="menu-row">
-                <label for="slider-view-distance">🌐 Світ (чанки): <b id="lbl-view-distance">2</b></label>
-                <input id="slider-view-distance" type="range" min="1" max="4" step="1" value="2">
-            </div>
-
-            <div class="menu-row">
-                <label for="slider-creative-break-interval">⛏️ Интервал ломания в креативе: <b id="lbl-creative-break-interval">0 мс</b></label>
-                <input id="slider-creative-break-interval" type="range" min="0" max="1000" step="25" value="0">
-            </div>
-            <label class="toggle-item"><input id="chk-creative-mobs" type="checkbox"> 🐾 Мобы в креативе</label>
-            <p class="menu-setting-note">Эти настройки действуют только в креативе. 0 мс — ломание без задержки.</p>
-
-            <div class="menu-row">
-                <label for="slider-sensitivity">Чутливість:</label>
-                <input id="slider-sensitivity" type="range" min="0.5" max="2.5" step="0.1" value="1.0">
-            </div>
-
-            <div class="menu-toggles-grid">
-                <label class="toggle-item"><input id="chk-voice" type="checkbox" checked> 🗣️ Мем-голос</label>
-                <label class="toggle-item"><input id="chk-debug" type="checkbox"> Дебаг</label>
-                <label class="toggle-item"><input id="chk-shadows" type="checkbox" checked> 🌑 Тіні</label>
-                <label class="toggle-item"><input id="chk-clouds" type="checkbox" checked> ☁️ Воксельні хмари</label>
-                <label class="toggle-item"><input id="chk-fancy-water" type="checkbox" checked> 🌊 Хвилі води</label>
-                <label class="toggle-item"><input id="chk-texture-x64" type="checkbox"> ✨ RTX ON</label>
-            </div>
-
-            <div class="menu-row" style="margin-top: 6px;">
-                <label for="select-pc-hints">⌨️ Локація підказок [WASD]:</label>
-                <select id="select-pc-hints" class="menu-select">
-                    <option value="bottom-left" selected>Внизу зліва (рекомендовано)</option>
-                    <option value="bottom-right">Внизу справа</option>
-                    <option value="above-hotbar">Над хотбаром (центр)</option>
-                    <option value="top-right">Зверху справа</option>
-                    <option value="hidden">Приховати підказки</option>
-                </select>
-            </div>
-
-            <div class="menu-buttons-grid">
-                <button id="btn-save-world" class="menu-btn btn-success">💾 Зберегти</button>
-                <button id="btn-load-world" class="menu-btn btn-primary">📂 Завантажити</button>
-                <button id="btn-reset-world" class="menu-btn btn-danger">🔄 Новий світ</button>
-                <button id="btn-respawn" class="menu-btn btn-secondary">📍 Спавн</button>
-            </div>
-
-            <div class="menu-buttons-grid" id="pause-quick-actions">
-                <button class="menu-btn btn-primary" data-proxy="btn-warp">🌀 Портали</button>
-                <button class="menu-btn btn-primary" data-proxy="quick-mods-btn">🧩 Моди ⚡</button>
-                <button class="menu-btn btn-primary" data-proxy="btn-mods-manager">📜 Редактор</button>
-                <button class="menu-btn btn-primary" data-proxy="btn-dev-console-top">💻 Консоль</button>
-                <button class="menu-btn btn-primary" data-proxy="btn-open-multiplayer">🌐 Онлайн</button>
-                <button class="menu-btn btn-primary" data-proxy="btn-hud-layout">📐 Розкладка</button>
-            </div>
-
-            <div class="menu-extra-actions">
-                <button id="btn-pause-blockly" class="menu-btn" style="width:100%; margin-bottom: 6px; font-weight: bold; background: linear-gradient(135deg, #1b5e20, #0d47a1); border: 2px solid #00e676;">🧩 Blockly Студія (PRO)</button>
-                <button id="btn-pause-multiplayer" class="menu-btn" style="width:100%; margin-bottom: 6px; font-weight: bold; background: linear-gradient(135deg, #1565c0, #7b1fa2); border: 2px solid #ffd700;">🌐 PvP-арена</button>
-                <button id="btn-open-layout-modal" class="menu-btn btn-primary" style="width:100%; margin-bottom: 6px;">📐 Змінити розкладку на екрані</button>
-                <button id="btn-menu-reset-inv" class="menu-btn btn-warning" style="width:100%;">🎒 Скинути інвентар</button>
-            </div>
-
-            <button id="btn-resume" class="menu-btn btn-resume">▶ Продовжити гру</button>
-            <button id="btn-menu-to-main" class="menu-btn btn-secondary" style="width:100%; margin-top: 8px; font-weight: bold; background: #353535; border: 1.5px solid #888;">🏠 Головне меню</button>
         </div>
     </div>
 
