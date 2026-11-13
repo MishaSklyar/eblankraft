@@ -1,5 +1,5 @@
 // Eblankraft LITE — Service Worker for instant offline loading and PWA install
-const CACHE_NAME = 'eblankraft-lite-v6-ui2';
+const CACHE_NAME = 'eblankraft-lite-v7-knockback';
 
 const CORE_ASSETS = [
   './',

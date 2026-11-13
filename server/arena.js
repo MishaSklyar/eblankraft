@@ -7,6 +7,10 @@ const path = require('node:path');
 const STEP = 1 / 20;
 const MAP = { floorY: 8, min: -16, max: 16, wallHeight: 6, obstacles: [[-2, 8, -1, 2, 11, 1]] };
 const KIT = 'diamond_sword';
+// Knockback (sumo): a round platform over the void. Hits deal no damage; they shove the target and raise
+// its `percent`, which scales every later shove. Whoever leaves the platform and falls out of the map is out.
+const KNOCK_MAP = { id: 'knockback', knockback: true, floorY: 8, min: -12, max: 12, radius: 8, wallHeight: 0, obstacles: [], decay: 3 };
+const KNOCK = { push: 9, lift: 5, percentPerHit: 10, voidDepth: 14, respawnDelay: 2, creditWindow: 8 };
 const round = (n, digits = 1) => Number(n.toFixed(digits));
 const finite = n => typeof n === 'number' && Number.isFinite(n);
 const control = () => ({ strafe: 0, forward: 0, jump: false, sprint: false, use: false });
@@ -144,8 +148,8 @@ function obstacleDistance(origin, direction, distance) {
 }
 
 class ArenaRoom {
-    constructor(name, dust = false) {
-        this.name = name; this.clients = new Map(); this.dust = dust;
+    constructor(name, dust = false, knock = false) {
+        this.name = name; this.clients = new Map(); this.dust = dust; this.knock = knock;
         if (dust) Object.assign(this, { players: new Map(), phase: 'buy', deadline: 0, round_number: 0,
             score: { T: 0, CT: 0 }, target_site: 'A', bomb_carrier: null, bomb_position: null,
             bomb_planted_at: null, bomb_site: null, objective_actor: null, objective_started_at: null,
@@ -180,7 +184,8 @@ class ArenaService {
         return { id: p.id, name: p.name, position: { x: p.x, y: p.y, z: p.z }, velocity: { x: p.vx, y: p.vy, z: p.vz },
             yaw: p.yaw, pitch: p.pitch, health: p.health, alive: p.is_alive, heldItem: KIT,
             isWalking: Math.abs(p.vx) + Math.abs(p.vz) > .1, isSprinting: p.arena_input.sprint,
-            onGround: p.on_ground, seq: p.input_seq, jumpHeld: p.jump_held, spawn: p.spawn_id };
+            onGround: p.on_ground, seq: p.input_seq, jumpHeld: p.jump_held, spawn: p.spawn_id,
+            ...(p.room?.knock ? { knock: { x: round(p.kx, 3), z: round(p.kz, 3) }, percent: p.percent, kills: p.kills, deaths: p.deaths } : {}) };
     }
     dustState(p, now = this.clock()) {
         return { ...this.state(p), team: p.team, bot: !!p.is_bot, money: p.money, armor: p.armor, heldItem: p.weapon,
@@ -190,10 +195,12 @@ class ArenaService {
             hasBomb: p.id === p.room.bomb_carrier, objective: p.objective };
     }
     spawn(p, now) {
-        const others = [...p.room.clients.values()].filter(o => o !== p && o.is_alive);
-        const spots = [[-10, -10], [10, 10], [-10, 10], [10, -10], [0, -12], [0, 12]];
+        const others = [...(p.room?.clients.values() ?? [])].filter(o => o !== p && o.is_alive);
+        const knock = p.room?.knock, map = knock ? KNOCK_MAP : MAP;
+        const spots = knock ? [0, 1, 2, 3, 4, 5, 6, 7].map(i => [Math.cos(i * Math.PI / 4) * 5, Math.sin(i * Math.PI / 4) * 5])
+            : [[-10, -10], [10, 10], [-10, 10], [10, -10], [0, -12], [0, 12]];
         spots.sort((a, b) => Math.min(...others.map(o => (b[0] - o.x) ** 2 + (b[1] - o.z) ** 2), Infinity) - Math.min(...others.map(o => (a[0] - o.x) ** 2 + (a[1] - o.z) ** 2), Infinity));
-        Object.assign(p, { x: spots[0][0], y: MAP.floorY, z: spots[0][1], vx: 0, vy: 0, vz: 0, health: 100,
+        Object.assign(p, { x: spots[0][0], y: map.floorY, z: spots[0][1], vx: 0, vy: 0, vz: 0, kx: 0, kz: 0, percent: 0, health: 100,
             is_alive: true, on_ground: true, yaw: 0, pitch: 0, invulnerable_until: now + 1.5, last_attack_time: now,
             dead_since: null, last_input_time: now, attack_pending: false, arena_input: control(), jump_held: false,
             spawn_id: (p.spawn_id || 0) + 1, held_item: KIT });
@@ -238,6 +245,17 @@ class ArenaService {
             }
         }
     }
+    // Platform physics: no walls and no floor past the rim. The shove (kx, kz) is separate from the input
+    // velocity and decays exponentially; the client predicts it with the same constants (arena_client.js).
+    integrateKnock(p) {
+        const m = KNOCK_MAP, decay = Math.exp(-m.decay * STEP);
+        p.kx = Math.abs(p.kx * decay) < .01 ? 0 : p.kx * decay; p.kz = Math.abs(p.kz * decay) < .01 ? 0 : p.kz * decay;
+        p.x += (p.vx + p.kx) * STEP; p.z += (p.vz + p.kz) * STEP;
+        p.vy = Math.max(-30, p.vy - 22 * STEP);
+        const ny = p.y + p.vy * STEP;
+        if (Math.hypot(p.x, p.z) <= m.radius && p.y >= m.floorY - 1e-6 && ny <= m.floorY) { p.y = m.floorY; p.vy = 0; p.on_ground = true; }
+        else { p.y = ny; p.on_ground = false; }
+    }
     move(p, now, dust = false) {
         if (!p.is_alive) { p.vx = p.vy = p.vz = 0; return; }
         const fresh = p.is_bot || now - p.last_input_time <= .25, c = p.arena_input;
@@ -249,7 +267,8 @@ class ArenaService {
         if (jump && !p.jump_held && p.on_ground) { p.vy = 8.5; p.on_ground = false; }
         const speed = c.sprint ? (dust ? 7.2 : 7.5) : 4.5;
         p.vx = wx * speed; p.vz = wz * speed;
-        p.jump_held = jump; this.integrate(p, dust ? DUST2_MAP : MAP);
+        p.jump_held = jump;
+        if (p.room?.knock) this.integrateKnock(p); else this.integrate(p, dust ? DUST2_MAP : MAP);
     }
     attack(p, room, now) {
         if (!p.attack_pending) return;
@@ -266,10 +285,34 @@ class ArenaService {
         hits.sort((a, b) => a[0] - b[0]);
         if (!hits.length) return;
         const [d, t] = hits[0];
+        if (room.knock) return this.shove(p, t, direction, now);
         if (MAP.obstacles.some(b => rayBox(origin, direction, b, d) !== null) || now < t.invulnerable_until) return;
         t.health = Math.max(0, t.health - 18); t.invulnerable_until = now + .4;
         if (!t.health) { t.is_alive = false; t.dead_since = now; }
         return { type: 'arena_hit', attackerId: p.id, targetId: t.id, damage: 18, health: t.health, alive: t.is_alive };
+    }
+    shove(p, t, direction, now) {
+        if (now < t.invulnerable_until) return;
+        const length = Math.hypot(direction[0], direction[2]) || 1, force = KNOCK.push * (1 + t.percent / 50);
+        t.kx = Math.max(-40, Math.min(40, t.kx + direction[0] / length * force));
+        t.kz = Math.max(-40, Math.min(40, t.kz + direction[2] / length * force));
+        if (t.on_ground) { t.vy = KNOCK.lift; t.on_ground = false; }
+        t.percent += KNOCK.percentPerHit; t.last_hit_by = p.id; t.last_hit_at = now; t.invulnerable_until = now + .25;
+        return { type: 'arena_hit', attackerId: p.id, targetId: t.id, damage: 0, health: 100, alive: true, percent: t.percent };
+    }
+    // Falling out of the map is a knockout, credited to whoever shoved the player last.
+    knockouts(room, now) {
+        for (const t of room.clients.values()) {
+            if (t.is_alive) {
+                if (t.y >= KNOCK_MAP.floorY - KNOCK.voidDepth) continue;
+                const killer = now - (t.last_hit_at ?? -Infinity) <= KNOCK.creditWindow ? room.clients.get(t.last_hit_by) : null;
+                Object.assign(t, { is_alive: false, dead_since: now, health: 0, kx: 0, kz: 0 });
+                t.deaths = (t.deaths || 0) + 1;
+                if (killer && killer !== t) killer.kills = (killer.kills || 0) + 1;
+                room.broadcast({ type: 'arena_hit', attackerId: killer?.id ?? t.id, targetId: t.id, damage: 0, health: 0, alive: false,
+                    killed: true, attackerName: killer?.name ?? 'Прірва', targetName: t.name, weaponName: killer ? 'Knockback' : 'впав' });
+            } else if (t.dead_since !== null && now - t.dead_since >= KNOCK.respawnDelay) this.spawn(t, now);
+        }
     }
     newDust(p, team, now) {
         Object.assign(p, { team, is_bot: !!p.is_bot, money: 800, losses: 0, armor: false, primary: null, secondary: 'glock', weapon: 'glock',
@@ -540,24 +583,25 @@ class ArenaService {
         const now = this.clock(), type = msg.type;
         if (type === 'arena_join') {
             if (p.room) return;
-            const name = msg.room ?? (msg.mode === 'dust2' ? 'dust2' : 'arena'), dust = msg.mode === 'dust2';
+            const name = msg.room ?? (msg.mode === 'dust2' ? 'dust2' : msg.mode === 'knockback' ? 'knockback' : 'arena'),
+                dust = msg.mode === 'dust2', knock = msg.mode === 'knockback';
             if (typeof name !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(name)) return p.send_json({ type: 'arena_error', message: 'Invalid room code' });
             if (dust && msg.team !== undefined && !['T', 'CT'].includes(msg.team)) return p.send_json({ type: 'arena_error', message: 'Invalid team' });
             let room = this.rooms.get(name);
             if (!room && this.rooms.size < 64) {
-                room = new ArenaRoom(name, dust); room.bot_serial = 0;
+                room = new ArenaRoom(name, dust, knock); room.bot_serial = 0;
                 room.onHumanLeave = old => {
                     const bot = this.createBot(room, old.team, this.clock(), old.slot ?? 0);
                     this.transferSlot(room, old, bot, this.clock());
                 };
                 this.rooms.set(name, room);
             }
-            if (!room || room.dust !== dust || room.clients.size >= (dust ? 6 : 16)) return p.send_json({ type: 'arena_error', message: 'Arena is full' });
+            if (!room || room.dust !== dust || room.knock !== knock || room.clients.size >= (dust ? 6 : knock ? 8 : 16)) return p.send_json({ type: 'arena_error', message: 'Arena is full' });
             const count = team => [...room.clients.values()].filter(p => p.team === team).length;
             const team = dust ? (msg.team || (count('T') <= count('CT') ? 'T' : 'CT')) : null;
             if (dust && count(team) >= 3) return p.send_json({ type: 'arena_error', message: 'Your team is full (3 players)' });
             p.arena_mode = true; p.room = room; p.name = typeof msg.name === 'string' ? msg.name.slice(0, 24).trim() || 'Player' : 'Player';
-            p.input_seq = -1; p.last_chat_time = -Infinity;
+            p.input_seq = -1; p.last_chat_time = -Infinity; p.kills = p.deaths = 0;
             if (dust) {
                 const bots = [...room.players.values()].filter(o => o.is_bot && o.team === team);
                 const replacement = bots.find(o => o.is_alive) || bots[0];
@@ -572,7 +616,7 @@ class ArenaService {
                 }
                 p.send_json({ type: 'arena_welcome', id: p.id, room: name, map: DUST2_MAP, kit: 'glock', mode: 'dust2',
                     players: [...room.players.values()].map(o => this.dustState(o, now)), weaponSpecs: WEAPONS, match: room.state(now) });
-            } else { this.spawn(p, now); room.clients.set(p.id, p); p.send_json({ type: 'arena_welcome', id: p.id, room: name, map: MAP, kit: KIT, players: [...room.clients.values()].map(o => this.state(o)) }); }
+            } else { this.spawn(p, now); room.clients.set(p.id, p); p.send_json({ type: 'arena_welcome', id: p.id, room: name, map: knock ? KNOCK_MAP : MAP, kit: KIT, ...(knock ? { mode: 'knockback' } : {}), players: [...room.clients.values()].map(o => this.state(o)) }); }
             return;
         }
         const room = p.room;
@@ -603,6 +647,7 @@ class ArenaService {
             if (!room.dust) {
                 for (const p of room.clients.values()) this.move(p, now);
                 for (const p of room.clients.values()) { const hit = this.attack(p, room, now); if (hit) room.broadcast(hit); }
+                if (room.knock) this.knockouts(room, now);
                 room.broadcast({ type: 'arena_snapshot', players: [...room.clients.values()].map(p => this.state(p)) }); continue;
             }
             if (room.phase === 'post' && now >= room.deadline) this.beginRound(room, now);
@@ -631,4 +676,4 @@ class ArenaService {
         }
     }
 }
-module.exports = { ArenaService, ArenaRoom, MAP, DUST2_MAP, WEAPONS, rayBox, obstacleDistance };
+module.exports = { ArenaService, ArenaRoom, MAP, KNOCK_MAP, DUST2_MAP, WEAPONS, rayBox, obstacleDistance };
