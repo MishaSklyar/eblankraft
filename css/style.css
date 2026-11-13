@@ -7002,6 +7002,7 @@ body.hud-shooter #btn-scope, body.hud-shooter #btn-reload { display: flex !impor
 /* One combined button: place block / eat / use + raise the guard (shield, sword) while held. Mining is not part of the shooter HUD. */
 body.hud-shooter #btn-place { left: 94.5% !important; top: 42% !important; width: 16vh !important; height: 16vh !important; display: flex !important; }
 body.hud-shooter #btn-break { display: none !important; }
+body.hud-shooter.hold-gun #btn-place { display: none !important; } /* with a gun the scope button does the aiming */
 body.hud-shooter:not(.hold-gun) #btn-scope, body.hud-shooter:not(.hold-gun) #btn-reload { opacity: 0.45 !important; }
 
 /* fixed movement ring with arrows (always visible, instead of the floating joystick) */
