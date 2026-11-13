@@ -965,7 +965,8 @@ class UIManager {
 
             card.onclick = () => {
                 const isSingle = (reg.category === 'tool' || reg.category === 'pickaxe' || reg.category === 'weapon' || reg.category === 'vehicle' || reg.isGun || reg.isVehicle);
-                const addCount = isSingle ? 1 : 64;
+                // one full stack at most: unstackable items (armor, totems, shields…) give exactly 1 instead of flooding the backpack
+                const addCount = isSingle ? 1 : Math.max(1, Math.min(64, reg.maxStack || 64));
                 const added = this.player.addItem(reg.id, addCount);
                 if (added) {
                     this.soundManager.playClick();
