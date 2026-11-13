@@ -262,21 +262,6 @@
                         </button>
                     </div>
 
-                    <!-- Right Side Character Showcase Card (Paper Doll) -->
-                    <div id="mm-character-card" class="mm-character-card">
-                        <div class="mm-char-card-header">
-                            <span class="mm-char-tag">👤 ТВІЙ ПЕРСОНАЖ</span>
-                            <span id="mm-char-vip-badge" class="mm-char-vip-badge" style="display:none;">👑 VIP</span>
-                        </div>
-                        <div class="mm-char-preview-box">
-                            <div id="mm-char-avatar" class="mm-char-avatar-render"></div>
-                        </div>
-                        <div class="mm-char-info">
-                            <div id="mm-char-skin-name" class="mm-char-skin-name">Класичний Єблан</div>
-                            <div id="mm-char-skin-buff" class="mm-char-skin-buff">Без бонусів</div>
-                        </div>
-                        <button id="mm-char-btn-change" class="mm-char-btn" title="Змінити скін або відкрити кейс">🎭 Змінити скін</button>
-                    </div>
                 </div>
 
                 <!-- Bottom Credits / Status Bar -->
@@ -417,22 +402,6 @@
                 </div>
 
                 <div class="mm-duels-hub-container">
-                    <button id="mm-btn-dust2" class="mc-menu-btn mc-btn-primary" style="background:linear-gradient(135deg,#8d5a22,#d59a42);border:2px solid #ffe082;font-size:14px;margin-bottom:14px;width:100%;display:flex;align-items:center;gap:12px;padding:10px 16px;">
-                        <span style="font-size:22px;">🏜️</span>
-                        <span style="display:flex;flex-direction:column;text-align:left;">
-                            <span style="font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.5px;">Грати Dust2: T vs CT</span>
-                            <span style="font-size:11px;color:#fff3d0;">Раунди, A/B, C4, buy phase, боти й ручний bhop</span>
-                        </span>
-                        <span style="font-size:18px;margin-left:auto;">➔</span>
-                    </button>
-                    <button id="mm-btn-knockback" class="mc-menu-btn mc-btn-primary" style="background:linear-gradient(135deg,#6a1b9a,#e0457b);border:2px solid #ffd1e3;font-size:14px;margin-bottom:14px;width:100%;display:flex;align-items:center;gap:12px;padding:10px 16px;">
-                        <span style="font-size:22px;">🥊</span>
-                        <span style="display:flex;flex-direction:column;text-align:left;">
-                            <span style="font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.5px;">Грати Knockback: сумо</span>
-                            <span style="font-size:11px;color:#ffe6f0;">Штовхай суперників з платформи — чим більше %, тим далі відліт</span>
-                        </span>
-                        <span style="font-size:18px;margin-left:auto;">➔</span>
-                    </button>
                     <div class="mm-duels-banner">
                         <div class="mm-duels-badge">🔥 СКОРО У ВЕРСІЇ 3.1 — ТЕСТОВИЙ ДОСТУП</div>
                         <div class="mm-duels-status">Оберіть формат арени для швидкої дуелі:</div>
@@ -492,7 +461,6 @@
                         </div>
                         <div class="mm-duels-buttons">
                             <button id="mm-btn-duel-start-queue" class="mc-menu-btn mc-btn-primary">⚔️ Почати пошук суперника (P2P)</button>
-                            <button id="mm-btn-duel-practice" class="mc-menu-btn mc-btn-secondary">🤖 Тренувальний бій з ботом Зомбі</button>
                         </div>
                     </div>
                 </div>
@@ -1176,7 +1144,7 @@
     <div id="multiplayer-modal" class="modal-overlay" style="display:none;">
         <div class="modal-content mp-modal-box">
             <div class="modal-header">
-                <h2 style="margin:0; font-size: 18px; color: #ffd700;">🏜️ Dust2 — T vs CT</h2>
+                <h2 style="margin:0; font-size: 18px; color: #ffd700;">🌐 Мультиплеєр</h2>
                 <button id="mp-modal-close" class="modal-close">&times;</button>
             </div>
 
@@ -1191,20 +1159,6 @@
                 <input id="input-mp-server-url" type="url" placeholder="wss://example.com/ws" spellcheck="false">
             </div>
 
-            <section class="mp-room-active-card" aria-label="Спільний світ на сервері">
-                <h3>🌲 Спільний світ — без PvP</h3>
-                <p>Будуйте, добувайте блоки та грайте з друзями. Введіть однаковий код кімнати.</p>
-                <label for="input-coop-room">Код кімнати (латинські літери, цифри, - або _):</label>
-                <input id="input-coop-room" class="mp-input-code" maxlength="24" placeholder="friends" value="friends">
-                <label for="input-coop-mode">Режим нової кімнати:</label>
-                <select id="input-coop-mode" class="mp-input-code">
-                    <option value="survival">🌲 Виживання</option>
-                    <option value="creative">🧱 Творчість</option>
-                </select>
-                <button id="btn-coop-join" class="menu-btn btn-success" style="width:100%; margin-top:10px;">🌐 Створити / увійти в спільний світ</button>
-                <button id="btn-coop-leave" class="menu-btn" style="width:100%; margin-top:8px;">Вийти зі спільного світу</button>
-                <p id="coop-room-status" role="status">Оберіть код і режим. Друзі приєднаються до режиму, заданого першим гравцем.</p>
-            </section>
 
             <!-- Status & Player Counter -->
             <div class="mp-status-banner">
@@ -1231,12 +1185,6 @@
 
             <!-- Panel: Host -->
             <div id="mp-panel-host" class="mp-tab-content">
-                <p style="color: #bbb; font-size: 13px; margin: 8px 0;">
-                    Раундовий Dust2: T ставлять C4 на A/B, CT дефузять. B — магазин, E — утримувати для C4, Space + A/D — ручний bhop та air-strafe. Сервер визначає рух, урон, гроші й результат.
-                </p>
-                <button id="btn-mp-create-host" class="menu-btn btn-warning" style="width:100%; padding: 12px; font-size: 15px; font-weight: bold;">
-                    ✨ СТВОРИТИ КІМНАТУ І ОТРИМАТИ КОД
-                </button>
                 <button id="btn-mp-host-world" class="menu-btn btn-success" style="width:100%; margin-top:10px;">🌍 Хостити одиночний світ (Lua-моди)</button>
                 <p style="color:#bbb; font-size:13px;">Спочатку відкрийте свій одиночний світ. Друзі приєднаються за кодом world-…; моди хоста можна завантажити після входу.</p>
             </div>
