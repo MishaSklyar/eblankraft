@@ -350,6 +350,37 @@ class Controls {
             }
         });
 
+        // Shooter layout: a finger held on the fire zone / bullet / scope button keeps steering the camera when it slides,
+        // so the buttons never block aiming. (The button's own press / release behaviour is unchanged.)
+        for (const btnId of ['btn-reload', 'btn-attack', 'btn-scope']) {
+            const el = document.getElementById(btnId);
+            if (!el) continue;
+            let tid = null, px = 0, py = 0;
+            el.addEventListener('touchstart', (e) => {
+                if (tid !== null || !document.body.classList.contains('hud-shooter')) return;
+                const t = e.changedTouches[0];
+                tid = t.identifier; px = t.clientX; py = t.clientY;
+            }, { passive: true });
+            el.addEventListener('touchmove', (e) => {
+                if (tid === null || this.middleClickMenu || this.blockEditor) return;
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier !== tid) continue;
+                    const dx = t.clientX - px, dy = t.clientY - py;
+                    px = t.clientX; py = t.clientY;
+                    const aimScale = this.player.isAiming ? (this.player.camera?.fov || 72) / (this.player.aimBaseFov || 72) : 1;
+                    this.player.yaw -= dx * this.touchLookSensitivity * aimScale;
+                    this.player.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, this.player.pitch - dy * this.touchLookSensitivity * aimScale));
+                }
+                e.preventDefault();
+            }, { passive: false });
+            const end = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === tid) tid = null;
+            };
+            el.addEventListener('touchend', end);
+            el.addEventListener('touchcancel', end);
+        }
+
         // Inspect the held knife
         this.bindTouchButton('btn-inspect', (isDown) => {
             if (isDown) this.player.inspectKnife?.();
