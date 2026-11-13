@@ -1636,6 +1636,16 @@ class UIManager {
             };
         }
 
+        const selectUpscaler = document.getElementById('select-upscaler');
+        if (selectUpscaler) {
+            const up = this.game.upscaler;
+            if (up) selectUpscaler.value = up.mode;
+            selectUpscaler.onchange = (e) => {
+                if (this.game.upscaler) this.game.upscaler.setMode(e.target.value);
+                this.showToast(`⚡ Апскейлер: ${e.target.options[e.target.selectedIndex].text}`);
+            };
+        }
+
         // View distance / infinite world radius
         const sliderViewDist = document.getElementById('slider-view-distance');
         const lblViewDist = document.getElementById('lbl-view-distance');

@@ -105,8 +105,7 @@ class RTXPipeline {
     start() {
         this.applySceneSetup();
         const g = this.game, r = g.renderer;
-        const size = new THREE.Vector2();
-        r.getDrawingBufferSize(size);
+        const size = this.targetSize();
         const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
             type: THREE.HalfFloatType, format: THREE.RGBAFormat,
             minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter
@@ -146,7 +145,6 @@ class RTXPipeline {
 
         this.smaa = new THREE.SMAAPass(w, h);
         composer.addPass(this.smaa);
-        this.smaa.renderToScreen = true;
 
         this.composer = composer;
         this.quality = 3;
@@ -188,11 +186,22 @@ class RTXPipeline {
         if (this.ssr) this.ssr.enabled = q >= 3;
     }
 
-    setSize(w, h, pr) {
-        if (!this.composer) return;
-        const f = pr || 1;
-        this.composer.setSize(w * f, h * f);
+    // Internal resolution: the drawing buffer, or the upscaler's lower render size when it is on.
+    targetSize() {
+        const up = this.game.upscaler;
+        if (up && up.active) return up.inSize();
+        const v = new THREE.Vector2();
+        this.game.renderer.getDrawingBufferSize(v);
+        return v;
     }
+
+    syncSize() {
+        if (!this.composer) return;
+        const s = this.targetSize();
+        this.composer.setSize(s.x, s.y);
+    }
+
+    setSize() { this.syncSize(); }
 
     // Golden-hour sun + sky/ground bounce. Runs after the day-cycle code, only by day/sunset.
     adjustLights() {
@@ -207,9 +216,9 @@ class RTXPipeline {
         if (g.hemiLight) {
             g.hemiLight.color.setHex(0x8cbcff);        // sky-blue top bounce
             g.hemiLight.groundColor.setHex(0x4a3720);  // dirt/grass bottom bounce
-            g.hemiLight.intensity = 0.4;
+            g.hemiLight.intensity = 0.55;
         }
-        if (g.ambientLight) g.ambientLight.intensity *= 0.3;   // deeper shadows, fill comes from the hemisphere
+        if (g.ambientLight) g.ambientLight.intensity *= 0.5;   // deeper shadows, fill comes from the hemisphere
     }
 
     updateWaterMeshes() {
@@ -233,7 +242,11 @@ class RTXPipeline {
         r.toneMapping = THREE.NoToneMapping;
         if (this.final && g.scene.background && g.scene.background.isColor) this.final.uniforms.skyColor.value.copy(g.scene.background);
         if (this.godrays) this.updateGodRays();
+        const up = g.upscaler && g.upscaler.active ? g.upscaler : null;
+        this.composer.renderToScreen = !up;     // with the upscaler the stack ends in a texture, not the canvas
+        if (this.smaa) this.smaa.enabled = !up; // the upscaler does its own edge reconstruction
         this.composer.render();
+        if (up) up.present(this.composer.readBuffer.texture);
 
         // adaptive quality: drop the heaviest effects when the frame time is bad, restore when it recovers
         if (dtMs > 40) { this.slowFrames++; this.fastFrames = 0; } else if (dtMs < 20) { this.fastFrames++; this.slowFrames = 0; }

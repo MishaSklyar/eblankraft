@@ -404,9 +404,9 @@ class TextureManager {
                 const avg = (at(depth, x - 1, y) + at(depth, x + 1, y) + at(depth, x, y - 1) + at(depth, x, y + 1)) / 4;
                 const ao = Math.max(0.35, Math.min(1, 1 - (avg - depth[p]) * aoAmt));
                 // metalnessMap / roughnessMap
-                let m = 0.03 + l * 0.05, r = 0.95 - l * 0.2;
+                let m = 0.0, r = 1.0 - l * 0.08;   // plain blocks: fully matte
                 if (solid) { m = solid * (0.6 + 0.4 * l); r = 0.22 + (1 - l) * 0.35; }
-                else if (fleck) { const f = l > 0.5; m = f ? fleck : 0.03; r = f ? 0.3 : 0.9; }
+                else if (fleck) { const f = l > 0.5; m = f ? fleck : 0.0; r = f ? 0.3 : 1.0; }
                 else if (gloss) { m = 0.05; r = 0.12 + (1 - l) * 0.1; }
                 oImg.data[i] = ao * 255; oImg.data[i + 1] = Math.min(1, r) * 255; oImg.data[i + 2] = Math.min(1, m) * 255; oImg.data[i + 3] = 255;
                 // clearcoatMap: full on polished materials, only bright flecks on ores
@@ -426,6 +426,10 @@ class TextureManager {
         tex.userData.aoMap = orm;
         tex.userData.roughnessMap = orm;
         tex.userData.metalnessMap = orm;
+        // Only genuinely shiny materials reflect the environment; everything else stays matte.
+        const shiny = !!(solid || fleck || gloss);
+        tex.userData.envIntensity = solid ? 0.9 : (gloss ? 0.6 : (fleck ? 0.5 : 0.1));
+        tex.userData.reflectivity = shiny ? 0.5 : 0.0;
         tex.userData.clearcoat = clearcoat;
         tex.userData.clearcoatMap = clearcoat ? mk(ccCv) : null;
         tex.userData.clearcoatNormalMap = clearcoat ? mk(cnCv) : null;
@@ -547,6 +551,8 @@ void main() {
                 pbr.aoMapIntensity = 1;
                 pbr.roughnessMap = u.roughnessMap;
                 pbr.metalnessMap = u.metalnessMap;
+                pbr.envMapIntensity = u.envIntensity;
+                pbr.reflectivity = u.reflectivity;
                 pbr.metalness = 1;   // the maps drive these (multiplied)
                 pbr.roughness = 1;
                 if (u.clearcoat) {

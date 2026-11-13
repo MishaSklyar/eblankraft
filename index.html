@@ -920,6 +920,14 @@
                     <option value="0.38">38% (Низька роздільність)</option>
                     <option value="0.25">25% (Низька роздільність)</option>
                 </select>
+                <label for="select-upscaler" style="margin-top:6px;">⚡ Апскейлер FSR-style (працює на будь-чому):</label>
+                <select id="select-upscaler">
+                    <option value="off">Вимкнено</option>
+                    <option value="quality">Якість (77%)</option>
+                    <option value="balanced">Збалансований (67%)</option>
+                    <option value="performance">Продуктивність (50%)</option>
+                    <option value="ultra">Ультра-FPS (40%)</option>
+                </select>
             </div>
 
             <p class="menu-setting-note">Менша роздільність знижує навантаження на GPU; генерація світу та фізика залежать від CPU.</p>
@@ -1495,6 +1503,7 @@
     <script src="js/addons.js?v=1"></script>
     <script src="js/eblan.js?v=3.6"></script>
     <script src="js/rtx.js?v=1"></script>
+    <script src="js/upscaler.js?v=1"></script>
     <script src="js/game.js?v=4.7"></script>
 
     <script>
