@@ -786,6 +786,12 @@ class MultiplayerManager {
     }
 
     // --- CLIENT JOIN INITIALIZATION ---
+    joinKnockback(roomCode = 'knockback') {
+        if (this.game.serverClient) this.game.serverClient.leaveRoom();
+        if (this.peer) this.disconnect();
+        this.game.arenaClient.connect(roomCode, null, 'knockback');
+    }
+
     joinRoom(roomCode) {
         roomCode = String(roomCode).trim();
         if (/^world-[a-f0-9]{16}$/.test(roomCode)) {
