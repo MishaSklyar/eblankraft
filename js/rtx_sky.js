@@ -10,7 +10,7 @@
 window.RTX_SKY_GLSL = `
     uniform mat4 skyInvProj; uniform mat4 skyCamWorld;
     uniform vec3 skyCamPos, skySun, skyMoon;
-    uniform float skyTime, skyOn, skyClouds;
+    uniform float skyTime, skyOn, skyClouds, skyMode;   // skyMode: 0 overworld, 1 nether, 2 end
 
     float sk_h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
     float sk_h31(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
@@ -35,6 +35,52 @@ window.RTX_SKY_GLSL = `
     float sk_cloud3(vec2 p) {
         float d = sk_fbm3(p) * mix(0.82, 1.18, sk_vn(p * 0.23 + 4.0));
         return smoothstep(0.5, 0.8, d);
+    }
+
+    // one layer of point stars on a direction grid; returns brightness 0..1
+    float sk_stars(vec3 dir, float cells, float thresh, float size) {
+        vec3 sp = dir * cells, ip = floor(sp);
+        float h = sk_h31(ip);
+        vec3 f = fract(sp) - 0.5 + (vec3(sk_h31(ip + 3.1), sk_h31(ip + 7.7), sk_h31(ip + 1.3)) - 0.5) * 0.5;
+        float tw = 0.65 + 0.35 * sin(skyTime * (1.5 + h * 3.0) + h * 80.0);
+        return step(thresh, h) * smoothstep(size, 0.0, length(f)) * tw;
+    }
+
+    // The End: violet void, drifting nebula, dense stars, a dim black "sun" ringed with purple light
+    vec3 sk_end(vec3 dir, vec3 horizon) {
+        float up = dir.y * 0.5 + 0.5;
+        vec3 col = mix(vec3(0.012, 0.006, 0.028), vec3(0.045, 0.02, 0.085), up);
+        vec2 p = dir.xz / (abs(dir.y) + 0.55) * 1.4 + vec2(dir.y * 0.8);
+        float n1 = sk_fbm5(p * 1.2 + skyTime * 0.004);
+        float n2 = sk_fbm3(p * 2.9 - skyTime * 0.006 + 7.0);
+        float n3 = sk_fbm3(p * 0.6 + 21.0 + skyTime * 0.002);
+        col += vec3(0.42, 0.1, 0.72) * smoothstep(0.44, 0.84, n1) * 0.55 * (0.35 + 0.65 * n3);
+        col += vec3(0.06, 0.3, 0.5) * smoothstep(0.5, 0.9, n2) * 0.32;
+        float st = sk_stars(dir, 150.0, 0.975, 0.3) + 0.8 * sk_stars(dir, 70.0, 0.985, 0.34) + 0.5 * sk_stars(dir + 9.0, 260.0, 0.96, 0.28);
+        col += mix(vec3(0.85, 0.8, 1.0), vec3(1.0, 0.85, 1.0), sk_h31(floor(dir * 150.0))) * st * 1.1;
+        // black sun with a purple corona, high in the sky
+        vec3 sd = normalize(vec3(0.35, 0.72, -0.4));
+        float d = max(dot(dir, sd), 0.0);
+        col += vec3(0.5, 0.15, 0.85) * pow(d, 60.0) * 0.55 + vec3(0.25, 0.08, 0.5) * pow(d, 8.0) * 0.2;
+        col = mix(col, vec3(0.0), smoothstep(0.9975, 0.9985, d));
+        // haze toward the horizon so the island edges blend
+        col = mix(col, horizon * 0.9 + vec3(0.04, 0.015, 0.08), pow(1.0 - abs(dir.y), 7.0) * 0.55);
+        return col;
+    }
+
+    // The Nether: dark red gloom, lava glow rising from below, drifting heat shimmer and far embers
+    vec3 sk_nether(vec3 dir, vec3 horizon) {
+        float below = clamp(-dir.y * 0.5 + 0.5, 0.0, 1.0);
+        vec3 col = mix(horizon * 0.28 + vec3(0.02, 0.0, 0.0), horizon * 1.05, pow(1.0 - abs(dir.y), 2.2));
+        vec2 p = dir.xz / (abs(dir.y) + 0.35) * 1.7;
+        float heat = sk_fbm3(p + vec2(0.0, -skyTime * 0.05));
+        float heat2 = sk_fbm3(p * 2.3 + vec2(skyTime * 0.03, -skyTime * 0.09) + 5.0);
+        float glow = pow(below, 2.0) * (0.55 + 0.9 * smoothstep(0.35, 0.8, heat));
+        col += vec3(1.0, 0.34, 0.05) * glow * 0.48;
+        col += vec3(0.9, 0.18, 0.02) * smoothstep(0.55, 0.9, heat2) * 0.12 * (1.0 - below * 0.5);
+        float em = sk_stars(dir, 90.0, 0.985, 0.3);
+        col += vec3(1.0, 0.5, 0.15) * em * (0.4 + 0.6 * sin(skyTime * 4.0 + dir.x * 40.0)) * 0.8;
+        return col;
     }
 
     // view ray for this screen pixel
@@ -131,6 +177,8 @@ window.RTX_SKY_GLSL = `
 
     vec3 sk_shade(vec2 uv, vec3 horizon) {
         vec3 dir = sk_viewDir(uv);
+        if (skyMode > 1.5) return sk_end(dir, horizon);
+        if (skyMode > 0.5) return sk_nether(dir, horizon);
         vec3 col = sk_sky(dir, horizon);
         vec4 cl = sk_clouds(dir, col);
         return mix(col, cl.rgb, cl.a);
