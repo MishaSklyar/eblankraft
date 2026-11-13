@@ -100,6 +100,10 @@ class RTXGui {
         partCtl(post, 'grade'); cfgCtl(post, 'contrast', 0.7, 1.6, 0.01, 'Contrast'); cfgCtl(post, 'vibrance', 0, 1, 0.01, 'Vibrance');
         partCtl(post, 'smaa');
 
+        const img = gui.addFolder('Image quality');
+        img.add(r.cfg, 'texFilter', { 'Sharp (bilinear + 16x aniso)': 'sharp', 'Pixel (crisp texels)': 'pixel' }).name('Texture filter').onChange(v => r.setCfg('texFilter', v));
+        cfgCtl(img, 'sharpen', 0, 1, 0.01, 'Sharpen');
+
         const perf = gui.addFolder('Performance governor');
         cfgCtl(perf, 'dynRes', undefined, undefined, undefined, 'Dynamic resolution');
         cfgCtl(perf, 'targetFps', 15, 144, 1, 'Target FPS');
@@ -135,6 +139,7 @@ class RTXGui {
 
         gui.add({ reset: () => { Object.assign(r.cfg, RTXPipeline.CFG_DEFAULTS); for (const k in RTXPipeline.CFG_DEFAULTS) r.setCfg(k, RTXPipeline.CFG_DEFAULTS[k]); r.setAllParts(true); gui.controllersRecursive().forEach(c => c.updateDisplay()); } }, 'reset').name('Reset everything');
         for (const f of [mat, ao, rf, post, perf, dl, fgF]) f.close();
+        img.open();
     }
 }
 RTXGui.PRESETS = {

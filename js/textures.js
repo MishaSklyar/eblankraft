@@ -309,7 +309,23 @@ class TextureManager {
 
     maxAnisotropy() {
         const g = window.game;
-        try { return Math.min(8, g.renderer.capabilities.getMaxAnisotropy()); } catch (e) { return 4; }
+        try { return Math.min(16, g.renderer.capabilities.getMaxAnisotropy()); } catch (e) { return 4; }
+    }
+
+    // RTX texture filtering (rtx cfg.texFilter): 'pixel' = crisp nearest texels + mipmaps (no shimmer), 'sharp' = bilinear magnification
+    // (anti-aliased texel edges), both with 16x anisotropy so walls seen at an angle stay sharp. Disabled RTX = original nearest look.
+    setFilterOf(tex, rtxOn) {
+        const g = window.game, mode = (g && g.rtx && g.rtx.cfg && g.rtx.cfg.texFilter) || 'sharp';
+        if (!rtxOn) { tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.anisotropy = 1; return; }
+        tex.magFilter = mode === 'pixel' ? THREE.NearestFilter : THREE.LinearFilter;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.generateMipmaps = true;
+        tex.anisotropy = this.maxAnisotropy();
+    }
+
+    applyFiltering() {
+        if (!this.textureX64) return;
+        for (const key in this.threeTextures) { const t = this.threeTextures[key]; if (t) { this.setFilterOf(t, true); t.needsUpdate = true; } }
     }
 
     // RTX ON (formerly Texture x64): upscales every texture to 64x64 + PBR maps + POM; rtx.js adds the post pipeline.
@@ -322,10 +338,7 @@ class TextureManager {
             const tex = this.threeTextures[key];
             if (!src || !tex) continue;
             // RTX: bilinear magnification (anti-aliased texel edges) + mipmaps + anisotropy (no shimmer on far blocks); nearest = original look
-            tex.magFilter = enabled ? THREE.LinearFilter : THREE.NearestFilter;
-            tex.minFilter = enabled ? THREE.LinearMipmapLinearFilter : THREE.NearestFilter;
-            tex.generateMipmaps = !!enabled;
-            tex.anisotropy = enabled ? this.maxAnisotropy() : 1;
+            this.setFilterOf(tex, enabled);
             if (enabled && src.width !== 64) {
                 const big = document.createElement('canvas');
                 big.width = 64;

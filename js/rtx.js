@@ -211,6 +211,7 @@ class RTXPipeline {
         composer.addPass(this.smaa);
 
         this.composer = composer;
+        this.final.uniforms.texel.value.set(1 / w, 1 / h);
         this.quality = 3;
         this.ema = 0; this.cool = 240; this.resScale = this.baseScale; this.syncSize();   // ignore load-time hitches
         this.applyQuality();
@@ -258,7 +259,7 @@ class RTXPipeline {
         const c = this.cfg;
         if (u) {
             u.useAces.value = this.part('aces') ? 1 : 0; u.useGrade.value = this.part('grade') ? 1 : 0;
-            u.exposure.value = c.exposure; u.contrast.value = c.contrast; u.vibrance.value = c.vibrance;
+            u.exposure.value = c.exposure; u.contrast.value = c.contrast; u.vibrance.value = c.vibrance; u.sharpen.value = c.sharpen;
         }
         if (this.bloom) { this.bloom.strength = c.bloomStrength; this.bloom.radius = c.bloomRadius; this.bloom.threshold = c.bloomThreshold; }
         if (this.ssr) { this.ssr.opacity = c.ssrOpacity; this.ssr.maxDistance = c.ssrDistance; }
@@ -269,6 +270,7 @@ class RTXPipeline {
     setCfg(key, value) {
         this.cfg[key] = value;
         try { localStorage.setItem('eblankraft_rtx_cfg', JSON.stringify(this.cfg)); } catch (e) {}
+        if (key === 'texFilter' && this.game.textureManager) this.game.textureManager.applyFiltering();
         if (key === 'frameGen') { this.fgPhase = 0; if (!value) this.disposeFG(); }
         if (key === 'minScale') { this.minScale = value; this.setResScale(this.resScale); }
         if (key === 'dynRes' && !value) this.setResScale(this.baseScale);
@@ -308,6 +310,7 @@ class RTXPipeline {
         if (!this.composer) return;
         const s = this.targetSize();
         this.composer.setSize(s.x, s.y);
+        if (this.final) this.final.uniforms.texel.value.set(1 / s.x, 1 / s.y);
     }
 
     setSize() { this.computeBaseScale(); this.syncSize(); }
@@ -621,11 +624,11 @@ class RTXPipeline {
                 skyInvProj: { value: new THREE.Matrix4() }, skyCamWorld: { value: new THREE.Matrix4() }, skyCamPos: { value: new THREE.Vector3() },
                 skySun: { value: new THREE.Vector3(0, 1, 0) }, skyMoon: { value: new THREE.Vector3(0, -1, 0) },
                 skyTime: { value: 0 }, skyOn: { value: 0 }, skyClouds: { value: 1 }, skyMode: { value: 0 },
-                useAces: { value: 1 }, useGrade: { value: 1 }
+                useAces: { value: 1 }, useGrade: { value: 1 }, sharpen: { value: 0.35 }, texel: { value: new THREE.Vector2(1 / 1280, 1 / 720) }
             },
             vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
             fragmentShader: `
-                uniform sampler2D tDiffuse; uniform vec3 skyColor; uniform float exposure, contrast, vibrance, useAces, useGrade;
+                uniform sampler2D tDiffuse; uniform vec3 skyColor; uniform float exposure, contrast, vibrance, useAces, useGrade, sharpen; uniform vec2 texel;
                 varying vec2 vUv;
                 ${window.RTX_SKY_GLSL || 'uniform float skyOn;'}
                 // three.js' own ACES Filmic curve (identical look to renderer.toneMapping = ACESFilmicToneMapping)
@@ -639,8 +642,15 @@ class RTXPipeline {
                 }
                 vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
                 void main() {
-                    vec3 c = texture2D(tDiffuse, vUv).rgb * exposure;
                     vec3 raw = texture2D(tDiffuse, vUv).rgb;
+                    vec3 c = raw;
+                    if (sharpen > 0.001) {   // contrast-adaptive sharpen on the HDR image, clamped to the neighbourhood (no halos)
+                        vec3 l = texture2D(tDiffuse, vUv - vec2(texel.x, 0.0)).rgb, r = texture2D(tDiffuse, vUv + vec2(texel.x, 0.0)).rgb;
+                        vec3 u = texture2D(tDiffuse, vUv + vec2(0.0, texel.y)).rgb, d = texture2D(tDiffuse, vUv - vec2(0.0, texel.y)).rgb;
+                        vec3 mn = min(min(l, r), min(u, d)), mx = max(max(l, r), max(u, d));
+                        c = clamp(c + (c - (l + r + u + d) * 0.25) * sharpen * 2.0, min(mn, c), max(mx, c));
+                    }
+                    c *= exposure;
                     // the clear colour (sky) is never tone-mapped/encoded by the stock renderer: keep it exactly as authored
                     float skyMask = 1.0 - smoothstep(0.004, 0.03, distance(raw, skyColor));
                     vec3 lit = toSRGB(useAces > 0.5 ? aces(max(c, 0.0)) : clamp(c, 0.0, 1.0));           // ACES Filmic tone mapping + sRGB output
@@ -700,7 +710,7 @@ RTXPipeline.CFG_DEFAULTS = {
     bloomStrength: 0.6, bloomRadius: 0.55, bloomThreshold: 2.2,
     godrayStrength: 1, sunElevation: 21, sunIntensity: 1.2, shadowBias: -0.0005,
     aoRadius: 1.1, aoIntensity: 1.25, ssrOpacity: 0.55, ssrDistance: 40, pomDepth: 1,
-    dynRes: true, targetFps: 30, minScale: 0.5, frameGen: false
+    dynRes: true, targetFps: 30, minScale: 0.5, frameGen: false, texFilter: 'sharp', sharpen: 0.35
 };
 RTXPipeline.loadCfg = function () {
     const o = Object.assign({}, RTXPipeline.CFG_DEFAULTS);
