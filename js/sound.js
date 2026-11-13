@@ -1189,6 +1189,36 @@ class SoundManager {
         } catch (e) {}
     }
 
+    // 🔫 Gun pickup: metallic handling scrape, then the charging-handle rack (clack ... clack)
+    playGunDraw(type) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+            const now = this.ctx.currentTime, heavy = (type === 'awp' || type === 'rpg') ? 1.25 : 1;
+            const burst = (t, dur, f0, f1, vol, q = 5) => {
+                const src = this.ctx.createBufferSource();
+                src.buffer = this.createNoiseBuffer(dur + .05);
+                const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+                bp.frequency.setValueAtTime(f0, now + t); bp.frequency.exponentialRampToValueAtTime(f1, now + t + dur);
+                const g = this.ctx.createGain();
+                g.gain.setValueAtTime(0.001, now + t);
+                g.gain.exponentialRampToValueAtTime(vol, now + t + dur * .25);
+                g.gain.exponentialRampToValueAtTime(0.001, now + t + dur);
+                src.connect(bp); bp.connect(g); g.connect(this.getDestination());
+                src.start(now + t, Math.random() * 2); src.stop(now + t + dur + .03);
+            };
+            burst(0.02, .16, 1800 / heavy, 3600 / heavy, .10, 3);          // grip / handling
+            burst(0.30 * heavy, .05, 900 / heavy, 450 / heavy, .22, 2);     // rack back
+            burst(0.45 * heavy, .06, 1400 / heavy, 700 / heavy, .30, 2);    // slam forward
+            const osc = this.ctx.createOscillator(), og = this.ctx.createGain();
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(2200 / heavy, now + 0.45 * heavy);
+            og.gain.setValueAtTime(0.001, now); og.gain.setValueAtTime(0.05, now + 0.45 * heavy);
+            og.gain.exponentialRampToValueAtTime(0.001, now + 0.45 * heavy + .22);
+            osc.connect(og); og.connect(this.getDestination()); osc.start(now); osc.stop(now + 0.45 * heavy + .25);
+        } catch (e) {}
+    }
+
     // 🔪 Knife deploy: short metallic scrape + ring
     playKnifeDeploy() {
         if (!this.enabled) return;

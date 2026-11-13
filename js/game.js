@@ -840,6 +840,7 @@ class Game {
             if (wMat.userData && wMat.userData.uTime) {
                 wMat.userData.uTime.value = (this.underwaterEffectsEnabled !== false) ? this.waterTime : 0.0;
             }
+            if (wMat.userData && wMat.userData.uSky && this.scene.background && this.scene.background.isColor) wMat.userData.uSky.value.copy(this.scene.background);
             if (wMat.normalMap) {
                 wMat.normalMap.offset.x = (this.waterTime * 0.035) % 1;
                 wMat.normalMap.offset.y = (this.waterTime * 0.022) % 1;

@@ -124,7 +124,9 @@ class RTXPipeline {
     applyParts() {
         const g = this.game, r = g.renderer, scene = g.scene, s = this.saved;
         if (!s) return;
-        const env = this.part('env') && g.textureManager && g.textureManager.ensureEnvironment();
+        const dim = (g.world && g.world.dimension) || 'overworld';
+        this._dim = dim;
+        const env = this.part('env') && g.textureManager && g.textureManager.ensureEnvironment(dim);
         scene.environment = env || s.env || null;
         if (this.part('fog')) { if (!scene.fog) scene.fog = new THREE.FogExp2(0x80bfff, 0.018); }
         else if (scene.fog && !s.fog) scene.fog = null;
@@ -224,6 +226,7 @@ class RTXPipeline {
             this.composer = null;
         }
         this.scenePass = null; this.ssao = null; this.ssr = null; this.disposeFG();
+        if (this.lantern) { scene.remove(this.lantern); this.lantern = null; }
         r.shadowMap.autoUpdate = true;
         if (s) {
             scene.environment = s.env || null;
@@ -312,6 +315,24 @@ class RTXPipeline {
     // Golden-hour sun + sky/ground bounce. Runs after the day-cycle code, only by day/sunset.
     adjustLights() {
         const g = this.game, sl = g.sunLight;
+        const dim = (g.world && g.world.dimension) || 'overworld';
+        if (dim !== this._dim) this.applyParts();             // new dimension -> new reflection environment
+        this.updateLantern(dim);
+        if (dim !== 'overworld') {
+            // The Nether / End have no sun, so normal maps and gloss would have nothing to shade (only parallax would show).
+            // Give them a dim directional "ember" key light from above-left plus the lantern below: PBR relief reads again.
+            if (sl && this.part('sun') && g.player) {
+                const p = g.player.position, nether = dim === 'nether';
+                sl.target.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
+                sl.position.set(p.x - 22, p.y + 38, p.z + 14);
+                sl.color.setHex(nether ? 0xff7a38 : 0xb694ff);
+                sl.intensity = nether ? 0.85 : 0.55;
+                sl.castShadow = false;
+                if (g.hemiLight) { g.hemiLight.color.setHex(nether ? 0xff5a2a : 0x7a5ad0); g.hemiLight.groundColor.setHex(nether ? 0x401008 : 0x120a2a); g.hemiLight.intensity = 0.4; }
+                if (g.ambientLight) g.ambientLight.intensity = nether ? 0.32 : 0.28;
+            }
+            return;
+        }
         if (!sl || sl.intensity < 0.3 || !this.part('sun')) return;
         const t = sl.target.position;
         const dx = sl.position.x - t.x, dz = sl.position.z - t.z;
@@ -329,6 +350,20 @@ class RTXPipeline {
 
     // Water meshes within SSR range (visible = inside the view frustum, see Game.performFrustumAndOcclusionCulling).
     // SSR re-renders the scene several times, so it is only enabled while some water is actually near the camera.
+    // A warm light that travels with the camera in the Nether / End (embers, lava glow, end-stone shimmer).
+    updateLantern(dim) {
+        const g = this.game, cam = g.camera;
+        if (!this.lantern) {
+            this.lantern = new THREE.PointLight(0xff7a3a, 0, 34, 1.6);
+            this.lantern.castShadow = false;
+            g.scene.add(this.lantern);
+        }
+        const L = this.lantern;
+        L.color.setHex(dim === 'the_end' ? 0xa98cff : 0xff7a3a);
+        L.intensity = dim === 'nether' ? 1.15 : dim === 'the_end' ? 0.8 : 0;
+        if (cam) L.position.copy(cam.position).y += 0.4;
+    }
+
     updateWaterMeshes() {
         const out = [];
         const g = this.game, chunks = g.world && g.world.chunks;

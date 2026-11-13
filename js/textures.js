@@ -307,6 +307,11 @@ class TextureManager {
         if (saved) this.setTextureX64(true);
     }
 
+    maxAnisotropy() {
+        const g = window.game;
+        try { return Math.min(8, g.renderer.capabilities.getMaxAnisotropy()); } catch (e) { return 4; }
+    }
+
     // RTX ON (formerly Texture x64): upscales every texture to 64x64 + PBR maps + POM; rtx.js adds the post pipeline.
     // Upscales every texture to 64x64 (crisp, nearest-neighbour) or restores the originals.
     setTextureX64(enabled) {
@@ -316,6 +321,11 @@ class TextureManager {
             const src = this.canvasCache[key];
             const tex = this.threeTextures[key];
             if (!src || !tex) continue;
+            // RTX: bilinear magnification (anti-aliased texel edges) + mipmaps + anisotropy (no shimmer on far blocks); nearest = original look
+            tex.magFilter = enabled ? THREE.LinearFilter : THREE.NearestFilter;
+            tex.minFilter = enabled ? THREE.LinearMipmapLinearFilter : THREE.NearestFilter;
+            tex.generateMipmaps = !!enabled;
+            tex.anisotropy = enabled ? this.maxAnisotropy() : 1;
             if (enabled && src.width !== 64) {
                 const big = document.createElement('canvas');
                 big.width = 64;
@@ -363,6 +373,7 @@ class TextureManager {
                     for (const n of names) if (u[n] && u[n].dispose) u[n].dispose();
                     u.pbrReady = false;
                 }
+                this.pbrEpoch = (this.pbrEpoch || 0) + 1;
                 if (this.textureX64) this.swapChunkMaterials();
             })
             .catch(e => console.warn('[RTX] baked normal maps unavailable, using luminance relief:', e.message));
@@ -420,16 +431,22 @@ class TextureManager {
         // Material classes by name: solid metals, ore flecks, glossy/clearcoated non-metals, emissive blocks.
         const k = String(key || '');
         let solid = 0, fleck = 0, gloss = 0, emit = 0, emitThr = 0;
+        const quartz = k === 'nether_quartz';
         if (/^(gold|gold_ingot|iron_ingot|netherite_block|netherite_scrap)$/.test(k)) solid = 0.9;
         else if (/^(iron_ore|coal_ore)$/.test(k)) fleck = 0.8;
-        else if (/^(diamond|emerald|nether_quartz|obsidian)$/.test(k)) solid = 0.55;
+        else if (/^(diamond|emerald|obsidian)$/.test(k)) solid = 0.55;
         else if (/^(glass|ice|packed_ice|redstone_lamp|redstone_lamp_on|glowstone)$/.test(k)) gloss = 0.35;
         if (/^(glowstone|redstone_lamp_on|lava)$/.test(k)) emit = 1;
         else if (/^(redstone_torch|redstone_torch_block|redstone_wire_on|ender_eye|portal_nether|portal_end)$/.test(k)) { emit = 1; emitThr = 0.55; }
-        const clearcoat = (solid >= 0.5 || gloss) ? 1 : (fleck ? 0.6 : 0);
-        const mk = (cv, srgb) => {
+        const clearcoat = quartz ? 0 : (solid >= 0.5 || gloss) ? 1 : (fleck ? 0.6 : 0);
+        const mk = (cv, srgb, smooth = true) => {
             const t = new THREE.CanvasTexture(cv);
-            t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+            // smooth maps: baked normals have real per-texel detail, so filter them (mipmapped) instead of showing 64px blocks.
+            // The POM height map stays nearest: it is sampled inside a divergent loop where implicit mip selection is undefined.
+            t.magFilter = smooth ? THREE.LinearFilter : THREE.NearestFilter;
+            t.minFilter = smooth ? THREE.LinearMipmapLinearFilter : THREE.NearestFilter;
+            t.generateMipmaps = !!smooth;
+            if (smooth) t.anisotropy = this.maxAnisotropy();
             t.wrapS = t.wrapT = THREE.RepeatWrapping;
             if (srgb) t.encoding = THREE.sRGBEncoding;
             return t;
@@ -474,6 +491,7 @@ class TextureManager {
                 if (solid) { m = solid * (0.6 + 0.4 * l); r = 0.22 + (1 - l) * 0.35; }
                 else if (fleck) { const f = l > 0.5; m = f ? fleck : 0.0; r = f ? 0.3 : 1.0; }
                 else if (gloss) { m = 0.05; r = 0.12 + (1 - l) * 0.1; }
+                else if (quartz) { r = l > 0.62 ? 0.5 : 0.95; }   // glints only on the bright flecks, rock stays matte
                 oImg.data[i] = ao * 255; oImg.data[i + 1] = Math.min(1, r) * 255; oImg.data[i + 2] = Math.min(1, m) * 255; oImg.data[i + 3] = 255;
                 // clearcoatMap: full on polished materials, only bright flecks on ores
                 const cc = fleck ? (l > 0.5 ? 1 : 0) : clearcoat;
@@ -493,14 +511,14 @@ class TextureManager {
         tex.userData.roughnessMap = orm;
         tex.userData.metalnessMap = orm;
         // Only genuinely shiny materials reflect the environment; everything else stays matte.
-        const shiny = !!(solid || fleck || gloss);
-        tex.userData.envIntensity = solid ? 0.55 : (gloss ? 0.5 : (fleck ? 0.3 : 0.1));
-        tex.userData.reflectivity = shiny ? 0.5 : 0.0;
+        const shiny = !!(solid || fleck || gloss || quartz);
+        tex.userData.envIntensity = solid ? 0.55 : (gloss ? 0.5 : (fleck ? 0.3 : (quartz ? 0.2 : 0.1)));
+        tex.userData.reflectivity = quartz ? 0.25 : (shiny ? 0.5 : 0.0);
         tex.userData.clearcoat = clearcoat;
         tex.userData.clearcoatMap = clearcoat ? mk(ccCv) : null;
         tex.userData.clearcoatNormalMap = clearcoat ? mk(cnCv) : null;
-        tex.userData.emissiveMap = emit ? mk(eCv, true) : null;
-        tex.userData.heightMap = mk(hCv);
+        tex.userData.emissiveMap = emit ? mk(eCv, true, false) : null;
+        tex.userData.heightMap = mk(hCv, false, false);
         tex.userData.pomScale = calm ? 0.02 : 0.04;
         tex.userData.pbrReady = true;
     }
@@ -577,14 +595,18 @@ void main() {
     }
 
     // Procedural sky/ground environment (PMREM) so metals and clearcoat have something to reflect.
-    ensureEnvironment() {
-        if (this._envTex) return this._envTex;
+    // dim: 'overworld' | 'nether' | 'the_end' - metals / clearcoat / glints reflect THIS dimension's sky, not the overworld's
+    ensureEnvironment(dim) {
+        dim = dim || 'overworld';
+        this._envTexs = this._envTexs || {};
+        if (this._envTexs[dim]) return this._envTexs[dim];
         const g = window.game;
         if (!g || !g.renderer) return null;
         try {
             const sc = new THREE.Scene();
             const geo = new THREE.SphereGeometry(10, 24, 16);
-            const top = new THREE.Color(0x7fb2ff), hor = new THREE.Color(0xe8f0ff), bot = new THREE.Color(0x4a4036);
+            const pal = dim === 'nether' ? [0x2a0604, 0x6a1c0a, 0x9a3a10] : dim === 'the_end' ? [0x120824, 0x3a1c66, 0x0a0418] : [0x7fb2ff, 0xe8f0ff, 0x4a4036];
+            const top = new THREE.Color(pal[0]), hor = new THREE.Color(pal[1]), bot = new THREE.Color(pal[2]);
             const cols = [];
             const pos = geo.attributes.position;
             for (let i = 0; i < pos.count; i++) {
@@ -595,14 +617,16 @@ void main() {
             geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
             sc.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
             // HDR sun disc (values > 1) so metals get bright sun glints that the bloom pass can pick up.
-            const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(1.1, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(10, 6.5, 3) }));
-            sunDisc.position.set(6.5, 3.2, 4.5);
-            sc.add(sunDisc);
+            if (dim === 'overworld') {
+                const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(1.1, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(10, 6.5, 3) }));
+                sunDisc.position.set(6.5, 3.2, 4.5);
+                sc.add(sunDisc);
+            }
             const pm = new THREE.PMREMGenerator(g.renderer);
-            this._envTex = pm.fromScene(sc).texture;
+            this._envTexs[dim] = pm.fromScene(sc).texture;
             pm.dispose();
-        } catch (e) { this._envTex = null; }
-        return this._envTex;
+        } catch (e) { this._envTexs[dim] = null; }
+        return this._envTexs[dim];
     }
 
     rtxPart(id) {
@@ -612,6 +636,7 @@ void main() {
 
     // Called when the RTX tab flips a material part (PBR maps / POM): recompile the PBR shaders and rebuild chunk meshes.
     refreshPbr() {
+        this.pbrEpoch = (this.pbrEpoch || 0) + 1;
         for (const m of (this.materialCache ? this.materialCache.values() : [])) {
             const p = m && m.pbrCounterpart;
             if (p) p.needsUpdate = true;
@@ -2294,8 +2319,9 @@ void main() {
                 '#include <begin_vertex>',
                 `#include <begin_vertex>
                 vLavaPos = position; vLavaN = normal;
-                if (normal.y > 0.5) {
-                    float wave = sin(position.x * 1.6 + uTime * 1.4) * cos(position.z * 1.6 + uTime * 1.1) * 0.04;
+                if (fract(position.y + 0.001) > 0.5) {   // the lowered liquid surface (top face + top edge of the sides)
+                    float wave = sin(position.x * 1.7 + uTime * 1.3) * cos(position.z * 1.7 + uTime * 1.0) * 0.035
+                               + sin((position.x - position.z) * 3.1 + uTime * 2.1) * 0.015;
                     transformed.y += wave;
                 }`
             );
@@ -2433,6 +2459,7 @@ void main() {
             normalScale: new THREE.Vector2(0.85, 0.85),
             side: THREE.DoubleSide
         });
+        waterMat.map = null;   // colour is procedural (see onBeforeCompile); a 16px tile made the water look pixelated
 
         // 🥔 Low-Settings Water Material: ZERO normal maps, ZERO vertex wave shaders, ZERO specular reflections
         const basicWaterMat = new THREE.MeshBasicMaterial({
@@ -2459,18 +2486,56 @@ void main() {
         } catch (e) {}
 
         waterMat.userData.uTime = { value: 0 };
+        waterMat.userData.uSky = { value: new THREE.Color(0.5, 0.72, 0.98) };
         waterMat.onBeforeCompile = (shader) => {
             shader.uniforms.uTime = waterMat.userData.uTime;
-            shader.vertexShader = `uniform float uTime;\n` + shader.vertexShader;
+            shader.uniforms.uSky = waterMat.userData.uSky;
+            shader.vertexShader = `uniform float uTime;\nvarying vec2 vWUv;\n` + shader.vertexShader;
             shader.vertexShader = shader.vertexShader.replace(
                 '#include <begin_vertex>',
                 `#include <begin_vertex>
+                vWUv = abs(normal.y) > 0.5 ? position.xz : vec2(position.x + position.z, position.y);
                 if (normal.y > 0.5) {
-                    float wave = sin(position.x * 2.2 + uTime * 2.5) * cos(position.z * 2.2 + uTime * 2.0) * 0.06;
+                    float wave = sin(position.x * 2.2 + uTime * 2.5) * cos(position.z * 2.2 + uTime * 2.0) * 0.045
+                               + sin((position.x + position.z) * 3.7 + uTime * 3.1) * 0.012;
                     transformed.y += wave;
                 }`
             );
+            // Realistic surface: the 16px tile texture is gone. Three world-space normal-map layers drift in different directions
+            // (so there is no per-block repetition), the colour deepens at glancing-free angles, and a Fresnel term mixes in the
+            // sky (which follows day / night / dimension) toward grazing views, on top of the Phong sun glints.
+            shader.fragmentShader = `uniform float uTime; uniform vec3 uSky;\nvarying vec2 vWUv;\n` + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+                float wTint = 0.5 + 0.5 * sin(vWUv.x * 0.045 + sin(vWUv.y * 0.03) * 2.0);
+                diffuseColor.rgb = mix(vec3(0.012, 0.15, 0.26), vec3(0.005, 0.07, 0.19), wTint);`);
+            shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `
+                #ifdef USE_NORMALMAP
+                {
+                    vec2 w1 = uTime * vec2(0.021, 0.013), w2 = uTime * vec2(-0.016, 0.011);
+                    vec3 a1 = texture2D(normalMap, vWUv * 0.16 + w1).xyz * 2.0 - 1.0;
+                    vec3 a2 = texture2D(normalMap, vWUv * vec2(0.29, 0.25) + w2).xyz * 2.0 - 1.0;
+                    vec3 a3 = texture2D(normalMap, vWUv * 0.83 - w1 * 3.0).xyz * 2.0 - 1.0;
+                    vec3 mapN = vec3((a1.xy + a2.xy + a3.xy * 0.3) * normalScale * 0.8, 1.0);
+                    mapN = normalize(mapN);
+                    mapN.xy *= faceDirection;
+                    normal = perturbNormal2Arb( - vViewPosition, normal, mapN, faceDirection );
+                }
+                #endif`);
+            shader.fragmentShader = shader.fragmentShader.replace('#include <tonemapping_fragment>', `
+                {
+                    vec3 V = normalize(vViewPosition);
+                    float ndv = clamp(dot(normal, V), 0.0, 1.0);
+                    float fres = 0.025 + 0.975 * pow(1.0 - ndv, 4.0);
+                    vec3 R = reflect(-V, normal);
+                    float ry = clamp(dot(R, viewMatrix[1].xyz), 0.0, 1.0);          // world-space "up" of the reflected ray
+                    vec3 sky = mix(uSky * 1.12 + 0.06, uSky * 0.62, pow(ry, 0.5));
+                    sky = pow(sky, vec3(2.2));
+                    gl_FragColor.rgb = mix(gl_FragColor.rgb, sky, clamp(fres * 0.95, 0.0, 0.95));
+                    gl_FragColor.a = clamp(mix(gl_FragColor.a, 1.0, fres) + 0.12, 0.0, 0.96);
+                }
+                #include <tonemapping_fragment>`);
         };
+        waterMat.customProgramCacheKey = () => 'water-real-v1';
         this.materials[BLOCK_TYPES.WATER] = waterMat;
         this.materials[BLOCK_TYPES.LAVA] = lavaMat;
         this.materials[BLOCK_TYPES.SPONGE] = spongeMat;
