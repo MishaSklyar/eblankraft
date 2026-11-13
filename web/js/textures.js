@@ -332,49 +332,75 @@ class TextureManager {
         this.swapChunkMaterials();
     }
 
-    // Builds normal + roughness maps (64x64) from a texture's colour data.
-    buildPbrMaps(tex) {
+    // Builds 64x64 depth (height) -> normal map, plus a metallic/specular map, from a texture's colours.
+    buildPbrMaps(tex, key) {
+        tex.userData = tex.userData || {};
         if (tex.userData.pbrReady) return;
         const img = tex.image;
         const w = img.width, h = img.height;
         const data = img.getContext('2d').getImageData(0, 0, w, h).data;
-        const lum = new Float32Array(w * h);
-        for (let i = 0; i < w * h; i++) {
-            lum[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) / 255;
+        const n = w * h;
+        // Depth map: luminance, lightly blurred so 16px art gives smooth 64px relief.
+        const lum = new Float32Array(n), depth = new Float32Array(n);
+        let ar = 0, ag = 0, ab = 0;
+        for (let i = 0; i < n; i++) {
+            const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+            lum[i] = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+            ar += r; ag += g; ab += b;
         }
-        const nCv = document.createElement('canvas'); nCv.width = w; nCv.height = h;
-        const rCv = document.createElement('canvas'); rCv.width = w; rCv.height = h;
-        const nCtx = nCv.getContext('2d'), rCtx = rCv.getContext('2d');
-        const nImg = nCtx.createImageData(w, h), rImg = rCtx.createImageData(w, h);
-        const at = (x, y) => lum[((y + h) % h) * w + ((x + w) % w)];
-        const strength = 3.0;
+        const at = (a, x, y) => a[((y + h) % h) * w + ((x + w) % w)];
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
-                const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
-                const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
-                let nx = -dx * strength, ny = dy * strength, nz = 1;
-                const len = Math.hypot(nx, ny, nz);
-                const i = (y * w + x) * 4;
-                nImg.data[i] = (nx / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 1] = (ny / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
-                nImg.data[i + 3] = 255;
-                // brighter pixels are a bit smoother, darker crevices rougher
-                const r = Math.min(1, Math.max(0.45, 1.0 - lum[y * w + x] * 0.45)) * 255;
-                rImg.data[i] = rImg.data[i + 1] = rImg.data[i + 2] = r;
-                rImg.data[i + 3] = 255;
+                depth[y * w + x] = (4 * at(lum, x, y) + 2 * (at(lum, x - 1, y) + at(lum, x + 1, y) + at(lum, x, y - 1) + at(lum, x, y + 1))
+                    + at(lum, x - 1, y - 1) + at(lum, x + 1, y - 1) + at(lum, x - 1, y + 1) + at(lum, x + 1, y + 1)) / 16;
             }
         }
-        nCtx.putImageData(nImg, 0, 0);
-        rCtx.putImageData(rImg, 0, 0);
+        // Metallicity by material name: solid metals, ore flecks, glossy non-metals.
+        const k = String(key || '');
+        let solid = 0, fleck = 0, gloss = 0;
+        if (/^(gold|gold_ingot|iron_ingot|netherite_block|netherite_scrap)$/.test(k)) solid = 0.9;
+        else if (/^(iron_ore|coal_ore)$/.test(k)) fleck = 0.8;
+        else if (/^(diamond|emerald|nether_quartz|obsidian)$/.test(k)) solid = 0.55;
+        else if (/^(glass|ice|packed_ice|redstone_lamp|redstone_lamp_on|glowstone)$/.test(k)) gloss = 0.35;
         const mk = (cv) => {
             const t = new THREE.CanvasTexture(cv);
             t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
             t.wrapS = t.wrapT = THREE.RepeatWrapping;
             return t;
         };
+        const nCv = document.createElement('canvas'); nCv.width = w; nCv.height = h;
+        const sCv = document.createElement('canvas'); sCv.width = w; sCv.height = h;
+        const nCtx = nCv.getContext('2d'), sCtx = sCv.getContext('2d');
+        const nImg = nCtx.createImageData(w, h), sImg = sCtx.createImageData(w, h);
+        const strength = 3.0;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const dx = (at(depth, x + 1, y - 1) + 2 * at(depth, x + 1, y) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x - 1, y) + at(depth, x - 1, y + 1));
+                const dy = (at(depth, x - 1, y + 1) + 2 * at(depth, x, y + 1) + at(depth, x + 1, y + 1)) - (at(depth, x - 1, y - 1) + 2 * at(depth, x, y - 1) + at(depth, x + 1, y - 1));
+                const nx = -dx * strength, ny = dy * strength, nz = 1;
+                const len = Math.hypot(nx, ny, nz);
+                const i = (y * w + x) * 4;
+                nImg.data[i] = (nx / len * 0.5 + 0.5) * 255;
+                nImg.data[i + 1] = (ny / len * 0.5 + 0.5) * 255;
+                nImg.data[i + 2] = (nz / len * 0.5 + 0.5) * 255;
+                nImg.data[i + 3] = 255;
+                const l = lum[y * w + x];
+                let m = 0.05 + l * 0.08;                 // faint sheen on everything
+                if (solid) m = solid * (0.6 + 0.4 * l);  // bright metal, darker in crevices
+                else if (fleck) m = l > 0.5 ? fleck : 0.05;
+                else if (gloss) m = gloss;
+                sImg.data[i] = sImg.data[i + 1] = sImg.data[i + 2] = Math.min(1, m) * 255;
+                sImg.data[i + 3] = 255;
+            }
+        }
+        nCtx.putImageData(nImg, 0, 0);
+        sCtx.putImageData(sImg, 0, 0);
         tex.userData.normalMap = mk(nCv);
-        tex.userData.roughnessMap = mk(rCv);
+        tex.userData.metalMap = mk(sCv);
+        tex.userData.shininess = solid ? 70 : (gloss ? 50 : 14);
+        // Metals reflect their own colour; non-metals reflect white-ish light.
+        const col = (solid || fleck) ? new THREE.Color(ar / n / 255, ag / n / 255, ab / n / 255).lerp(new THREE.Color(1, 1, 1), 0.25) : new THREE.Color(1, 1, 1);
+        tex.userData.specColor = col;
         tex.userData.pbrReady = true;
     }
 
@@ -384,11 +410,14 @@ class TextureManager {
         if (mat.isMeshBasicMaterial) return mat;
         const pbr = mat.pbrCounterpart;
         const tex = pbr.map;
+        tex.userData = tex.userData || {};
         if (tex.image && tex.image.width === 64) {
-            this.buildPbrMaps(tex);
+            this.buildPbrMaps(tex, tex.userData.key);
             if (pbr.normalMap !== tex.userData.normalMap) {
                 pbr.normalMap = tex.userData.normalMap;
-                pbr.roughnessMap = tex.userData.roughnessMap;
+                pbr.specularMap = tex.userData.metalMap;
+                pbr.specular.copy(tex.userData.specColor);
+                pbr.shininess = tex.userData.shininess;
                 pbr.normalScale = new THREE.Vector2(1, 1);
                 pbr.needsUpdate = true;
             }
@@ -1905,6 +1934,8 @@ class TextureManager {
             tex.minFilter = THREE.NearestFilter;
             tex.wrapS = THREE.RepeatWrapping;
             tex.wrapT = THREE.RepeatWrapping;
+            tex.userData = tex.userData || {};
+            tex.userData.key = key;
             this.threeTextures[key] = tex;
         }
 
@@ -1937,14 +1968,15 @@ class TextureManager {
             });
             mat.basicCounterpart = basic;
             mat.lambertCounterpart = mat;
-            // PBR counterpart (used only when Texture x64 is on); maps are attached lazily
-            const pbr = new THREE.MeshStandardMaterial({
+            // PBR-style counterpart (used only when Texture x64 is on); maps are attached lazily.
+            // Phong is much cheaper than MeshStandard and, with no env map, shows metals correctly via specular.
+            const pbr = new THREE.MeshPhongMaterial({
                 map: tex,
                 transparent: isTrans,
                 opacity: op,
                 alphaTest: at,
-                roughness: 1.0,
-                metalness: 0.0,
+                shininess: 20,
+                specular: 0x222222,
                 ...opts
             });
             pbr.basicCounterpart = basic;
