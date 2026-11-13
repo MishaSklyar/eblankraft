@@ -1664,7 +1664,18 @@ class UIManager {
                 syncRtxDim();
             };
         }
-        if (rtxBox && typeof RTXPipeline !== 'undefined') {
+        if (rtxBox && window.RTXGui) {
+            // the old pile of toggles is replaced by the RTX Remix panel
+            const b = document.createElement('button');
+            b.className = 'menu-btn';
+            b.textContent = '🎛️ Відкрити RTX Remix (Alt + X)';
+            b.onclick = () => { if (this.game.rtxGui) this.game.rtxGui.toggle(true); };
+            rtxBox.appendChild(b);
+            const bAll = document.getElementById('btn-rtx-all'), bNone = document.getElementById('btn-rtx-none');
+            if (bAll) bAll.style.display = 'none';
+            if (bNone) bNone.style.display = 'none';
+            syncRtxDim();
+        } else if (rtxBox && typeof RTXPipeline !== 'undefined') {
             const rtx = this.game.rtx;
             const boxes = {};
             for (const grp in RTXPipeline.GROUPS) {

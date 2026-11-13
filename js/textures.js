@@ -494,14 +494,14 @@ class TextureManager {
         tex.userData.metalnessMap = orm;
         // Only genuinely shiny materials reflect the environment; everything else stays matte.
         const shiny = !!(solid || fleck || gloss);
-        tex.userData.envIntensity = solid ? 0.9 : (gloss ? 0.6 : (fleck ? 0.5 : 0.1));
+        tex.userData.envIntensity = solid ? 0.55 : (gloss ? 0.5 : (fleck ? 0.3 : 0.1));
         tex.userData.reflectivity = shiny ? 0.5 : 0.0;
         tex.userData.clearcoat = clearcoat;
         tex.userData.clearcoatMap = clearcoat ? mk(ccCv) : null;
         tex.userData.clearcoatNormalMap = clearcoat ? mk(cnCv) : null;
         tex.userData.emissiveMap = emit ? mk(eCv, true) : null;
         tex.userData.heightMap = mk(hCv);
-        tex.userData.pomScale = calm ? 0.025 : 0.07;
+        tex.userData.pomScale = calm ? 0.02 : 0.04;
         tex.userData.pbrReady = true;
     }
 
@@ -513,9 +513,11 @@ class TextureManager {
             if (!u.heightMap || !this.rtxPart('pom')) return;
             shader.uniforms.pomMap = { value: u.heightMap };
             shader.uniforms.pomScale = { value: u.pomScale || 0.05 };
+            shader.uniforms.pomMul = window.RTX_POM || { value: 1 };
             shader.fragmentShader = shader.fragmentShader
                 .replace('void main() {', `uniform sampler2D pomMap;
 uniform float pomScale;
+uniform float pomMul;
 void main() {
     vec2 pomUv = vUv;
     #if defined( USE_AOMAP )
@@ -534,11 +536,14 @@ void main() {
         vec3 pV = normalize( vViewPosition );
         vec3 vts = vec3( dot( pV, pT ), dot( pV, pB ), dot( pV, pN ) );
         float fade = 1.0 - smoothstep( 5.0, 14.0, length( vViewPosition ) );
+        // displacement goes to zero at every tile edge, so neighbouring blocks always line up (no seams / smeared streaks),
+        // and also at grazing angles where the ray-march is unstable
+        vec2 pf = fract( vUv );
+        float edge = min( min( pf.x, 1.0 - pf.x ), min( pf.y, 1.0 - pf.y ) );
+        fade *= smoothstep( 0.0, 0.14, edge ) * smoothstep( 0.12, 0.4, vts.z );
         if ( vts.z > 0.05 && fade > 0.01 ) {
-            vec2 base = floor( vUv );
-            vec2 P = vts.xy / max( vts.z, 0.3 ) * pomScale * fade;
+            vec2 P = vts.xy / max( vts.z, 0.3 ) * pomScale * pomMul * fade;
             const int LAYERS = 12;
-            // fewer ray-march steps when looking straight at the face (little parallax to resolve)
             float nl = mix( 4.0, float( LAYERS ), 1.0 - clamp( vts.z, 0.0, 1.0 ) );
             vec2 dUV = P / nl;
             float layerD = 1.0 / nl;
@@ -548,16 +553,14 @@ void main() {
             for ( int i = 0; i < LAYERS; i++ ) {
                 if ( curD >= h || float( i ) >= nl ) break;
                 cur -= dUV;
-                vec2 l = clamp( cur - base, vec2( 0.001 ), vec2( 0.999 ) );
-                h = 1.0 - texture2D( pomMap, base + l ).r;
+                h = 1.0 - texture2D( pomMap, cur ).r;
                 curD += layerD;
             }
             vec2 prev = cur + dUV;
             float after = h - curD;
-            float before = ( 1.0 - texture2D( pomMap, base + clamp( prev - base, vec2( 0.001 ), vec2( 0.999 ) ) ).r ) - curD + layerD;
+            float before = ( 1.0 - texture2D( pomMap, prev ).r ) - curD + layerD;
             float w = after / ( after - before - 1e-5 );
-            vec2 fin = mix( cur, prev, clamp( w, 0.0, 1.0 ) );
-            pomUv = base + clamp( fin - base, vec2( 0.001 ), vec2( 0.999 ) );
+            pomUv = mix( cur, prev, clamp( w, 0.0, 1.0 ) );
             #if defined( USE_AOMAP )
             pomUv2 = vUv2 + ( pomUv - vUv );
             #endif
@@ -2286,16 +2289,43 @@ void main() {
         lavaMat.userData.uTime = { value: 0 };
         lavaMat.onBeforeCompile = (shader) => {
             shader.uniforms.uTime = lavaMat.userData.uTime;
-            shader.vertexShader = `uniform float uTime;\n` + shader.vertexShader;
+            shader.vertexShader = `uniform float uTime;\nvarying vec3 vLavaPos; varying vec3 vLavaN;\n` + shader.vertexShader;
             shader.vertexShader = shader.vertexShader.replace(
                 '#include <begin_vertex>',
                 `#include <begin_vertex>
+                vLavaPos = position; vLavaN = normal;
                 if (normal.y > 0.5) {
                     float wave = sin(position.x * 1.6 + uTime * 1.4) * cos(position.z * 1.6 + uTime * 1.1) * 0.04;
                     transformed.y += wave;
                 }`
             );
+            // World-space molten surface: one continuous flow across every lava block (no per-block tiles / grid), with dark
+            // crust plates, glowing cracks and slow convection. The 16px canvas texture is only the fallback for the basic material.
+            shader.fragmentShader = `uniform float uTime;\nvarying vec3 vLavaPos; varying vec3 vLavaN;
+                float lvH(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+                float lvN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(lvH(i), lvH(i + vec2(1.0, 0.0)), f.x), mix(lvH(i + vec2(0.0, 1.0)), lvH(i + vec2(1.0, 1.0)), f.x), f.y); }
+                float lvF(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a * lvN(p); p = p * 2.07 + vec2(11.3, 5.7); a *= 0.5; } return s; }
+                float lavaHeat;
+                ` + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+                vec2 lp = abs(vLavaN.y) > 0.5 ? vLavaPos.xz : vec2(vLavaPos.x + vLavaPos.z, vLavaPos.y);
+                lp *= 0.55;
+                vec2 flow = vec2(uTime * 0.05, uTime * 0.035);
+                float warp = lvF(lp * 0.8 - flow * 2.0);
+                float cells = lvF(lp * 1.3 + warp * 1.6 + flow);
+                lavaHeat = clamp(cells * 1.3 - 0.28 + 0.12 * sin(uTime * 0.8 + warp * 6.0), 0.0, 1.0);
+                float crack = smoothstep(0.42, 0.5, abs(lvF(lp * 2.2 + warp * 2.0 - flow) - 0.5) * 2.0 + (1.0 - lavaHeat) * 0.0);
+                lavaHeat = clamp(lavaHeat + (1.0 - crack) * 0.25, 0.0, 1.0);
+                vec3 lc = lavaHeat < 0.35 ? mix(vec3(0.12, 0.03, 0.015), vec3(0.55, 0.1, 0.02), lavaHeat / 0.35)
+                        : lavaHeat < 0.72 ? mix(vec3(0.55, 0.1, 0.02), vec3(1.0, 0.42, 0.04), (lavaHeat - 0.35) / 0.37)
+                        : mix(vec3(1.0, 0.42, 0.04), vec3(1.0, 0.78, 0.25), (lavaHeat - 0.72) / 0.28);
+                diffuseColor.rgb *= lc;
+            `);
+            shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+                totalEmissiveRadiance *= mix(0.15, 1.2, lavaHeat * lavaHeat) * 0.9;`);
         };
+        lavaMat.customProgramCacheKey = () => 'lava-world-v3';
 
         const spongeMat = createMat(t.sponge);
         const catMat = createMat(t.cat);

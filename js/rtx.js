@@ -23,6 +23,10 @@ class RTXPipeline {
     constructor(game) {
         this.game = game;
         this.parts = RTXPipeline.loadParts();
+        this.cfg = RTXPipeline.loadCfg();
+        this.fgPhase = 0;          // frame generation: 0 = render a real frame next, 1 = present a reprojected one
+        this.fgRT = null;
+        this.fgCam = null;
         this.active = false;
         this.loading = false;
         this.composer = null;
@@ -35,7 +39,7 @@ class RTXPipeline {
         this.frame = 0;
         this.resScale = 1;         // internal resolution multiplier (dynamic, only when the FSR upscaler is off)
         this.baseScale = 1;        // best scale for this screen (pixel budget); the controller climbs back to it
-        this.minScale = 0.5;
+        this.minScale = this.cfg.minScale;
         this.ema = 0;              // smoothed frame time (ms)
         this.cool = 0;
         this._shadowTick = 0;
@@ -219,7 +223,7 @@ class RTXPipeline {
             if (this.composer.renderTarget2) this.composer.renderTarget2.dispose();
             this.composer = null;
         }
-        this.scenePass = null; this.ssao = null; this.ssr = null;
+        this.scenePass = null; this.ssao = null; this.ssr = null; this.disposeFG();
         r.shadowMap.autoUpdate = true;
         if (s) {
             scene.environment = s.env || null;
@@ -248,7 +252,24 @@ class RTXPipeline {
         if (this.ssr) this.ssr.enabled = q >= 3 && this.part('ssr') && this.waterNear;
         if (this.bloom) this.bloom.enabled = q >= 1 && this.part('bloom');
         const u = this.final && this.final.uniforms;
-        if (u) { u.useAces.value = this.part('aces') ? 1 : 0; u.useGrade.value = this.part('grade') ? 1 : 0; }
+        const c = this.cfg;
+        if (u) {
+            u.useAces.value = this.part('aces') ? 1 : 0; u.useGrade.value = this.part('grade') ? 1 : 0;
+            u.exposure.value = c.exposure; u.contrast.value = c.contrast; u.vibrance.value = c.vibrance;
+        }
+        if (this.bloom) { this.bloom.strength = c.bloomStrength; this.bloom.radius = c.bloomRadius; this.bloom.threshold = c.bloomThreshold; }
+        if (this.ssr) { this.ssr.opacity = c.ssrOpacity; this.ssr.maxDistance = c.ssrDistance; }
+        if (this.scenePass) { const au = this.scenePass.aoMat.uniforms; au.radius.value = c.aoRadius; au.intensity.value = c.aoIntensity; }
+        window.RTX_POM.value = c.pomDepth;
+    }
+
+    setCfg(key, value) {
+        this.cfg[key] = value;
+        try { localStorage.setItem('eblankraft_rtx_cfg', JSON.stringify(this.cfg)); } catch (e) {}
+        if (key === 'frameGen') { this.fgPhase = 0; if (!value) this.disposeFG(); }
+        if (key === 'minScale') { this.minScale = value; this.setResScale(this.resScale); }
+        if (key === 'dynRes' && !value) this.setResScale(this.baseScale);
+        if (this.active) this.applyQuality();
     }
 
     // Pixel budget: ~2.4 MP internal (1080p-class) is plenty for the full stack; retina / 4K screens start lower and the
@@ -295,9 +316,9 @@ class RTXPipeline {
         const t = sl.target.position;
         const dx = sl.position.x - t.x, dz = sl.position.z - t.z;
         const horiz = Math.hypot(dx, dz) || 1;
-        sl.position.y = t.y + horiz * Math.tan(21 * Math.PI / 180);   // low sun -> long shadows
+        sl.position.y = t.y + horiz * Math.tan(this.cfg.sunElevation * Math.PI / 180);   // low sun -> long shadows
         sl.color.setHex(0xffc785);
-        sl.intensity = 1.2;
+        sl.intensity = this.cfg.sunIntensity;
         if (g.hemiLight) {
             g.hemiLight.color.setHex(0x8cbcff);        // sky-blue top bounce
             g.hemiLight.groundColor.setHex(0x4a3720);  // dirt/grass bottom bounce
@@ -333,6 +354,13 @@ class RTXPipeline {
     render(dtMs) {
         if (!this.active) return false;
         const g = this.game, r = g.renderer;
+        const fg = !!(this.cfg.frameGen && this.composer && this.scenePass);
+        if (fg && this.fgPhase === 1 && this.fgCam) {      // generated frame: no scene render at all, just warp the last real one
+            this.fgPhase = 0;
+            this.presentFG(true);
+            this.adapt(dtMs, !!(g.upscaler && g.upscaler.active));
+            return true;
+        }
         this.adjustLights();
         if (!this.composer) { return false; }       // lights-only fallback: normal renderer path
         this.frame++;
@@ -344,15 +372,92 @@ class RTXPipeline {
         if (this.final && g.scene.background && g.scene.background.isColor) this.final.uniforms.skyColor.value.copy(g.scene.background);
         if (this.godrays) this.updateGodRays();
         const up = g.upscaler && g.upscaler.active ? g.upscaler : null;
-        this.composer.renderToScreen = !up;     // with the upscaler the stack ends in a texture, not the canvas
+        this.composer.renderToScreen = !up && !fg;     // with the upscaler / frame generation the stack ends in a texture, not the canvas
         if (this.smaa) this.smaa.enabled = !up && this.quality >= 2 && this.part('smaa'); // the upscaler does its own edge reconstruction
         const hidden = this.updateSky(dtMs);
         this.composer.render();
         for (const [o, v] of hidden) o.visible = v;
-        if (up) up.present(this.composer.readBuffer.texture);
+        if (fg) { this.fgPhase = 1; this.presentFG(false); }
+        else if (up) up.present(this.composer.readBuffer.texture);
 
         this.adapt(dtMs, !!up);
         return true;
+    }
+
+    // ---- frame generation (camera reprojection) ----
+    // Real frame N is rendered and kept (colour + depth + camera pose). The next vsync is a "generated" frame: every pixel looks up
+    // where its world point was in frame N (3 fixed-point iterations over the depth buffer), using the CURRENT camera. Camera
+    // motion therefore stays smooth at twice the rendered rate and adds no latency (it extrapolates, it never waits for N+1).
+    // Pixels closer than ~1.3 blocks (hands / held item) stay screen-locked. Moving mobs advance on real frames only.
+    ensureFG() {
+        const size = this.composer.renderTarget1;
+        if (!this.fgMat) {
+            this.fgMat = new THREE.ShaderMaterial({
+                uniforms: { tColor: { value: null }, tDepth: { value: null }, oldWorld: { value: new THREE.Matrix4() }, newView: { value: new THREE.Matrix4() }, newProj: { value: new THREE.Matrix4() },
+                    oldScale: { value: new THREE.Vector2(1, 1) }, cameraNear: { value: 0.1 }, cameraFar: { value: 500 }, warp: { value: 1 } },
+                vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+                depthTest: false, depthWrite: false,
+                fragmentShader: `
+                    uniform sampler2D tColor, tDepth; uniform mat4 oldWorld, newView, newProj; uniform vec2 oldScale; uniform float cameraNear, cameraFar, warp;
+                    varying vec2 vUv;
+                    float viewZ(float d) { return (cameraNear * cameraFar) / ((cameraFar - cameraNear) * d - cameraFar); }
+                    void main() {
+                        vec2 s = vUv;
+                        if (warp > 0.5) {
+                            for (int i = 0; i < 4; i++) {
+                                float d = texture2D(tDepth, s).x;
+                                float z = d >= 0.99999 ? -cameraFar : viewZ(d);
+                                if (-z < 1.3) { s = vUv; break; }
+                                vec3 pw = (oldWorld * vec4((s * 2.0 - 1.0) / oldScale * -z, z, 1.0)).xyz;
+                                vec4 pc = newProj * (newView * vec4(pw, 1.0));
+                                s += vUv - (pc.xy / pc.w * 0.5 + 0.5);
+                            }
+                        }
+                        gl_FragColor = vec4(texture2D(tColor, clamp(s, 0.001, 0.999)).rgb, 1.0);
+                    }`
+            });
+            this.fgQuad = new THREE.FullScreenQuad(this.fgMat);
+        }
+        const w = size.width, h = size.height, up = this.game.upscaler && this.game.upscaler.active;
+        if (up && (!this.fgRT || this.fgRT.width !== w || this.fgRT.height !== h)) {
+            if (this.fgRT) this.fgRT.dispose();
+            this.fgRT = new THREE.WebGLRenderTarget(w, h, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+            this.fgRT.texture.encoding = THREE.sRGBEncoding;
+        }
+    }
+
+    // generated = warp with the current camera; otherwise (a real frame) show the image as rendered and remember its pose.
+    presentFG(generated) {
+        const g = this.game, r = g.renderer, cam = g.camera, c = this.composer, u = this.fgMat ? this.fgMat.uniforms : null;
+        this.ensureFG();
+        const mu = this.fgMat.uniforms;
+        if (!generated) {
+            // SMAA does not swap buffers: when it is the last enabled pass its output sits in the write buffer
+            this.fgTex = (this.smaa && this.smaa.enabled) ? c.writeBuffer.texture : c.readBuffer.texture;
+            cam.updateMatrixWorld();
+            if (!this.fgCam) this.fgCam = new THREE.Matrix4();
+            this.fgCam.copy(cam.matrixWorld);
+            mu.oldScale.value.set(cam.projectionMatrix.elements[0], cam.projectionMatrix.elements[5]);
+            mu.cameraNear.value = cam.near; mu.cameraFar.value = cam.far;
+        } else {
+            cam.updateMatrixWorld();
+            mu.newView.value.copy(cam.matrixWorldInverse);
+            mu.newProj.value.copy(cam.projectionMatrix);
+        }
+        mu.oldWorld.value.copy(this.fgCam);
+        mu.tColor.value = this.fgTex;
+        mu.tDepth.value = this.scenePass.sceneRT.depthTexture;
+        mu.warp.value = generated ? 1 : 0;
+        const up = g.upscaler && g.upscaler.active ? g.upscaler : null;
+        r.toneMapping = THREE.NoToneMapping;
+        r.setRenderTarget(up ? this.fgRT : null);
+        this.fgQuad.render(r);
+        if (up) up.present(this.fgRT.texture);
+    }
+
+    disposeFG() {
+        if (this.fgRT) { this.fgRT.dispose(); this.fgRT = null; }
+        this.fgCam = null; this.fgTex = null;
     }
 
     // The shadow map is a second full geometry pass. Refresh it every frame while the frame is cheap, every 2nd/3rd when it is not.
@@ -370,8 +475,10 @@ class RTXPipeline {
         const dt = Math.min(dtMs, 250);
         this.ema = this.ema ? this.ema * 0.9 + dt * 0.1 : dt;
         if (this.cool > 0) { this.cool--; return; }
-        if (this.ema > 38) { this.slowFrames++; this.fastFrames = 0; }
-        else if (this.ema < 22) { this.fastFrames++; this.slowFrames = 0; }
+        if (this.cfg.dynRes === false) return;
+        const slowAt = 1150 / this.cfg.targetFps, fastAt = 660 / this.cfg.targetFps;     // 30 fps -> 38 ms / 22 ms
+        if (this.ema > slowAt) { this.slowFrames++; this.fastFrames = 0; }
+        else if (this.ema < fastAt) { this.fastFrames++; this.slowFrames = 0; }
         else { this.slowFrames = 0; this.fastFrames = 0; }
         if (this.slowFrames > 24) {
             this.slowFrames = 0; this.cool = 45;
@@ -431,7 +538,7 @@ class RTXPipeline {
                 on = 1;
             }
         }
-        u.strength.value = on ? 0.14 : 0.0;
+        u.strength.value = on ? 0.14 * this.cfg.godrayStrength : 0.0;
         this.godrays.enabled = !!on;
     }
 
@@ -552,6 +659,20 @@ RTXPipeline.loadParts = function () {
     try { Object.assign(o, JSON.parse(localStorage.getItem('eblankraft_rtx_parts') || '{}')); } catch (e) {}
     return o;
 };
+
+RTXPipeline.CFG_DEFAULTS = {
+    exposure: 1.05, contrast: 1.08, vibrance: 0.22,
+    bloomStrength: 0.6, bloomRadius: 0.55, bloomThreshold: 2.2,
+    godrayStrength: 1, sunElevation: 21, sunIntensity: 1.2, shadowBias: -0.0005,
+    aoRadius: 1.1, aoIntensity: 1.25, ssrOpacity: 0.55, ssrDistance: 40, pomDepth: 1,
+    dynRes: true, targetFps: 30, minScale: 0.5, frameGen: false
+};
+RTXPipeline.loadCfg = function () {
+    const o = Object.assign({}, RTXPipeline.CFG_DEFAULTS);
+    try { Object.assign(o, JSON.parse(localStorage.getItem('eblankraft_rtx_cfg') || '{}')); } catch (e) {}
+    return o;
+};
+window.RTX_POM = window.RTX_POM || { value: 1 };
 
 RTXPipeline.depthSupported = function (r) {
     try { return !!(r.capabilities.isWebGL2 || r.extensions.has('WEBGL_depth_texture')); } catch (e) { return false; }

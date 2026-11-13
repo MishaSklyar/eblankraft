@@ -72,6 +72,7 @@ class Game {
         if (this.upscaler) { let m = 'off'; try { m = localStorage.getItem('eblankraft_upscaler') || 'off'; } catch (e) {} this.upscaler.setMode(m); }
         this.rtx = (typeof RTXPipeline !== 'undefined') ? new RTXPipeline(this) : null;
         if (this.rtx && this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
+        this.rtxGui = (typeof RTXGui !== 'undefined') ? new RTXGui(this) : null;   // Alt+X panel
 
         this.lastTime = performance.now();
         this.animate = this.animate.bind(this);
@@ -1025,6 +1026,8 @@ class Game {
             if (this.upscaler && this.upscaler.active) this.upscaler.renderScene();
             else this.renderer.render(this.scene, this.camera);
         }
+        if (this.__onnxSnap) this.__onnxSnap(this.renderer.domElement);
+        if (this.rtxOnnx && this.rtxOnnx.live) this.rtxOnnx.onFrame(this.renderer.domElement);
         const renderedAt = performance.now();
         this.lastRenderSubmitTime = renderedAt - renderStarted;
         this.lastFrameCpuTime = renderedAt - now;
