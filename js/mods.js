@@ -1948,7 +1948,8 @@ class Vehicle {
 
         // Camera FOV Kick during Nitro
         if (this.game.camera) {
-            const targetFOV = this.isNitro ? 84 : 72;
+            const baseFov = this.game.fovSetting || 72;
+            const targetFOV = this.isNitro ? baseFov + 12 : baseFov;
             if (Math.abs(this.game.camera.fov - targetFOV) > 0.2) {
                 this.game.camera.fov += (targetFOV - this.game.camera.fov) * dt * 5;
                 this.game.camera.updateProjectionMatrix();

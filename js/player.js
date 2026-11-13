@@ -771,7 +771,7 @@ class Player {
         if (this.gunReload && this.gunReload.item !== it) this.gunReload = null;
         if (this.isScoped && ITEM_REGISTRY[it?.itemId]?.gunType !== 'awp') {
             this.isScoped = false;
-            this.setFOV(72);
+            this.setFOV(this.game?.fovSetting || 72);
         }
         if (!this.itemPivot) return;
         if (this.mcModel?.itemContainer) {
@@ -2305,7 +2305,9 @@ class Player {
             if (isGroundedNow) {
                 this.timeSinceGrounded = 0;
                 this.onGround = true;
+                this.bhopGroundTimer = (this.bhopGroundTimer || 0) + dt;
             } else {
+                this.bhopGroundTimer = 0;
                 this.timeSinceGrounded += dt;
             }
 
@@ -2317,6 +2319,11 @@ class Player {
                 let jumpPower = (this.physJumpPower ?? 8.5);
                 const skin = (window.SKINS_REGISTRY && this.game.upgrader) ? window.SKINS_REGISTRY[this.game.upgrader.equippedSkin] : null;
                 if (skin && skin.buffs && skin.buffs.jumpMult) jumpPower *= skin.buffs.jumpMult;
+                // Anti-bhop #2: the first jump is full, chained hops (re-jumping right after landing) are lower
+                if (this.bunnyhop) {
+                    this.bhopChain = (this.bhopGroundTimer || 0) < 0.12 ? (this.bhopChain || 0) + 1 : 0;
+                    if (this.bhopChain >= 1) jumpPower *= (this.bhopChainJumpMult ?? 0.75);
+                } else this.bhopChain = 0;
 
                 this.velocity.y = jumpPower;
                 this.onGround = false;
@@ -2331,9 +2338,9 @@ class Player {
             // CS 1.6 style anti-bhop: touching the ground above the speed limit drops you to run/walk speed
             if (this.bunnyhop && jumpedThisFrame && isGroundedNow && !this.isFlying) {
                 const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-                const limit = (this.bhopSpeedLimit ?? 10.5);
+                const limit = (this.bhopSpeedLimit ?? 8.5);
                 if (hSpeed > limit) {
-                    const cap = baseSpeed / hSpeed;
+                    const cap = (baseSpeed * (this.bhopPenaltySpeedMult ?? 0.92)) / hSpeed;   // a bit under sprint/walk speed
                     this.velocity.x *= cap;
                     this.velocity.z *= cap;
                 }
