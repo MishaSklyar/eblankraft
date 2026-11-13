@@ -498,7 +498,7 @@ class UIManager {
         if (!contentContainer) return;
         contentContainer.innerHTML = '';
         contentContainer.scrollTop = 0;
-        document.querySelector('.inventory-full-modal')?.classList.remove('inv-wide');
+        this.hideInvWindows();
 
         switch (this.currentTab) {
             case 'inventory':
@@ -516,6 +516,50 @@ class UIManager {
         }
     }
 
+    // Floating window helpers for the Craft / Upgrader panels
+    getInvWindow(key, title, cls) {
+        this.invWins = this.invWins || {};
+        if (this.invWins[key] && this.invWins[key].isConnected) return this.invWins[key].body;
+        const modal = document.getElementById('inventory-modal');
+        const win = document.createElement('div');
+        win.className = 'inv2-window ' + cls;
+        win.innerHTML = `<div class="inv2-win-head"><span>${title}</span><button class="btn-close" title="Закрити">✖</button></div><div class="inv2-win-body"></div>`;
+        const body = win.querySelector('.inv2-win-body');
+        win.body = body;
+        win.querySelector('.btn-close').onclick = () => {
+            (this.invPanels || {})[key] = false;
+            this.renderCurrentTab();
+        };
+        const head = win.querySelector('.inv2-win-head');
+        head.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button')) return;
+            const r = win.getBoundingClientRect();
+            const dx = e.clientX - r.left, dy = e.clientY - r.top;
+            win.style.left = r.left + 'px'; win.style.top = r.top + 'px'; win.style.right = 'auto'; win.style.transform = 'none';
+            const move = (ev) => {
+                win.style.left = Math.max(0, Math.min(window.innerWidth - 80, ev.clientX - dx)) + 'px';
+                win.style.top = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - dy)) + 'px';
+            };
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+            e.preventDefault();
+        });
+        (modal || document.body).appendChild(win);
+        this.invWins[key] = win;
+        return body;
+    }
+
+    setInvWindowOpen(key, open) {
+        const win = this.invWins && this.invWins[key];
+        if (win) win.style.display = open ? 'flex' : 'none';
+    }
+
+    hideInvWindows() {
+        this.setInvWindowOpen('craft', false);
+        this.setInvWindowOpen('upgrader', false);
+    }
+
     // 1. Inventory tab: armor + totem slots, 3x3 crafting grid, backpack, recipe list and the Upgrader wheel
     renderInventoryTab(container) {
         const player = this.player;
@@ -524,10 +568,9 @@ class UIManager {
 
         const wrapper = document.createElement('div');
         wrapper.className = 'tab-backpack-wrapper inv2-wrap';
-        // Toolbar: buttons that open the Craft / Upgrader panels on the sides
+        // Toolbar: buttons that open the Craft / Upgrader windows
         const bar = document.createElement('div');
         bar.className = 'inv2-bar';
-        const modalEl = document.querySelector('.inventory-full-modal');
         const mkBtn = (key, label) => {
             const b = document.createElement('button');
             b.className = 'menu-btn inv2-panel-btn' + (panels[key] ? ' btn-primary' : '');
@@ -538,20 +581,19 @@ class UIManager {
         bar.appendChild(mkBtn('craft', '🔨 Крафт'));
         bar.appendChild(mkBtn('upgrader', '🎰 Upgrader'));
         wrapper.appendChild(bar);
-        if (modalEl) modalEl.classList.toggle('inv-wide', !!(panels.craft || panels.upgrader));
-
-        const layout = document.createElement('div');
-        layout.className = 'inv2-layout';
-        wrapper.appendChild(layout);
-        const craftSide = document.createElement('aside');
-        craftSide.className = 'inv2-side inv2-side-left';
         const top = document.createElement('div');
         top.className = 'inv2-main';
-        const upgSide = document.createElement('aside');
-        upgSide.className = 'inv2-side inv2-side-right';
-        if (panels.craft) layout.appendChild(craftSide);
-        layout.appendChild(top);
-        if (panels.upgrader) layout.appendChild(upgSide);
+        wrapper.appendChild(top);
+
+        // Craft and Upgrader live in their own floating windows (draggable, closable)
+        const craftSide = this.getInvWindow('craft', '🔨 Крафт', 'inv2-win-left');
+        const upgSide = this.getInvWindow('upgrader', '🎰 Upgrader', 'inv2-win-right');
+        this.setInvWindowOpen('craft', !!panels.craft);
+        this.setInvWindowOpen('upgrader', !!panels.upgrader);
+        craftSide.innerHTML = '';
+        upgSide.innerHTML = '';
+        const craftHolder = document.createElement('div');
+        if (panels.craft) craftSide.appendChild(craftHolder);
 
         // --- slot access helpers: ref = { kind: 'inv'|'grid'|'armor'|'totem'|'out', idx } ---
         const refKey = (r) => r ? r.kind + ':' + r.idx : '';
@@ -670,7 +712,6 @@ class UIManager {
 
         const renderTop = () => {
             top.innerHTML = '';
-            craftSide.innerHTML = '';
 
             // --- Equipment column ---
             const equip = document.createElement('div');
@@ -750,7 +791,8 @@ class UIManager {
             btnClearGrid.textContent = '↩ Забрати з сітки';
             btnClearGrid.onclick = () => { player.returnCraftGrid(); changed(); };
             craft.appendChild(btnClearGrid);
-            if (panels.craft) craftSide.appendChild(craft);
+            craftHolder.innerHTML = '';
+            craftHolder.appendChild(craft);
 
             // --- Backpack ---
             const pack = document.createElement('div');
@@ -1581,6 +1623,7 @@ class UIManager {
         this.inventoryOpen = forceState !== null ? forceState : !this.inventoryOpen;
         modal.style.display = this.inventoryOpen ? 'flex' : 'none';
         if (!this.inventoryOpen) {
+            this.hideInvWindows();
             this.invSel = null;
             this.player.returnCraftGrid();
             this.initHotbar();

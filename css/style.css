@@ -6755,14 +6755,9 @@ body.is-preloading #mining-progress-container {
 .rtx-part small { white-space: normal; }
 
 /* Merged inventory tab: backpack + armor in the middle, Craft / Upgrader panels open on the sides */
-.inventory-full-modal.inv-wide { max-width: min(98vw, 1180px); }
 .inv2-bar { display: flex; gap: 8px; margin-bottom: 10px; }
 .inv2-panel-btn { flex: 1; }
-.inv2-layout { display: flex; gap: 12px; align-items: flex-start; }
 .inv2-main { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-.inv2-side { flex: 0 0 auto; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid #383844; border-radius: 8px; padding: 8px; }
-.inv2-side-left { width: 270px; }
-.inv2-side-right { flex: 1 1 420px; max-width: 560px; }
 .inv2-main .backpack-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
 .inv2-pack { min-width: 0; }
 .inv2-equip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -6783,12 +6778,19 @@ body.is-preloading #mining-progress-container {
 .inv2-section { margin-top: 10px; border: 1px solid #383844; border-radius: 6px; padding: 4px 8px; }
 .inv2-section > summary { cursor: pointer; font-weight: bold; color: #ffd700; padding: 4px 0; user-select: none; }
 .inv2-section-body { margin-top: 8px; }
-.inv2-side .gg-wrap { grid-template-columns: 1fr; }
-.inv2-side .gg-center { order: -1; }
 @media (max-width: 800px) {
-    .inv2-layout { flex-direction: column; }
-    .inv2-side, .inv2-side-left, .inv2-side-right { width: 100%; max-width: none; flex: none; }
-    .inv2-main { order: -1; flex: none; width: 100%; }
-    .inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 42px; height: 42px; min-width: 42px; }
+            .inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 42px; height: 42px; min-width: 42px; }
     .inv2-craft-grid { grid-template-columns: repeat(3, 42px); }
+}
+
+/* Floating Craft / Upgrader windows */
+.inv2-window { position: fixed; top: 50%; transform: translateY(-50%); z-index: 10001; display: none; flex-direction: column; max-height: 88vh; background: rgba(20,20,25,0.98); border: 2px solid #555566; border-radius: 10px; box-shadow: 0 0 35px rgba(0,0,0,0.85); }
+.inv2-win-left { left: 8px; width: 300px; }
+.inv2-win-right { right: 8px; width: min(560px, 46vw); }
+.inv2-win-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; cursor: move; font-weight: bold; color: #ffd700; border-bottom: 1px solid #383844; user-select: none; touch-action: none; }
+.inv2-win-body { padding: 10px; overflow-y: auto; touch-action: pan-y; }
+.inv2-window .gg-wrap { grid-template-columns: 1fr; }
+.inv2-window .gg-center { order: -1; }
+@media (max-width: 800px) {
+    .inv2-window { left: 4px !important; right: 4px !important; width: auto; top: 6vh !important; transform: none !important; }
 }
