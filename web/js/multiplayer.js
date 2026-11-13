@@ -552,7 +552,7 @@ class MultiplayerManager {
         const btnCopyCode = document.getElementById('btn-mp-copy-code');
         if (btnCopyCode) {
             btnCopyCode.onclick = () => {
-                const roomCode = this.hostConnection?.peer || this.peerId;
+                const roomCode = MultiplayerManager.peerIdToCode(this.hostConnection?.peer || this.peerId);
                 if (roomCode) {
                     navigator.clipboard.writeText(roomCode).then(() => {
                         this.showToast('📋 Код кімнати скопійовано!');
@@ -567,7 +567,7 @@ class MultiplayerManager {
         const btnCopyLink = document.getElementById('btn-mp-copy-link');
         if (btnCopyLink) {
             btnCopyLink.onclick = () => {
-                const roomCode = this.hostConnection?.peer || this.peerId;
+                const roomCode = MultiplayerManager.peerIdToCode(this.hostConnection?.peer || this.peerId);
                 if (roomCode) {
                     const url = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
                     navigator.clipboard.writeText(url).then(() => {
@@ -778,16 +778,19 @@ class MultiplayerManager {
         this.game.arenaClient.connect(code);
     }
 
+    // Friendly share codes: "eblan-1234". On the PeerJS network they live under a longer, unlikely-to-clash id.
+    static codeToPeerId(code) { return 'eblankraft-' + String(code).trim().toLowerCase(); }
+    static peerIdToCode(id) { return String(id || '').replace(/^eblankraft-/, ''); }
+    static newWorldCode() { return 'eblan-' + (1000 + crypto.getRandomValues(new Uint32Array(1))[0] % 9000); }
+
     startWorldHost() {
         if (!this.game.world || this.game.ui?.mainMenuOpen || this.game.serverClient?.currentRoom || this.game.arenaClient?.isActive) {
             this.showToast('Спочатку відкрийте одиночний світ, який хочете хостити.');
             return;
         }
         this.disconnect();
-        const bytes = new Uint8Array(8);
-        crypto.getRandomValues(bytes);
-        const code = 'world-' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-        this.openWorldPeer(code);
+        this.codeAttempts = 0;
+        this.openWorldPeer(MultiplayerManager.codeToPeerId(MultiplayerManager.newWorldCode()));
     }
 
     openWorldPeer(code, hostCode = null) {
@@ -805,7 +808,7 @@ class MultiplayerManager {
             if (!hostCode) {
                 this.isConnecting = false;
                 this.isConnected = true;
-                this.updateConnectedUI(true, id, true);
+                this.updateConnectedUI(true, MultiplayerManager.peerIdToCode(id), true);
                 this.updatePlayerCount();
                 this.announceMobOwner();
                 return;
@@ -816,7 +819,7 @@ class MultiplayerManager {
                 if (this.peer !== peer) return;
                 this.isConnecting = false;
                 this.isConnected = true;
-                this.updateConnectedUI(true, hostCode, false);
+                this.updateConnectedUI(true, MultiplayerManager.peerIdToCode(hostCode), false);
             });
             conn.on('data', data => {
                 if (this.peer === peer) this.handlePacket(data, conn.peer);
@@ -832,10 +835,17 @@ class MultiplayerManager {
             if (this.peer !== peer || hostCode) { conn.close(); return; }
             this.setupHostClientConnection(conn);
         });
-        peer.on('error', () => {
+        peer.on('error', (err) => {
             if (this.peer !== peer) return;
+            // Someone already uses that code: just draw another one.
+            if (!hostCode && err && err.type === 'unavailable-id' && (this.codeAttempts = (this.codeAttempts || 0) + 1) < 12) {
+                this.peer = null;
+                try { peer.destroy(); } catch (e) {}
+                this.openWorldPeer(MultiplayerManager.codeToPeerId(MultiplayerManager.newWorldCode()));
+                return;
+            }
             this.disconnect();
-            this.showToast('Помилка з’єднання зі світом. Перевірте код і мережу.');
+            this.showToast(err && err.type === 'peer-unavailable' ? 'Світ із таким кодом не знайдено.' : 'Помилка з’єднання зі світом. Перевірте код і мережу.');
         });
         peer.on('disconnected', () => { if (this.peer === peer) this.disconnect(); });
     }
@@ -888,10 +898,11 @@ class MultiplayerManager {
 
     joinRoom(roomCode) {
         roomCode = String(roomCode).trim();
-        if (/^world-[a-f0-9]{16}$/.test(roomCode)) {
+        const shortCode = /^eblan-\d{4}$/i.test(roomCode), fullId = /^eblankraft-eblan-\d{4}$/i.test(roomCode);
+        if (shortCode || fullId || /^world-[a-f0-9]{16}$/.test(roomCode)) {
             this.disconnect();
             if (this.game.serverClient) this.game.serverClient.leaveRoom();
-            this.openWorldPeer(null, roomCode);
+            this.openWorldPeer(null, shortCode ? MultiplayerManager.codeToPeerId(roomCode) : roomCode.toLowerCase());
             return;
         }
         if (this.game.serverClient) this.game.serverClient.leaveRoom();
@@ -1101,9 +1112,12 @@ class MultiplayerManager {
             case 'mob_owner': if (!this.isHost) this.mobs?.handleOwner(data); break;
             case 'mob_sync': if (!this.isHost) this.mobs?.handleSync(data); break;
             case 'mob_hit': if (this.isHost) this.mobs?.handleHit({ ...data, from: senderPeerId }); break;
+            case 'boss_sync': if (!this.isHost) this.mobs?.handleBoss(data); break;
+            case 'boss_hit': if (this.isHost) this.mobs?.handleBossHit(data); break;
+            case 'crystal_hit': if (this.isHost) this.mobs?.handleCrystalHit(data); break;
             case 'mob_damage': {
                 const p = this.game.player;
-                if (p && Number.isFinite(data.amount)) p.takeDamage(Math.min(40, data.amount), data.reason || 'Тебе вбив моб!');
+                if (p && Number.isFinite(data.amount)) p.takeDamage(Math.min(60, data.amount), data.reason || 'Тебе вбив моб!');
                 break;
             }
             case 'item_drop': {

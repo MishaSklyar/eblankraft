@@ -18,6 +18,7 @@ class CoopMobs {
         this.syncTimer = 0;
         this.proxies = new Map();
         this.dim = null;
+        this.nextFireId = 1;
     }
 
     get game() { return this.client.game; }
@@ -37,6 +38,7 @@ class CoopMobs {
         for (const m of mgr.mobs) if (!m.isScriptBot) m.die(false);
         mgr.mobs = mgr.mobs.filter(m => !m.isDead);
         mgr._lootSink = null;
+        mgr.clearBoss?.();
     }
 
     onDimensionChange() { this.reset(); this.clearMobs(); }
@@ -86,7 +88,7 @@ class CoopMobs {
         if (!p || p.rp !== rp) {
             const client = this.client;
             p = { id, rp, camera: null, isDead: false, iq: 0, game: this.game, addItem: () => 0,
-                takeDamage: (amount, reason) => client.sendRaw({ type: 'mob_attack', target_id: id, amount: Math.min(40, Math.max(1, +amount || 1)), reason }) };
+                takeDamage: (amount, reason) => client.sendRaw({ type: 'mob_attack', target_id: id, amount: Math.min(60, Math.max(1, +amount || 1)), reason }) };
             Object.defineProperty(p, 'position', { get: () => rp.group.position });
             this.proxies.set(id, p);
         }
@@ -105,6 +107,92 @@ class CoopMobs {
                 hp: Math.max(0, m.health), wc: m.walkCycle || 0 });
         }
         this.client.sendRaw({ type: 'mob_sync', dim: this.dim, mobs });
+        if (this.dim === 'the_end' || mgr.dragon) this.client.sendRaw(this.bossSnapshot(mgr));
+    }
+
+    // ---- the Ender Dragon: the owner simulates it, everybody else mirrors it ----
+    bossSnapshot(mgr) {
+        const d = mgr.dragon;
+        const dragon = d && d.mesh && !d.isPuppet ? { x: d.mesh.position.x, y: d.mesh.position.y, z: d.mesh.position.z,
+            q: [d.mesh.quaternion.x, d.mesh.quaternion.y, d.mesh.quaternion.z, d.mesh.quaternion.w], hp: d.health, dead: !!d.isDead } : null;
+        const fireballs = mgr.fireballs.filter(f => !f.exploded && !f.isPuppet).slice(0, 16)
+            .map(f => [f.netId ??= this.nextFireId++, f.position.x, f.position.y, f.position.z]);
+        return { type: 'boss_sync', dim: this.dim, dragon, fireballs, crystals: mgr.crystals.filter(c => !c.isDestroyed).map(c => c.netId) };
+    }
+
+    hookDragon(d) {
+        d.takeDamage = (amount) => {
+            if (d.isDead) return;
+            d.soundManager?.playDragonRoar?.();
+            this.client.sendRaw({ type: 'boss_hit', damage: Math.min(500, Math.max(0, +amount || 0)) });
+        };
+        d.heal = () => {};
+    }
+    hookCrystal(c) {
+        if (c._netHooked) return;
+        c._netHooked = true;
+        c.takeDamage = () => { if (!c.isDestroyed) this.client.sendRaw({ type: 'crystal_hit', id: c.netId }); };
+    }
+
+    handleBoss(msg) {
+        const mgr = this.game.mobManager;
+        if (this.role() !== 'puppet' || !mgr || msg.dim !== (this.game.world?.dimension || 'overworld')) return;
+        const e = msg.dragon;
+        let d = mgr.dragon;
+        if (e) {
+            if (d && !d.isPuppet) { mgr.clearBoss(); d = null; }          // a local dragon we started before the host's
+            if (!d && !e.dead) { d = mgr.spawnPuppetDragon(); this.hookDragon(d); d.mesh.position.set(e.x, e.y, e.z); }
+            if (d) {
+                d.target = e; d.health = e.hp;
+                if (e.dead && !d.isDead) this.puppetDragonDied(d);
+            }
+        } else if (d?.isPuppet && !d.isDead) {
+            mgr.clearBoss();
+        }
+        // fireballs
+        const seen = new Set();
+        for (const [id, x, y, z] of Array.isArray(msg.fireballs) ? msg.fireballs : []) {
+            seen.add(id);
+            let f = mgr.fireballs.find(o => o.isPuppet && o.netId === id);
+            if (!f) {
+                f = new DragonFireball(x, y, z, new THREE.Vector3(), mgr.scene, this.game);
+                f.isPuppet = true; f.netId = id; mgr.fireballs.push(f);
+            }
+            f.target = new THREE.Vector3(x, y, z);
+        }
+        for (const f of mgr.fireballs) if (f.isPuppet && !seen.has(f.netId)) f.explode();
+        // crystals: ours are generated identically from the seed; the host decides which are gone
+        const alive = new Set(msg.crystals || []);
+        for (const c of mgr.crystals) {
+            this.hookCrystal(c);
+            if (!c.isDestroyed && c.netId !== undefined && !alive.has(c.netId)) {
+                c.isDestroyed = true;
+                this.game.particleSystem?.spawnExplosionParticles?.(c.group.position.x, c.group.position.y, c.group.position.z, 40);
+                c.soundManager?.playExplosion?.();
+                c.destroy();
+            }
+        }
+    }
+
+    puppetDragonDied(d) {
+        d.isDead = true;
+        d.soundManager?.playExplosion?.();
+        d.soundManager?.speakRandomMeme?.(['ЄБЛАН ДРАКОН ПОВЕРЖЕНИЙ!', 'ТАК! ТИ ПЕРЕМІГ ДРАКОНА!']);
+        if (this.game.player) this.game.player.iq += 1000;
+        for (let i = 0; i < 6; i++) setTimeout(() => {
+            if (d.mesh) this.game.particleSystem?.spawnExplosionParticles?.(d.mesh.position.x + (Math.random() - 0.5) * 6, d.mesh.position.y + (Math.random() - 0.5) * 4, d.mesh.position.z + (Math.random() - 0.5) * 6, 60);
+        }, i * 350);
+        setTimeout(() => { if (d.mesh) { d.scene.remove(d.mesh); d.mesh = null; } }, 2200);
+    }
+
+    // The owner takes the guests' hits on the real dragon and crystals.
+    handleBossHit(msg) {
+        const d = this.game.mobManager?.dragon;
+        if (this.role() === 'owner' && d && !d.isPuppet && !d.isDead && Number.isFinite(msg.damage)) d.takeDamage(Math.min(500, Math.max(0, msg.damage)));
+    }
+    handleCrystalHit(msg) {
+        const c = this.game.mobManager?.crystals.find(o => o.netId === msg.id && !o.isDestroyed);
+        if (this.role() === 'owner' && c) c.takeDamage(10);
     }
 
     // A remote player hit one of our mobs.

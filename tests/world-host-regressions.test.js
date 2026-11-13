@@ -40,15 +40,18 @@ for (const directory of ['js', 'web/js']) {
         const host = make(), world = game.world;
         host.startWorldHost();
         assert.equal(game.world, world);
+        const taken = peers.at(-1), before = peers.length;
+        taken.emit('error', { type: 'unavailable-id' });                    // code already in use: silently draw another
+        assert.equal(peers.length, before + 1);
         const peer = peers.at(-1);
-        assert.match(peer.id, /^world-[a-f0-9]{16}$/);
+        assert.match(peer.id, /^eblankraft-eblan-\d{4}$/);
         peer.emit('open', peer.id);
         assert.equal(host.isHost, true);
         const conn = new Events(); conn.peer = 'friend'; conn.send = data => { conn.packet = data; }; conn.close = () => {};
         peer.emit('connection', conn); conn.emit('open');
         assert.equal(conn.packet.seed, 42);
         assert.equal(conn.packet.mods, mods);
-        const friend = make(); friend.joinRoom(peer.id);
+        const friend = make(); friend.joinRoom(peer.id.replace('eblankraft-', '').toUpperCase());   // friends type the short code, any case
         const clientPeer = peers.at(-1); clientPeer.emit('open', 'friend');
         assert.equal(clientPeer.conn.peer, peer.id);
         clientPeer.conn.emit('open'); clientPeer.conn.emit('data', conn.packet);

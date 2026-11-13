@@ -1173,6 +1173,12 @@ class DragonFireball {
 
     update(dt, player, world) {
         if (this.exploded) return;
+        // Mirrored from the host: just follow its position, damage is the host's business.
+        if (this.isPuppet) {
+            if (this.target) this.position.lerp(this.target, Math.min(1, dt * 20));
+            if (this.mesh) this.mesh.position.copy(this.position);
+            return;
+        }
         this.age += dt;
         if (this.age > 8) {
             this.destroy();
@@ -1313,7 +1319,23 @@ class EblanDragonBoss {
         this.scene.add(this.mesh);
     }
 
+    // Shared world guest: follow the host's dragon, no AI, no attacks.
+    updatePuppet(dt) {
+        if (this.isDead || !this.mesh) return;
+        this.wingFlap += dt * 5.0;
+        const flap = Math.sin(this.wingFlap) * 0.45;
+        this.leftWingGroup.rotation.z = flap;
+        this.rightWingGroup.rotation.z = -flap;
+        const t = this.target;
+        if (t) {
+            const k = 1 - Math.exp(-10 * dt);
+            this.mesh.position.lerp(new THREE.Vector3(t.x, t.y, t.z), k);
+            this.mesh.quaternion.slerp(new THREE.Quaternion(t.q[0], t.q[1], t.q[2], t.q[3]), k);
+        }
+    }
+
     update(dt, player, fireballsList) {
+        if (this.isPuppet) return this.updatePuppet(dt);
         if (this.isDead) return;
 
         // Wing flapping
@@ -1403,10 +1425,14 @@ class EblanDragonBoss {
         // Spawn Dragon drops at island center
         const mgr = this.game.mobManager;
         if (mgr) {
-            mgr.spawnItemDrop(0, 16, 0, ITEM_TYPES.DRAGON_EGG, 1);
-            mgr.spawnItemDrop(1, 16, 0, ITEM_TYPES.CASE_DRAGON, 1);
-            mgr.spawnItemDrop(-1, 16, 0, ITEM_TYPES.NETHERITE_BLOCK, 4);
-            mgr.spawnItemDrop(0, 16, 1, ITEM_TYPES.EBLAN_BLOCK, 8);
+            const drops = () => {
+                mgr.spawnItemDrop(0, 16, 0, ITEM_TYPES.DRAGON_EGG, 1);
+                mgr.spawnItemDrop(1, 16, 0, ITEM_TYPES.CASE_DRAGON, 1);
+                mgr.spawnItemDrop(-1, 16, 0, ITEM_TYPES.NETHERITE_BLOCK, 4);
+                mgr.spawnItemDrop(0, 16, 1, ITEM_TYPES.EBLAN_BLOCK, 8);
+            };
+            const net = _coopMobs(this.game);
+            if (net) net.shareLoot(mgr, drops); else drops();   // shared world: the whole room gets the rewards
         }
 
         // Activate End Exit Portal in fountain
@@ -1467,12 +1493,22 @@ class MobManager {
         this.mobs = [];
         this.itemDrops = [];
         this.crystals = [];
+        this.crystalSeq = 0;
         this.fireballs = [];
         this.dragon = null;
         this.spawnTimer = 0;
     }
 
+    // Remove the dragon and its fireballs (not the crystals, which are part of the End terrain).
+    clearBoss() {
+        for (const f of this.fireballs) f.destroy();
+        this.fireballs = [];
+        if (this.dragon?.mesh) this.scene.remove(this.dragon.mesh);
+        this.dragon = null;
+    }
+
     clearAll() {
+        this.crystalSeq = 0;
         for (let m of this.mobs) m.die(false);
         this.mobs = [];
         for (let d of this.itemDrops) d.destroy();
@@ -1611,14 +1647,24 @@ class MobManager {
 
     spawnEndCrystal(x, y, z) {
         const cr = new EndCrystal(x, y, z, this.scene, this.textureManager, this.soundManager, this.game);
+        cr.netId = this.crystalSeq++;
         this.crystals.push(cr);
         return cr;
     }
 
     spawnDragon() {
         if (this.dragon && this.dragon.mesh) return;
-        if (this.game.serverClient?.engineAuthority) return; // the boss is not synced between players yet
+        if (this.game.serverClient?.engineAuthority) return; // server rooms do not run the boss
+        // A guest in a shared world mirrors the host's dragon instead of running a second one.
+        const net = _coopMobs(this.game);
+        if (net && net.role() === 'puppet') return;
         this.dragon = new EblanDragonBoss(this.scene, this.textureManager, this.soundManager, this.game);
+    }
+
+    spawnPuppetDragon() {
+        this.dragon = new EblanDragonBoss(this.scene, this.textureManager, this.soundManager, this.game);
+        this.dragon.isPuppet = true;
+        return this.dragon;
     }
 
     applyCreativeMobSetting(player = this.game.player) {
@@ -1706,7 +1752,7 @@ class MobManager {
         // Update fireballs
         for (let i = this.fireballs.length - 1; i >= 0; i--) {
             const f = this.fireballs[i];
-            f.update(dt, player, world);
+            f.update(dt, role === 'owner' && !f.isPuppet ? net.nearestTarget(f.position, player) : player, world);
             if (f.exploded || f.age > 8) {
                 this.fireballs.splice(i, 1);
             }
@@ -1714,7 +1760,9 @@ class MobManager {
 
         // Update dragon
         if (this.dragon) {
-            this.dragon.update(dt, player, this.fireballs);
+            const bossTarget = role === 'owner' && this.dragon.mesh && !this.dragon.isPuppet
+                ? net.nearestTarget(this.dragon.mesh.position, player) : player;
+            this.dragon.update(dt, bossTarget, this.fireballs);
             if (this.dragon.isDead && !this.dragon.mesh) {
                 this.dragon = null;
             }
