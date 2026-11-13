@@ -79,6 +79,11 @@
     </script>
     <link rel="stylesheet" href="css/style.css?v=4.6-touch">
     <link rel="stylesheet" href="css/addons.css?v=1">
+    <link rel="stylesheet" href="css/ui2.css?v=1">
+    <script>
+        /* UI Mode 2: apply before first paint so the old UI never flashes */
+        try { if (localStorage.getItem('eblankraft_ui_mode') === '2') document.documentElement.classList.add('ui2'); } catch (e) {}
+    </script>
 </head>
 <body class="in-main-menu">
     <!-- 3D WebGL Canvas Container -->
@@ -897,6 +902,17 @@
             <div class="menu-body">
                 <!-- GAME -->
                 <section class="menu-panel active" data-menu-panel="game">
+                    <div class="menu-card ui-mode-card">
+                        <div class="menu-row">
+                            <label for="select-ui-mode">🎨 Режим інтерфейсу (UI Mode)</label>
+                            <select id="select-ui-mode">
+                                <option value="1">UI Mode 1 — Класичний</option>
+                                <option value="2">UI Mode 2 — Aurora Glass</option>
+                            </select>
+                        </div>
+                        <p class="menu-setting-note">Mode 2 — оновлений вигляд усіх меню, HUD, інвентарю та кнопок. Застосовується миттєво.</p>
+                    </div>
+
                     <div class="menu-card">
                         <div class="menu-row">
                             <label for="select-world-type">🌍 Тип світу</label>
@@ -1593,6 +1609,22 @@
     </dialog>
     <script src="js/debug.js?v=3" defer></script>
     <script src="js/bug_report.js?v=2" defer></script>
+<script>
+(function(){
+  var sel = document.getElementById('select-ui-mode');
+  if (!sel) return;
+  var root = document.documentElement;
+  var cur = '1';
+  try { cur = localStorage.getItem('eblankraft_ui_mode') === '2' ? '2' : '1'; } catch (e) {}
+  sel.value = cur;
+  sel.addEventListener('change', function(){
+    var mode = sel.value === '2' ? '2' : '1';
+    root.classList.toggle('ui2', mode === '2');
+    try { localStorage.setItem('eblankraft_ui_mode', mode); } catch (e) {}
+    window.dispatchEvent(new CustomEvent('eblankraft:uimode', { detail: mode }));
+  });
+})();
+</script>
 <script>
 (function(){
   document.addEventListener('click', function(e){
