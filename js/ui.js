@@ -3922,7 +3922,7 @@ class UIManager {
 
         const buttonsEl = document.getElementById('touch-action-buttons');
         const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
+        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-dodge', 'btn-tnt'];
 
         // Split buttons handling
         if (this.layout.splitButtons) {
@@ -3954,6 +3954,7 @@ class UIManager {
                         'btn-place':  isLeft ? { left: '130px', bottom: '50px' }  : { right: '130px', bottom: '50px' },
                         'btn-jump':   isLeft ? { left: '25px',  bottom: '50px' }  : { right: '25px',  bottom: '50px' },
                         'btn-sprint': isLeft ? { left: '130px', bottom: '215px' } : { right: '130px', bottom: '215px' },
+                        'btn-dodge':  isLeft ? { left: '75px',  bottom: '215px' } : { right: '75px',  bottom: '215px' },
                         'btn-tnt':    isLeft ? { left: '25px',  bottom: '215px' } : { right: '25px',  bottom: '215px' }
                     };
                     const def = defaults[btnId] || {};
@@ -4091,7 +4092,7 @@ class UIManager {
         const overlay = document.getElementById('hud-drag-overlay');
         const buttonsEl = document.getElementById('touch-action-buttons');
         const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
+        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-dodge', 'btn-tnt'];
 
         if (!overlay) return;
 
@@ -4268,7 +4269,7 @@ class UIManager {
         const overlay = document.getElementById('hud-drag-overlay');
         const buttonsEl = document.getElementById('touch-action-buttons');
         const hotbarEl = document.getElementById('hotbar-container');
-        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-tnt'];
+        const actionButtonIds = ['btn-attack', 'btn-break', 'btn-place', 'btn-jump', 'btn-sprint', 'btn-dodge', 'btn-tnt'];
 
         if (overlay) overlay.style.display = 'none';
         if (buttonsEl) buttonsEl.classList.remove('hud-draggable-active');

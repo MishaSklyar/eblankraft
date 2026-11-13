@@ -6753,3 +6753,20 @@ body.is-preloading #mining-progress-container {
 #rtx-parts.rtx-off .toggle-item { opacity: .45; pointer-events: none; }
 #rtx-parts .menu-toggles-grid { grid-template-columns: 1fr; }
 .rtx-part small { white-space: normal; }
+
+/* Bigger hotbar on touch devices (fits 9 slots on any screen width) */
+@media (pointer: coarse) {
+    .hotbar-slot {
+        width: clamp(34px, calc((100vw - 28px) / 9 - 4px), 56px);
+        height: clamp(34px, calc((100vw - 28px) / 9 - 4px), 56px);
+        min-width: 34px;
+        min-height: 34px;
+    }
+    .slot-icon {
+        width: 74%;
+        height: 74%;
+    }
+    #hotbar-slots { gap: 3px; }
+    #hotbar-container { padding: 4px 6px; max-width: 100vw; }
+}
+body.force-touch .hotbar-slot { min-width: 34px; min-height: 34px; }

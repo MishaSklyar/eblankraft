@@ -1384,7 +1384,7 @@ class Player {
         const reg = ITEM_REGISTRY[item.itemId];
         if (!reg || reg.category !== 'food') return false;
 
-        if (this.hunger >= 100 && this.health >= this.maxHealth) return false;
+        if (this.hunger >= 100 && this.health >= this.maxHealth) { this.game?.ui?.showToast?.('🍗 Ти ситий'); return false; }
 
         this.hunger = Math.min(this.maxHunger, this.hunger + (reg.foodRestore || 20));
         if (reg.hpRestore) this.heal(reg.hpRestore);
