@@ -466,6 +466,11 @@ function handleWebSocketSession(serverWs) {
         }
 
         if (mtype === 'respawn') {
+            // Duels have no respawns. A client can die locally (void, lava, hunger) without the server
+            // knowing, so a "living" client may ask too, but rate-limited so it is no free heal mid-fight.
+            if (room.name.startsWith('duel_')) return;
+            if (client.isAlive && now - (client.lastRespawnTime ?? -Infinity) <= 5) return;
+            client.lastRespawnTime = now;
             client.health = 100.0;
             client.isAlive = true;
             client.invulnerableUntil = now + 1.5;
