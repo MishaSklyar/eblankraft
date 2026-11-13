@@ -3334,6 +3334,19 @@ class UIManager {
         const sc = this.game.serverClient;
         const online = sc && sc.isConnected && sc.currentRoom && !sc.loadingRoom &&
             !this.game.arenaClient?.isActive && !this.isDuelActive;
+        const ac = this.game.arenaClient;
+        if (ac?.isActive && this.player.isDead && ac.mode !== 'dust2') {
+            // Arena server ignores respawn until ~2s after death, so keep asking until revived.
+            clearTimeout(this._respawnRetry);
+            let n = 0;
+            const ask = () => {
+                if (!this.player.isDead || !ac.isActive || ++n > 12) return;
+                ac.requestRespawn();
+                this._respawnRetry = setTimeout(ask, 500);
+            };
+            ask();
+            return;
+        }
         if (!(online && this.player.isDead)) {
             this.player.spawnSafe();
             this.hideDeathScreen();
