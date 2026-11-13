@@ -649,7 +649,8 @@ class Player {
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (Array.isArray(parsed) && parsed.length === 27) {
-                    this.inventory = parsed;
+                    // drop the removed junk items from old saves
+                    this.inventory = parsed.map(st => (st && ITEM_REGISTRY[st.itemId]) ? st : null);
                     return;
                 }
             }
@@ -1187,7 +1188,7 @@ class Player {
                     this.heldToolMesh.position.set(-0.04, 0.17, -0.18);
                     this.heldToolMesh.rotation.set(-0.35, 0.75, -0.42);
                 } else {
-                    // Food, junk, material: held in hand
+                    // Food, material: held in hand
                     this.heldToolMesh.scale.set(0.85, 0.85, 1.0);
                     this.heldToolMesh.position.set(-0.02, 0.12, -0.14);
                     this.heldToolMesh.rotation.set(-0.15, 0.45, -0.15);
@@ -1931,12 +1932,6 @@ class Player {
                 if (Math.random() < fortuneChance) dropCount *= 2;
 
                 this.game.mobManager.spawnItemDrop(x + 0.5, y + 0.5, z + 0.5, dropItemId, dropCount, 0.35);
-            }
-
-            // 12% Chance of Random Junk Drop (Sock, Beer, Cig, Nut)
-            if (Math.random() < 0.12) {
-                const junkId = JUNK_ITEMS_POOL[Math.floor(Math.random() * JUNK_ITEMS_POOL.length)];
-                this.game.mobManager.spawnItemDrop(x + 0.5, y + 0.5, z + 0.5, junkId, 1, 0.35);
             }
         }
 

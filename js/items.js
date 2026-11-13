@@ -1,5 +1,5 @@
 /**
- * Eblankraft 2.0 - Items Registry, Tools, Weapons, Foods, Junk & Crafting System
+ * Eblankraft 2.0 - Items Registry, Tools, Weapons, Foods & Crafting System
  */
 
 const ITEM_TYPES = {
@@ -172,12 +172,6 @@ const ITEM_TYPES = {
     COOKED_STEAK: 'cooked_steak',
     MEME_DONER: 'meme_doner',
 
-    // Junk (Мусор)
-    JUNK_SOCK: 'junk_sock',
-    JUNK_BEER: 'junk_beer',
-    JUNK_CIG: 'junk_cig',
-    JUNK_NUT: 'junk_nut',
-    JUNK_TOKEN: 'junk_token',
 
     // Cases
     CASE_HOBO: 'case_hobo',
@@ -356,13 +350,6 @@ const ITEM_REGISTRY = {
     [ITEM_TYPES.APPLE]: { id: ITEM_TYPES.APPLE, name: "Яблоко 🍎", category: 'food', icon: 'apple', maxStack: 64, foodRestore: 20, hpRestore: 10 },
     [ITEM_TYPES.COOKED_STEAK]: { id: ITEM_TYPES.COOKED_STEAK, name: "Жареный стейк 🥩", category: 'food', icon: 'cooked_steak', maxStack: 64, foodRestore: 40, hpRestore: 25 },
     [ITEM_TYPES.MEME_DONER]: { id: ITEM_TYPES.MEME_DONER, name: "Шаурма Еблана 🌯", category: 'food', icon: 'meme_doner', maxStack: 16, foodRestore: 75, hpRestore: 45 },
-
-    // --- JUNK (МУСОР) ---
-    [ITEM_TYPES.JUNK_SOCK]: { id: ITEM_TYPES.JUNK_SOCK, name: "Дырявый носок (Мусор)", category: 'junk', icon: 'junk_sock', maxStack: 64, junkValue: 1 },
-    [ITEM_TYPES.JUNK_BEER]: { id: ITEM_TYPES.JUNK_BEER, name: "Банка Жигуля (Мусор)", category: 'junk', icon: 'junk_beer', maxStack: 64, junkValue: 2 },
-    [ITEM_TYPES.JUNK_CIG]: { id: ITEM_TYPES.JUNK_CIG, name: "Окурок Примы (Мусор)", category: 'junk', icon: 'junk_cig', maxStack: 64, junkValue: 1 },
-    [ITEM_TYPES.JUNK_NUT]: { id: ITEM_TYPES.JUNK_NUT, name: "Ржавая гайка (Мусор)", category: 'junk', icon: 'junk_nut', maxStack: 64, junkValue: 3 },
-    [ITEM_TYPES.JUNK_TOKEN]: { id: ITEM_TYPES.JUNK_TOKEN, name: "Мусорный жетон ♻️", category: 'junk', icon: 'junk_token', maxStack: 64, junkValue: 10 },
 
     // --- CASES ---
     [ITEM_TYPES.CASE_HOBO]: { id: ITEM_TYPES.CASE_HOBO, name: "📦 Бомж-Кейс", category: 'case', icon: 'case_hobo', maxStack: 16 },
@@ -701,7 +688,7 @@ const CRAFTING_RECIPES = [
         desc: 'Открывает телепорт на арену Еблан Дракона'
     },
 
-    // 5. Food & Junk recycling
+    // 5. Food
     {
         id: 'craft_doner',
         name: 'Шаурма Еблана 🌯',
@@ -713,28 +700,6 @@ const CRAFTING_RECIPES = [
         output: { itemId: ITEM_TYPES.MEME_DONER, count: 1 },
         desc: 'Восстанавливает 75 сытости и 45 HP'
     },
-    {
-        id: 'recycle_junk_token',
-        name: 'Мусорный жетон ♻️',
-        category: 'junk',
-        inputs: [
-            { itemId: ITEM_TYPES.JUNK_SOCK, count: 2 },
-            { itemId: ITEM_TYPES.JUNK_BEER, count: 1 }
-        ],
-        output: { itemId: ITEM_TYPES.JUNK_TOKEN, count: 1 },
-        desc: 'Переработка мусора для Апгрейдера и Кейсов'
-    },
-    {
-        id: 'recycle_junk_token_alt',
-        name: 'Мусорный жетон ♻️ (из гаек)',
-        category: 'junk',
-        inputs: [
-            { itemId: ITEM_TYPES.JUNK_NUT, count: 2 },
-            { itemId: ITEM_TYPES.JUNK_CIG, count: 2 }
-        ],
-        output: { itemId: ITEM_TYPES.JUNK_TOKEN, count: 1 },
-        desc: 'Переработка мелкого мусора'
-    },
 
     // 6. Crafting Cases
     {
@@ -742,7 +707,7 @@ const CRAFTING_RECIPES = [
         name: 'Бомж-Кейс 📦',
         category: 'case',
         inputs: [
-            { itemId: ITEM_TYPES.JUNK_TOKEN, count: 3 }
+            { itemId: ITEM_TYPES.IRON_INGOT, count: 3 }
         ],
         output: { itemId: ITEM_TYPES.CASE_HOBO, count: 1 },
         desc: 'Кейс с начальным лутом и скинами'
@@ -1122,7 +1087,8 @@ function matchCraftingGrid(cells) {
     for (const i of filled) totals[cells[i].itemId] = (totals[cells[i].itemId] || 0) + cells[i].count;
     const types = Object.keys(totals);
 
-    for (const recipe of CRAFTING_RECIPES) {
+    const ordered = CRAFTING_RECIPES.filter(r => r.pattern).concat(CRAFTING_RECIPES.filter(r => !r.pattern));
+    for (const recipe of ordered) {
         if (recipe.pattern) {
             if (recipe.pattern.length !== h || recipe.pattern[0].length !== w) continue;
             let ok = true;
@@ -1158,19 +1124,10 @@ function matchCraftingGrid(cells) {
     return null;
 }
 
-// Random junk pool that can drop from breaking blocks or killing mobs
-const JUNK_ITEMS_POOL = [
-    ITEM_TYPES.JUNK_SOCK,
-    ITEM_TYPES.JUNK_BEER,
-    ITEM_TYPES.JUNK_CIG,
-    ITEM_TYPES.JUNK_NUT
-];
-
 window.ITEM_TYPES = ITEM_TYPES;
 window.ITEM_REGISTRY = ITEM_REGISTRY;
 window.CRAFTING_RECIPES = CRAFTING_RECIPES;
 window.BLOCK_DROP_MAP = BLOCK_DROP_MAP;
-window.JUNK_ITEMS_POOL = JUNK_ITEMS_POOL;
 window.ARMOR_SLOTS = ARMOR_SLOTS;
 window.ARMOR_ITEM_IDS = ARMOR_ITEM_IDS;
 window.matchCraftingGrid = matchCraftingGrid;

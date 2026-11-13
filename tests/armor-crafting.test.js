@@ -35,7 +35,7 @@ test('shaped armor recipes match anywhere in the grid and nothing else matches',
     assert.equal(chest.recipe.output.itemId, 'iron_chestplate');
     const legs = c.matchCraftingGrid(cells([[0, iron], [1, iron], [2, iron], [3, iron], [5, iron], [6, iron], [8, iron]]));
     assert.equal(legs.recipe.output.itemId, 'iron_leggings');
-    assert.equal(c.matchCraftingGrid(cells([[0, iron], [1, iron], [2, iron]])), null, 'wrong shape');
+    assert.equal(c.matchCraftingGrid(cells([[0, iron], [1, iron]])), null, 'wrong shape');
     assert.equal(c.matchCraftingGrid(cells([[0, iron], [1, 'gold_ingot'], [2, iron], [3, iron], [5, iron]])), null, 'mixed materials');
     assert.equal(c.matchCraftingGrid(new Array(9).fill(null)), null);
 });

@@ -1461,49 +1461,6 @@ void main() {
         dnCtx.fillStyle = '#7a3e21'; dnCtx.fillRect(5, 7, 6, 2); // Meat
         this.canvasCache['meme_doner'] = donerCv;
 
-        // Junk Items (Мусор)
-        // 1. Old Sock
-        const sockCv = this.createCanvas();
-        const scCtx = sockCv.getContext('2d');
-        scCtx.fillStyle = '#6b7b8a';
-        scCtx.fillRect(5, 3, 4, 7); scCtx.fillRect(5, 9, 7, 4);
-        scCtx.fillStyle = '#3d4852'; scCtx.fillRect(9, 10, 3, 3); // Hole
-        this.canvasCache['junk_sock'] = sockCv;
-
-        // 2. Beer Can (Банка Жигуля)
-        const beerCv = this.createCanvas();
-        const bCtx = beerCv.getContext('2d');
-        bCtx.fillStyle = '#2255aa';
-        bCtx.fillRect(5, 4, 6, 9);
-        bCtx.fillStyle = '#d4af37'; bCtx.fillRect(5, 7, 6, 3); // Gold ribbon
-        bCtx.fillStyle = '#cccccc'; bCtx.fillRect(6, 3, 4, 1); // Lid
-        this.canvasCache['junk_beer'] = beerCv;
-
-        // 3. Cigarette
-        const cigCv = this.createCanvas();
-        const cgCtx = cigCv.getContext('2d');
-        cgCtx.fillStyle = '#f0ede6';
-        cgCtx.fillRect(4, 7, 6, 2);
-        cgCtx.fillStyle = '#c47d33'; cgCtx.fillRect(2, 7, 2, 2); // Filter
-        cgCtx.fillStyle = '#ff3b14'; cgCtx.fillRect(10, 7, 1, 2); // Ember
-        this.canvasCache['junk_cig'] = cigCv;
-
-        // 4. Rusty Nut
-        const nutCv = this.createCanvas();
-        const ntCtx = nutCv.getContext('2d');
-        ntCtx.fillStyle = '#8f5228';
-        ntCtx.fillRect(4, 4, 8, 8);
-        ntCtx.fillStyle = '#000000'; ntCtx.fillRect(6, 6, 4, 4); // Hole
-        this.canvasCache['junk_nut'] = nutCv;
-
-        // 5. Junk Token (Мусорный жетон)
-        const tokenCv = this.createCanvas();
-        const tkCtx = tokenCv.getContext('2d');
-        tkCtx.fillStyle = '#2db87d';
-        tkCtx.beginPath(); tkCtx.arc(8, 8, 6, 0, Math.PI * 2); tkCtx.fill();
-        tkCtx.fillStyle = '#ffffff'; tkCtx.fillRect(7, 5, 2, 6); tkCtx.fillRect(6, 7, 4, 2);
-        this.canvasCache['junk_token'] = tokenCv;
-
         // Emerald Gem (Смарагд)
         const emCv = this.createCanvas();
         const emCtx = emCv.getContext('2d');

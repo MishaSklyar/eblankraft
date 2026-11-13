@@ -498,6 +498,7 @@ class UIManager {
         if (!contentContainer) return;
         contentContainer.innerHTML = '';
         contentContainer.scrollTop = 0;
+        document.querySelector('.inventory-full-modal')?.classList.remove('inv-wide');
 
         switch (this.currentTab) {
             case 'inventory':
@@ -518,14 +519,39 @@ class UIManager {
     // 1. Inventory tab: armor + totem slots, 3x3 crafting grid, backpack, recipe list and the Upgrader wheel
     renderInventoryTab(container) {
         const player = this.player;
-        const sections = this.invSections || (this.invSections = { recipes: false, upgrader: true });
+        const panels = this.invPanels || (this.invPanels = { craft: false, upgrader: false });
         const icon = (id) => this.textureManager.getIconDataURL((ITEM_REGISTRY[id] || {}).icon || 'stone');
 
         const wrapper = document.createElement('div');
         wrapper.className = 'tab-backpack-wrapper inv2-wrap';
+        // Toolbar: buttons that open the Craft / Upgrader panels on the sides
+        const bar = document.createElement('div');
+        bar.className = 'inv2-bar';
+        const modalEl = document.querySelector('.inventory-full-modal');
+        const mkBtn = (key, label) => {
+            const b = document.createElement('button');
+            b.className = 'menu-btn inv2-panel-btn' + (panels[key] ? ' btn-primary' : '');
+            b.textContent = label;
+            b.onclick = () => { panels[key] = !panels[key]; this.renderCurrentTab(); };
+            return b;
+        };
+        bar.appendChild(mkBtn('craft', '🔨 Крафт'));
+        bar.appendChild(mkBtn('upgrader', '🎰 Upgrader'));
+        wrapper.appendChild(bar);
+        if (modalEl) modalEl.classList.toggle('inv-wide', !!(panels.craft || panels.upgrader));
+
+        const layout = document.createElement('div');
+        layout.className = 'inv2-layout';
+        wrapper.appendChild(layout);
+        const craftSide = document.createElement('aside');
+        craftSide.className = 'inv2-side inv2-side-left';
         const top = document.createElement('div');
-        top.className = 'inv2-top';
-        wrapper.appendChild(top);
+        top.className = 'inv2-main';
+        const upgSide = document.createElement('aside');
+        upgSide.className = 'inv2-side inv2-side-right';
+        if (panels.craft) layout.appendChild(craftSide);
+        layout.appendChild(top);
+        if (panels.upgrader) layout.appendChild(upgSide);
 
         // --- slot access helpers: ref = { kind: 'inv'|'grid'|'armor'|'totem'|'out', idx } ---
         const refKey = (r) => r ? r.kind + ':' + r.idx : '';
@@ -644,6 +670,7 @@ class UIManager {
 
         const renderTop = () => {
             top.innerHTML = '';
+            craftSide.innerHTML = '';
 
             // --- Equipment column ---
             const equip = document.createElement('div');
@@ -723,7 +750,7 @@ class UIManager {
             btnClearGrid.textContent = '↩ Забрати з сітки';
             btnClearGrid.onclick = () => { player.returnCraftGrid(); changed(); };
             craft.appendChild(btnClearGrid);
-            top.appendChild(craft);
+            if (panels.craft) craftSide.appendChild(craft);
 
             // --- Backpack ---
             const pack = document.createElement('div');
@@ -815,23 +842,21 @@ class UIManager {
         this.invTopRefresh = renderTop;
         renderTop();
 
-        // Collapsible sections below
-        const section = (key, title, build) => {
-            const d = document.createElement('details');
-            d.className = 'inv2-section';
-            d.open = !!sections[key];
-            d.innerHTML = `<summary>${title}</summary>`;
-            const body = document.createElement('div');
-            body.className = 'inv2-section-body';
-            d.appendChild(body);
+        if (panels.craft) {
+            const rd = document.createElement('details');
+            rd.className = 'inv2-section';
+            rd.innerHTML = '<summary>📖 Список рецептів</summary>';
+            const rb = document.createElement('div');
+            rb.className = 'inv2-section-body';
+            rd.appendChild(rb);
             let built = false;
-            const ensure = () => { if (!built) { built = true; build(body); } };
-            if (d.open) ensure();
-            d.addEventListener('toggle', () => { sections[key] = d.open; if (d.open) ensure(); });
-            wrapper.appendChild(d);
-        };
-        section('recipes', '📖 Список рецептів', (body) => this.renderCraftingTab(body));
-        section('upgrader', '🎰 Upgrader', (body) => this.renderUpgraderGGTab(body));
+            const ensure = () => { if (!built) { built = true; this.renderCraftingTab(rb); } };
+            rd.addEventListener('toggle', () => { this.invRecipesOpen = rd.open; if (rd.open) ensure(); });
+            rd.open = !!this.invRecipesOpen;
+            if (rd.open) ensure();
+            craftSide.appendChild(rd);
+        }
+        if (panels.upgrader) this.renderUpgraderGGTab(upgSide);
 
         container.appendChild(wrapper);
     }
@@ -879,7 +904,7 @@ class UIManager {
             if (this.catalogFilter === 'vehicle') return item.category === 'vehicle' || item.isVehicle;
             if (this.catalogFilter === 'tool') return item.category === 'tool' || item.category === 'pickaxe';
             if (this.catalogFilter === 'food') return item.category === 'food';
-            if (this.catalogFilter === 'material') return item.category === 'material' || item.category === 'junk';
+            if (this.catalogFilter === 'material') return item.category === 'material';
             return true;
         });
 

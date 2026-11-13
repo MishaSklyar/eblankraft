@@ -6754,27 +6754,41 @@ body.is-preloading #mining-progress-container {
 #rtx-parts .menu-toggles-grid { grid-template-columns: 1fr; }
 .rtx-part small { white-space: normal; }
 
-/* Merged inventory tab: armor + totem, crafting grid, backpack, Upgrader */
-.inv2-top { display: grid; grid-template-columns: auto auto 1fr; gap: 16px; align-items: start; }
-.inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 52px; height: 52px; min-width: 52px; }
-.inv2-equip-col { display: flex; flex-direction: column; gap: 4px; }
-.inv2-totem-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #ffd54f; }
+/* Merged inventory tab: backpack + armor in the middle, Craft / Upgrader panels open on the sides */
+.inventory-full-modal.inv-wide { max-width: min(98vw, 1180px); }
+.inv2-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+.inv2-panel-btn { flex: 1; }
+.inv2-layout { display: flex; gap: 12px; align-items: flex-start; }
+.inv2-main { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.inv2-side { flex: 0 0 auto; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid #383844; border-radius: 8px; padding: 8px; }
+.inv2-side-left { width: 270px; }
+.inv2-side-right { flex: 1 1 420px; max-width: 560px; }
+.inv2-main .backpack-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.inv2-pack { min-width: 0; }
+.inv2-equip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.inv2-equip .backpack-section-title { width: 100%; }
+.inv2-equip-col { display: flex; flex-direction: row; gap: 4px; }
+.inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 48px; height: 48px; min-width: 48px; }
+.inv2-totem-row { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: #ffd54f; }
 .inv2-totem { border-color: #b8860b; }
-.inv2-armor-stats { margin-top: 8px; font-size: 12px; color: #9ad; }
+.inv2-armor-stats { font-size: 12px; color: #9ad; }
 .inv2-ph { font-size: 20px; opacity: 0.3; pointer-events: none; }
 .inv2-target { border-color: #4caf50 !important; box-shadow: 0 0 8px #4caf50; }
-.inv2-craft-row { display: flex; align-items: center; gap: 10px; }
-.inv2-craft-grid { display: grid; grid-template-columns: repeat(3, 52px); gap: 3px; }
-.inv2-arrow { font-size: 26px; color: #ffd700; }
-.inv2-out { width: 64px !important; height: 64px !important; border-color: #555; }
+.inv2-craft-row { display: flex; align-items: center; gap: 8px; }
+.inv2-craft-grid { display: grid; grid-template-columns: repeat(3, 48px); gap: 3px; }
+.inv2-arrow { font-size: 24px; color: #ffd700; }
+.inv2-out { width: 56px !important; height: 56px !important; min-width: 56px !important; border-color: #555; }
 .inv2-out-ready { border-color: #4caf50; box-shadow: 0 0 10px #4caf50; }
-.inv2-craft .backpack-hint { max-width: 240px; margin: 6px 0; }
-.inv2-section { margin-top: 12px; border: 1px solid #383844; border-radius: 6px; padding: 6px 10px; }
+.inv2-craft .backpack-hint { margin: 6px 0; }
+.inv2-section { margin-top: 10px; border: 1px solid #383844; border-radius: 6px; padding: 4px 8px; }
 .inv2-section > summary { cursor: pointer; font-weight: bold; color: #ffd700; padding: 4px 0; user-select: none; }
 .inv2-section-body { margin-top: 8px; }
+.inv2-side .gg-wrap { grid-template-columns: 1fr; }
+.inv2-side .gg-center { order: -1; }
 @media (max-width: 800px) {
-    .inv2-top { grid-template-columns: 1fr; }
-    .inv2-equip-col { flex-direction: row; flex-wrap: wrap; }
-    .inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 46px; height: 46px; min-width: 46px; }
-    .inv2-craft-grid { grid-template-columns: repeat(3, 46px); }
+    .inv2-layout { flex-direction: column; }
+    .inv2-side, .inv2-side-left, .inv2-side-right { width: 100%; max-width: none; flex: none; }
+    .inv2-main { order: -1; flex: none; width: 100%; }
+    .inv2-equip .backpack-slot, .inv2-craft .backpack-slot { width: 42px; height: 42px; min-width: 42px; }
+    .inv2-craft-grid { grid-template-columns: repeat(3, 42px); }
 }

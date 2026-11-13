@@ -301,7 +301,6 @@ const MOB_DEFS = {
             g.spawnItemDrop(x, y, z, ITEM_TYPES.ROTTEN_FLESH, _rnd(2) + 1);
             if (Math.random() < 0.5) g.spawnItemDrop(x, y, z, ITEM_TYPES.LEATHER, _rnd(2) + 1);
             if (Math.random() < 0.35) g.spawnItemDrop(x, y, z, ITEM_TYPES.IRON_INGOT, 1);
-            if (Math.random() < 0.4) g.spawnItemDrop(x, y, z, JUNK_ITEMS_POOL[_rnd(JUNK_ITEMS_POOL.length)], 1);
         }
     },
     skeleton: {
@@ -377,7 +376,6 @@ const MOB_DEFS = {
             box(0.07, 0.07, 0.02, 0x143d14, 0.1, 0.3, 0.23);
         },
         loot(g, x, y, z) {
-            if (Math.random() < 0.4) g.spawnItemDrop(x, y, z, JUNK_ITEMS_POOL[_rnd(JUNK_ITEMS_POOL.length)], 1);
         }
     },
     creeper: {
