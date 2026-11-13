@@ -731,7 +731,7 @@ html, body {
 /* Tabs */
 .menu-tabs {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 4px;
     margin: 0 12px;
     padding: 4px;
@@ -6743,3 +6743,13 @@ body.is-preloading #mining-progress-container {
 .gg-chip { flex: none; width: auto; padding: 4px 8px; font-size: 12px; }
 .gg-clear { width: 100%; background: #2a2a33; color: #ddd; border: 1px solid #444455; }
 @media (max-width: 800px) { .gg-wrap { grid-template-columns: 1fr; } .gg-center { order: -1; } }
+
+/* RTX tab */
+.rtx-master { font-weight: 700; }
+.rtx-master small { font-weight: 400; opacity: .65; }
+.rtx-bulk { margin-top: 6px; grid-template-columns: 1fr 1fr; }
+.rtx-part { flex-direction: column; align-items: flex-start; gap: 1px; }
+.rtx-part small { opacity: .6; font-size: 10.5px; line-height: 1.25; padding-left: 26px; }
+#rtx-parts.rtx-off .toggle-item { opacity: .45; pointer-events: none; }
+#rtx-parts .menu-toggles-grid { grid-template-columns: 1fr; }
+.rtx-part small { white-space: normal; }

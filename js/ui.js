@@ -1620,14 +1620,50 @@ class UIManager {
             chkShadows.onchange = (e) => this.game.setShadowsEnabled(e.target.checked);
         }
 
+        // RTX tab: master switch + one toggle per RTX part (see RTXPipeline.PARTS)
         const chkTexX64 = document.getElementById('chk-texture-x64');
+        const rtxBox = document.getElementById('rtx-parts');
+        const syncRtxDim = () => { if (rtxBox) rtxBox.classList.toggle('rtx-off', !(this.game.textureManager && this.game.textureManager.textureX64)); };
         if (chkTexX64) {
             const tm = this.game.textureManager;
             chkTexX64.checked = !!(tm && tm.textureX64);
             chkTexX64.onchange = (e) => {
                 if (tm && tm.setTextureX64) tm.setTextureX64(e.target.checked);
-                this.showToast(`🖼️ RTX ${e.target.checked ? 'ON' : 'OFF'}`);
+                this.showToast(`✨ RTX ${e.target.checked ? 'ON' : 'OFF'}`);
+                syncRtxDim();
             };
+        }
+        if (rtxBox && typeof RTXPipeline !== 'undefined') {
+            const rtx = this.game.rtx;
+            const boxes = {};
+            for (const grp in RTXPipeline.GROUPS) {
+                const h = document.createElement('div');
+                h.className = 'menu-section-label';
+                h.textContent = RTXPipeline.GROUPS[grp];
+                const grid = document.createElement('div');
+                grid.className = 'menu-toggles-grid';
+                for (const p of RTXPipeline.PARTS.filter(x => x.group === grp)) {
+                    const label = document.createElement('label');
+                    label.className = 'toggle-item rtx-part';
+                    const input = document.createElement('input');
+                    input.type = 'checkbox';
+                    input.checked = !rtx || rtx.part(p.id);
+                    input.onchange = () => { if (rtx) rtx.setPart(p.id, input.checked); };
+                    boxes[p.id] = input;
+                    const title = document.createElement('span');
+                    title.append(input, ` ${p.icon} ${p.name}`);
+                    const note = document.createElement('small');
+                    note.textContent = p.note;
+                    label.append(title, note);
+                    grid.appendChild(label);
+                }
+                rtxBox.append(h, grid);
+            }
+            const bulk = (on) => () => { if (rtx) rtx.setAllParts(on); for (const id in boxes) boxes[id].checked = on; };
+            const bAll = document.getElementById('btn-rtx-all'), bNone = document.getElementById('btn-rtx-none');
+            if (bAll) bAll.onclick = bulk(true);
+            if (bNone) bNone.onclick = bulk(false);
+            syncRtxDim();
         }
 
         const chkClouds = document.getElementById('chk-clouds');

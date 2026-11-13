@@ -17,6 +17,7 @@
 class RTXPipeline {
     constructor(game) {
         this.game = game;
+        this.parts = RTXPipeline.loadParts();
         this.active = false;
         this.loading = false;
         this.composer = null;
@@ -27,6 +28,25 @@ class RTXPipeline {
         this.waterMeshes = [];
         this.frame = 0;
         this._sunNdc = new THREE.Vector3();
+    }
+
+    part(id) { return this.parts[id] !== false; }
+
+    // Toggle one effect live. Scene-level parts are re-applied, material parts rebuild the chunk meshes.
+    setPart(id, on) {
+        this.parts[id] = !!on;
+        try { localStorage.setItem('eblankraft_rtx_parts', JSON.stringify(this.parts)); } catch (e) {}
+        const tm = this.game.textureManager;
+        if (id === 'pbr' || id === 'pom') { if (tm && tm.refreshPbr) tm.refreshPbr(); }
+        if (this.active) this.applyParts();
+    }
+
+    setAllParts(on) {
+        for (const p of RTXPipeline.PARTS) this.parts[p.id] = !!on;
+        try { localStorage.setItem('eblankraft_rtx_parts', JSON.stringify(this.parts)); } catch (e) {}
+        const tm = this.game.textureManager;
+        if (tm && tm.refreshPbr) tm.refreshPbr();
+        if (this.active) this.applyParts();
     }
 
     supported() {
@@ -80,21 +100,35 @@ class RTXPipeline {
             };
         }
         r.outputEncoding = THREE.sRGBEncoding;           // r128 name of SRGBColorSpace
-        r.shadowMap.type = THREE.PCFSoftShadowMap;
-        const env = g.textureManager && g.textureManager.ensureEnvironment();
-        if (env) scene.environment = env;
-        if (!scene.fog) scene.fog = new THREE.FogExp2(0x80bfff, 0.018);
+        this.active = true;
+        this.applyParts();
+    }
+
+    // (Re)applies every scene-level part from this.parts: shadows, environment, fog, post-pass switches.
+    applyParts() {
+        const g = this.game, r = g.renderer, scene = g.scene, s = this.saved;
+        if (!s) return;
+        const env = this.part('env') && g.textureManager && g.textureManager.ensureEnvironment();
+        scene.environment = env || s.env || null;
+        if (this.part('fog')) { if (!scene.fog) scene.fog = new THREE.FogExp2(0x80bfff, 0.018); }
+        else if (scene.fog && !s.fog) scene.fog = null;
+        else if (s.fog) scene.fog = s.fog;
         const sl = g.sunLight;
         if (sl) {
-            sl.shadow.mapSize.set(2048, 2048);
-            if (sl.shadow.map) { sl.shadow.map.dispose(); sl.shadow.map = null; }
-            const d = 56;
+            const on = this.part('shadows');
+            const size = on ? 2048 : s.mapSize, d = on ? 56 : s.d, far = on ? 260 : s.far;
+            r.shadowMap.type = on ? THREE.PCFSoftShadowMap : s.shadowType;
+            if (sl.shadow.mapSize.x !== size) {
+                sl.shadow.mapSize.set(size, size);
+                if (sl.shadow.map) { sl.shadow.map.dispose(); sl.shadow.map = null; }
+            }
             const c = sl.shadow.camera;
-            c.left = -d; c.right = d; c.top = d; c.bottom = -d; c.far = 260;
+            c.left = -d; c.right = d; c.top = d; c.bottom = -d; c.far = far;
             c.updateProjectionMatrix();
-            sl.shadow.radius = 2.5;
+            sl.shadow.radius = on ? 2.5 : 1;
+            r.shadowMap.needsUpdate = true;
         }
-        this.active = true;
+        this.applyQuality();
     }
 
     startLightsOnly() {
@@ -182,8 +216,11 @@ class RTXPipeline {
 
     applyQuality() {
         const q = this.quality;
-        if (this.ssao) this.ssao.enabled = q >= 1;
-        if (this.ssr) this.ssr.enabled = q >= 3;
+        if (this.ssao) this.ssao.enabled = q >= 1 && this.part('ssao');
+        if (this.ssr) this.ssr.enabled = q >= 3 && this.part('ssr');
+        if (this.bloom) this.bloom.enabled = this.part('bloom');
+        const u = this.final && this.final.uniforms;
+        if (u) { u.useAces.value = this.part('aces') ? 1 : 0; u.useGrade.value = this.part('grade') ? 1 : 0; }
     }
 
     // Internal resolution: the drawing buffer, or the upscaler's lower render size when it is on.
@@ -206,7 +243,7 @@ class RTXPipeline {
     // Golden-hour sun + sky/ground bounce. Runs after the day-cycle code, only by day/sunset.
     adjustLights() {
         const g = this.game, sl = g.sunLight;
-        if (!sl || sl.intensity < 0.3) return;
+        if (!sl || sl.intensity < 0.3 || !this.part('sun')) return;
         const t = sl.target.position;
         const dx = sl.position.x - t.x, dz = sl.position.z - t.z;
         const horiz = Math.hypot(dx, dz) || 1;
@@ -236,7 +273,7 @@ class RTXPipeline {
         this.adjustLights();
         if (!this.composer) { return false; }       // lights-only fallback: normal renderer path
         this.frame++;
-        if (this.ssr && this.quality >= 3 && this.frame % 45 === 1) this.updateWaterMeshes();
+        if (this.ssr && this.ssr.enabled && this.frame % 45 === 1) this.updateWaterMeshes();
 
         // render the scene in linear HDR, tone-map/encode in the final pass
         r.toneMapping = THREE.NoToneMapping;
@@ -244,7 +281,7 @@ class RTXPipeline {
         if (this.godrays) this.updateGodRays();
         const up = g.upscaler && g.upscaler.active ? g.upscaler : null;
         this.composer.renderToScreen = !up;     // with the upscaler the stack ends in a texture, not the canvas
-        if (this.smaa) this.smaa.enabled = !up; // the upscaler does its own edge reconstruction
+        if (this.smaa) this.smaa.enabled = !up && this.part('smaa'); // the upscaler does its own edge reconstruction
         const hidden = this.updateSky(dtMs);
         this.composer.render();
         for (const [o, v] of hidden) o.visible = v;
@@ -263,7 +300,7 @@ class RTXPipeline {
         const g = this.game, u = this.final && this.final.uniforms;
         if (!u || !window.RTX_SKY_GLSL) return [];
         const dim = (g.world && g.world.dimension) || 'overworld';
-        const on = !(g.player && g.player.isSubmerged) && !!(g.scene.background && g.scene.background.isColor);
+        const on = this.part('sky') && !(g.player && g.player.isSubmerged) && !!(g.scene.background && g.scene.background.isColor);
         u.skyOn.value = on ? 1 : 0;
         u.skyMode.value = dim === 'nether' ? 1 : dim === 'the_end' ? 2 : 0;
         this.godrays.enabled = on || this.godrays.enabled;   // the god-ray pass also writes the sky mask the final pass reads
@@ -294,7 +331,7 @@ class RTXPipeline {
         if (g.scene.background && g.scene.background.isColor) u.skyColor.value.copy(g.scene.background);   // also feeds the sky mask
         let on = 0;
         const dimension = (g.world && g.world.dimension) || 'overworld';
-        if (sun && g.sunLight && g.sunLight.intensity > 0.3 && dimension !== 'nether' && dimension !== 'the_end' && g.scene.background && g.scene.background.isColor && !(g.player && g.player.isSubmerged)) {
+        if (this.part('godrays') && sun && g.sunLight && g.sunLight.intensity > 0.3 && dimension !== 'nether' && dimension !== 'the_end' && g.scene.background && g.scene.background.isColor && !(g.player && g.player.isSubmerged)) {
             this._sunNdc.copy(sun.position).project(g.camera);
             if (this._sunNdc.z < 1) {
                 u.sunPos.value.set(this._sunNdc.x * 0.5 + 0.5, this._sunNdc.y * 0.5 + 0.5);
@@ -349,11 +386,12 @@ class RTXPipeline {
                 tDiffuse: { value: null }, skyColor: { value: new THREE.Color(0.5, 0.7, 1) }, exposure: { value: 1.05 }, contrast: { value: 1.08 }, vibrance: { value: 0.22 },
                 skyInvProj: { value: new THREE.Matrix4() }, skyCamWorld: { value: new THREE.Matrix4() }, skyCamPos: { value: new THREE.Vector3() },
                 skySun: { value: new THREE.Vector3(0, 1, 0) }, skyMoon: { value: new THREE.Vector3(0, -1, 0) },
-                skyTime: { value: 0 }, skyOn: { value: 0 }, skyClouds: { value: 1 }, skyMode: { value: 0 }
+                skyTime: { value: 0 }, skyOn: { value: 0 }, skyClouds: { value: 1 }, skyMode: { value: 0 },
+                useAces: { value: 1 }, useGrade: { value: 1 }
             },
             vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
             fragmentShader: `
-                uniform sampler2D tDiffuse; uniform vec3 skyColor; uniform float exposure, contrast, vibrance;
+                uniform sampler2D tDiffuse; uniform vec3 skyColor; uniform float exposure, contrast, vibrance, useAces, useGrade;
                 varying vec2 vUv;
                 ${window.RTX_SKY_GLSL || 'uniform float skyOn;'}
                 // three.js' own ACES Filmic curve (identical look to renderer.toneMapping = ACESFilmicToneMapping)
@@ -371,7 +409,7 @@ class RTXPipeline {
                     vec3 raw = texture2D(tDiffuse, vUv).rgb;
                     // the clear colour (sky) is never tone-mapped/encoded by the stock renderer: keep it exactly as authored
                     float skyMask = 1.0 - smoothstep(0.004, 0.03, distance(raw, skyColor));
-                    vec3 lit = toSRGB(aces(max(c, 0.0)));           // ACES Filmic tone mapping + sRGB output
+                    vec3 lit = toSRGB(useAces > 0.5 ? aces(max(c, 0.0)) : clamp(c, 0.0, 1.0));           // ACES Filmic tone mapping + sRGB output
                     vec3 skyOut = clamp(raw, 0.0, 1.0);
                     #ifdef RTX_SKY
                     float skyA = texture2D(tDiffuse, vUv).a;      // sky mask from the god-ray pass
@@ -386,6 +424,7 @@ class RTXPipeline {
                     #endif
                     c = mix(lit, skyOut, skyMask);
                     // colour grade (LUT-style): vibrance, contrast, cool shadows / warm highlights
+                    if (useGrade < 0.5) { gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0); return; }
                     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
                     float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
                     c = mix(vec3(l), c, 1.0 + vibrance * (1.0 - sat));
@@ -396,4 +435,30 @@ class RTXPipeline {
         };
     }
 }
+// Every RTX effect is an independent "part" the player can toggle in the RTX tab of the pause menu.
+// (master switch = textureManager.textureX64: 64px textures; the parts below only matter while it is on)
+RTXPipeline.PARTS = [
+    { id: 'pbr',      group: 'mat',   icon: '🪨', name: 'PBR-матеріали',        note: 'Нормалі, шорсткість, метал, AO, свічення блоків' },
+    { id: 'pom',      group: 'mat',   icon: '🕳️', name: 'Паралакс (POM)',       note: 'Справжня глибина борозен у текстурах' },
+    { id: 'sun',      group: 'light', icon: '🌇', name: 'Золоте сонце',         note: 'Низьке тепле сонце, довгі тіні, відблиск неба' },
+    { id: 'shadows',  group: 'light', icon: '🌑', name: 'М’які тіні 2K',        note: 'Тіні 2048 з м’яким краєм і більшою дальністю' },
+    { id: 'env',      group: 'light', icon: '🔮', name: 'Відбиття неба',        note: 'Метал і лак відбивають небо та сонце' },
+    { id: 'fog',      group: 'light', icon: '🌫️', name: 'Атмосферна імла',      note: 'Експоненційний туман кольору горизонту' },
+    { id: 'ssao',     group: 'post',  icon: '🧊', name: 'SSAO',                 note: 'Контактні тіні в кутах і під листям' },
+    { id: 'ssr',      group: 'post',  icon: '🌊', name: 'Відбиття у воді (SSR)', note: 'Екранні відбиття на воді' },
+    { id: 'bloom',    group: 'post',  icon: '✨', name: 'Bloom',                note: 'Сяйво яскравих пікселів: сонце, лава, емісія' },
+    { id: 'godrays',  group: 'post',  icon: '🌅', name: 'Промені сонця',        note: 'Об’ємні промені крізь дерева й гори' },
+    { id: 'sky',      group: 'post',  icon: '☁️', name: 'RTX небо і хмари',     note: 'Процедурна атмосфера, зорі, хмари' },
+    { id: 'aces',     group: 'post',  icon: '🎞️', name: 'ACES тонмепінг',       note: 'Кінематографічний HDR → екран' },
+    { id: 'grade',    group: 'post',  icon: '🎨', name: 'Кольорокорекція',      note: 'Контраст, соковитість, тепло-холодне тонування' },
+    { id: 'smaa',     group: 'post',  icon: '📐', name: 'SMAA згладжування',    note: 'Прибирає «драбинки» на краях' }
+];
+RTXPipeline.GROUPS = { mat: '🧱 Матеріали', light: '💡 Світло і довкілля', post: '🎬 Постобробка' };
+RTXPipeline.loadParts = function () {
+    const o = {};
+    for (const p of RTXPipeline.PARTS) o[p.id] = true;
+    try { Object.assign(o, JSON.parse(localStorage.getItem('eblankraft_rtx_parts') || '{}')); } catch (e) {}
+    return o;
+};
+
 window.RTXPipeline = RTXPipeline;

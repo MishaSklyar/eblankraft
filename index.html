@@ -903,6 +903,7 @@
             <nav class="menu-tabs" role="tablist">
                 <button class="menu-tab active" data-menu-tab="game" role="tab"><span>🎮</span><em>Гра</em></button>
                 <button class="menu-tab" data-menu-tab="graphics" role="tab"><span>🖼️</span><em>Графіка</em></button>
+                <button class="menu-tab" data-menu-tab="rtx" role="tab"><span>✨</span><em>RTX</em></button>
                 <button class="menu-tab" data-menu-tab="controls" role="tab"><span>🕹️</span><em>Керування</em></button>
                 <button class="menu-tab" data-menu-tab="tools" role="tab"><span>🧰</span><em>Інструменти</em></button>
             </nav>
@@ -1000,8 +1001,20 @@
                         <label class="toggle-item"><input id="chk-shadows" type="checkbox" checked> 🌑 Тіні</label>
                         <label class="toggle-item"><input id="chk-clouds" type="checkbox" checked> ☁️ Воксельні хмари</label>
                         <label class="toggle-item"><input id="chk-fancy-water" type="checkbox" checked> 🌊 Хвилі води</label>
-                        <label class="toggle-item"><input id="chk-texture-x64" type="checkbox"> ✨ RTX ON</label>
                     </div>
+                </section>
+
+                <!-- RTX -->
+                <section class="menu-panel" data-menu-panel="rtx">
+                    <div class="menu-card">
+                        <label class="toggle-item rtx-master"><input id="chk-texture-x64" type="checkbox"> ✨ RTX ON <small>(64px текстури + конвеєр)</small></label>
+                        <p class="menu-setting-note">Головний вимикач. Нижче кожну частину RTX можна вмикати окремо — зміни діють одразу.</p>
+                        <div class="menu-buttons-grid rtx-bulk">
+                            <button id="btn-rtx-all" class="menu-btn btn-primary">✅ Усе</button>
+                            <button id="btn-rtx-none" class="menu-btn btn-secondary">⬜ Нічого</button>
+                        </div>
+                    </div>
+                    <div id="rtx-parts"></div>
                 </section>
 
                 <!-- CONTROLS -->
@@ -1567,7 +1580,7 @@
     <script src="js/addons.js?v=1"></script>
     <script src="js/eblan.js?v=3.6"></script>
     <script src="js/rtx_sky.js?v=1"></script>
-    <script src="js/rtx.js?v=2"></script>
+    <script src="js/rtx.js?v=3"></script>
     <script src="js/upscaler.js?v=3"></script>
     <script src="js/upscaler_nn.js?v=1"></script>
     <script src="js/game.js?v=4.7"></script>
