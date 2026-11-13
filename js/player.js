@@ -2305,7 +2305,9 @@ class Player {
             if (isGroundedNow) {
                 this.timeSinceGrounded = 0;
                 this.onGround = true;
+                this.bhopGroundTimer = (this.bhopGroundTimer || 0) + dt;
             } else {
+                this.bhopGroundTimer = 0;
                 this.timeSinceGrounded += dt;
             }
 
@@ -2317,6 +2319,11 @@ class Player {
                 let jumpPower = (this.physJumpPower ?? 8.5);
                 const skin = (window.SKINS_REGISTRY && this.game.upgrader) ? window.SKINS_REGISTRY[this.game.upgrader.equippedSkin] : null;
                 if (skin && skin.buffs && skin.buffs.jumpMult) jumpPower *= skin.buffs.jumpMult;
+                // Anti-bhop #2: the first jump is full, chained hops (re-jumping right after landing) are lower
+                if (this.bunnyhop) {
+                    this.bhopChain = (this.bhopGroundTimer || 0) < 0.12 ? (this.bhopChain || 0) + 1 : 0;
+                    if (this.bhopChain >= 1) jumpPower *= (this.bhopChainJumpMult ?? 0.75);
+                } else this.bhopChain = 0;
 
                 this.velocity.y = jumpPower;
                 this.onGround = false;
