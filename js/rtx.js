@@ -212,7 +212,7 @@ class RTXPipeline {
 
         this.composer = composer;
         this.quality = 3;
-        this.ema = 0; this.cool = 60;
+        this.ema = 0; this.cool = 240; this.resScale = this.baseScale;   // ignore load-time hitches this.syncSize();
         this.applyQuality();
     }
 
@@ -275,13 +275,13 @@ class RTXPipeline {
         if (this.active) this.applyQuality();
     }
 
-    // Pixel budget: ~2.4 MP internal (1080p-class) is plenty for the full stack; retina / 4K screens start lower and the
-    // frame-time controller (render()) moves within [minScale, baseScale] from there.
+    // RTX always starts at NATIVE resolution (only >4K screens are capped). The frame-time controller (adapt()) may lower it,
+    // but only after ~1.5 s of frames slower than the target, and it climbs back quickly once frames are fast again.
     computeBaseScale() {
         const v = new THREE.Vector2();
         this.game.renderer.getDrawingBufferSize(v);
         const px = Math.max(1, v.x * v.y);
-        this.baseScale = Math.max(this.minScale, Math.min(1, Math.sqrt(2.4e6 / px)));
+        this.baseScale = Math.max(this.minScale, Math.min(1, Math.sqrt(8.4e6 / px)));   // native up to 4K; only beyond that is it capped
         if (!(this.resScale > 0) || this.resScale > this.baseScale) this.resScale = this.baseScale;
     }
 
@@ -515,16 +515,16 @@ class RTXPipeline {
         if (this.ema > slowAt) { this.slowFrames++; this.fastFrames = 0; }
         else if (this.ema < fastAt) { this.fastFrames++; this.slowFrames = 0; }
         else { this.slowFrames = 0; this.fastFrames = 0; }
-        if (this.slowFrames > 24) {
+        if (this.slowFrames > 90) {
             this.slowFrames = 0; this.cool = 45;
-            const step = this.ema > 60 ? 0.15 : 0.08;
+            const step = this.ema > 60 ? 0.12 : 0.06;
             if (upscalerOn || !this.setResScale(this.resScale - step)) {
                 if (this.quality > 0) { this.quality--; this.applyQuality(); }
             }
-        } else if (this.fastFrames > 240) {
+        } else if (this.fastFrames > 90) {
             this.fastFrames = 0; this.cool = 45;
             if (this.quality < 3) { this.quality++; this.applyQuality(); }
-            else if (!upscalerOn && this.resScale < this.baseScale - 0.01) this.setResScale(this.resScale + 0.05);
+            else if (!upscalerOn && this.resScale < this.baseScale - 0.01) this.setResScale(this.resScale + 0.1);
         }
     }
 
