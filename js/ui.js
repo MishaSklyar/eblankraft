@@ -3877,9 +3877,10 @@ class UIManager {
             { id: 'btn-dodge',   label: '💨 Кувирок' },
             { id: 'btn-tnt',     label: '💣 ТНТ' },
             { id: 'btn-scope',   label: '🔭 Приціл' },
+            { id: 'btn-reload',  label: '🔄 Перезарядка' },
             { id: 'btn-inspect', label: '🔍 Огляд ножа' }
         ];
-        this.DEFAULT_HUD_LAYOUT = { version: 2, preset: 'default', btnScale: 1, btnOpacity: 0.9, hotbarScale: 1, leftHanded: false, snap: true, hotbar: null, buttons: {} };
+        this.DEFAULT_HUD_LAYOUT = { version: 2, mode: 'standard', preset: 'default', btnScale: 1, btnOpacity: 0.9, hotbarScale: 1, leftHanded: false, snap: true, hotbar: null, buttons: {} };
 
         // A preset only chooses sizes / handedness; button positions are generated from the screen size
         const mk = (o) => Object.assign({}, this.DEFAULT_HUD_LAYOUT, { buttons: {} }, o);
@@ -3890,7 +3891,20 @@ class UIManager {
                 'btn-attack': { x: 0.94, y: 0.40 }, 'btn-break': { x: 0.06, y: 0.40 }, 'btn-scope': { x: 0.94, y: 0.58 }
             } }),
             compact:     mk({ preset: 'compact', btnScale: 0.8, btnOpacity: 0.8, hotbarScale: 0.85 }),
-            giant:       mk({ preset: 'giant', btnScale: 1.35, btnOpacity: 0.95, hotbarScale: 1.15 })
+            giant:       mk({ preset: 'giant', btnScale: 1.35, btnOpacity: 0.95, hotbarScale: 1.15 }),
+            // Shooter: movement left, fire above it, jump / reload / scope in the bottom-right, weapon bar at the bottom centre
+            shooter:     mk({ preset: 'shooter', mode: 'shooter', btnScale: 1, btnOpacity: 0.85, hotbarScale: 0.95,
+                hotbar: { x: 0.5, y: 0.9 },
+                buttons: {
+                    'btn-attack': { x: 0.14, y: 0.42, s: 1.15 },
+                    'btn-jump':   { x: 0.93, y: 0.82, s: 1.3 },
+                    'btn-reload': { x: 0.81, y: 0.82 },
+                    'btn-scope':  { x: 0.70, y: 0.82 },
+                    'btn-inspect': { x: 0.80, y: 0.60 },
+                    'btn-dodge':  { x: 0.92, y: 0.60 },
+                    'btn-sprint': { x: 0.27, y: 0.84 },
+                    'btn-break': { hidden: true }, 'btn-place': { hidden: true }, 'btn-tnt': { hidden: true }
+                } })
         };
 
         let parsed = null;
@@ -3913,6 +3927,7 @@ class UIManager {
         out.btnOpacity = num(out.btnOpacity, 0.9, 0.25, 1);
         out.hotbarScale = num(out.hotbarScale, 1, 0.5, 1.6);
         out.leftHanded = !!out.leftHanded;
+        out.mode = out.mode === 'shooter' ? 'shooter' : 'standard';
         out.snap = out.snap !== false;
         const src = (l && l.buttons) || {};
         out.buttons = {};
@@ -3937,11 +3952,12 @@ class UIManager {
         const m = 12, r = 32, pitch = 70;
         const cx = [W - m - r - 4, W - m - r - 4 - pitch, W - m - r - 4 - 2 * pitch];
         const bottom = H <= 520 ? 10 : 56;
-        const cy = [H - bottom - r, H - bottom - r - pitch, H - bottom - r - 2 * pitch];
+        const cy = [H - bottom - r, H - bottom - r - pitch, H - bottom - r - 2 * pitch, H - bottom - r - 3 * pitch];
         const p = {
             'btn-jump': [cx[0], cy[0]], 'btn-place': [cx[1], cy[0]], 'btn-sprint': [cx[2], cy[0]],
             'btn-attack': [cx[0], cy[1]], 'btn-break': [cx[1], cy[1]], 'btn-dodge': [cx[2], cy[1]],
-            'btn-scope': [cx[0], cy[2]], 'btn-inspect': [cx[1], cy[2]], 'btn-tnt': [cx[2], cy[2]]
+            'btn-scope': [cx[0], cy[2]], 'btn-inspect': [cx[1], cy[2]], 'btn-tnt': [cx[2], cy[2]],
+            'btn-reload': [cx[2], cy[3]]
         };
         const out = {};
         for (const id in p) out[id] = { x: (leftHanded ? W - p[id][0] : p[id][0]) / W, y: p[id][1] / H };
@@ -3957,6 +3973,7 @@ class UIManager {
     applyLayout(layout) {
         this.layout = this.normalizeLayout(layout);
         const L = this.layout;
+        document.body.classList.toggle('hud-shooter', L.mode === 'shooter');
         for (const b of this.HUD_BUTTONS) {
             const el = document.getElementById(b.id);
             if (!el) continue;
@@ -4006,6 +4023,7 @@ class UIManager {
         root.id = 'hud-editor';
         root.innerHTML = `
             <div class="hude-grid"></div>
+            <div class="hude-zones"><span class="hz-l">🕹️ Рух</span><span class="hz-r">👁️ Огляд / стрільба</span></div>
             <div class="hude-handles"></div>
             <div class="hude-panel">
                 <div class="hude-bar">
@@ -4017,6 +4035,7 @@ class UIManager {
                     <div class="hude-sel" id="hude-sel"></div>
                     <div class="hude-row hude-presets">
                         <button class="hude-chip" data-preset="default">🎮 Стандарт</button>
+                        <button class="hude-chip" data-preset="shooter">🔫 Шутер</button>
                         <button class="hude-chip" data-preset="left_handed">🖐️ Шульга</button>
                         <button class="hude-chip" data-preset="claw">🦅 Клешня</button>
                         <button class="hude-chip" data-preset="compact">📱 Компакт</button>

@@ -306,6 +306,11 @@ class Controls {
             if (btn) btn.classList.toggle('active', !!this.player.isAiming);
         });
 
+        // Reload the held gun
+        this.bindTouchButton('btn-reload', (isDown) => {
+            if (isDown) this.player.reloadGun?.();
+        });
+
         // Inspect the held knife
         this.bindTouchButton('btn-inspect', (isDown) => {
             if (isDown) this.player.inspectKnife?.();
