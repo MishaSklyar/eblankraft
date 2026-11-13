@@ -115,6 +115,20 @@ class Controls {
 
         const handleJoystickStart = (touch) => {
             if (this.joystickTouchId !== null) return;
+            // Shooter layout: the joystick is a fixed ring, only touches on/near it steer
+            const fixedRing = document.body.classList.contains('hud-shooter') && joystickBase;
+            if (fixedRing) {
+                const rr = joystickBase.getBoundingClientRect();
+                const cx = rr.left + rr.width / 2, cy = rr.top + rr.height / 2;
+                if (Math.hypot(touch.clientX - cx, touch.clientY - cy) > rr.width * 0.9) return;
+                this.joystickTouchId = touch.identifier;
+                this.joystickOrigin.set(cx, cy);
+                this.joystickCurrent.set(touch.clientX, touch.clientY);
+                this.joystickMaxRadius = rr.width * 0.42;
+                handleJoystickMove(touch);
+                return;
+            }
+            this.joystickMaxRadius = 45;
             this.joystickTouchId = touch.identifier;
             this.joystickOrigin.set(touch.clientX, touch.clientY);
             this.joystickCurrent.set(touch.clientX, touch.clientY);
@@ -152,7 +166,9 @@ class Controls {
         const resetJoystick = () => {
             this.joystickTouchId = null;
             this.inputVector.set(0, 0);
-            if (joystickBase) joystickBase.style.display = 'none';
+            if (document.body.classList.contains('hud-shooter')) {
+                if (joystickKnob) joystickKnob.style.transform = 'translate(-50%, -50%)';
+            } else if (joystickBase) joystickBase.style.display = 'none';
         };
 
         const handleLookStart = (touch) => {
@@ -304,6 +320,11 @@ class Controls {
             this.touchAimPressed = !!this.player.isAiming;
             const btn = document.getElementById('btn-scope');
             if (btn) btn.classList.toggle('active', !!this.player.isAiming);
+        });
+
+        // Backpack (shooter layout "buy" slot)
+        this.bindTouchButton('btn-buy', (isDown) => {
+            if (isDown) window.game?.ui?.toggleInventory?.(true);
         });
 
         // Reload the held gun
@@ -854,6 +875,7 @@ class Controls {
             hud = document.createElement('div');
             hud.id = 'gun-hud';
             hud.innerHTML = `
+                <img id="gun-hud-icon" alt="">
                 <div class="eblan-gun-info">
                     <div id="gun-name-badge" class="eblan-gun-title">🔫 СТВОЛ</div>
                     <div class="eblan-gun-ammo-row">
@@ -875,6 +897,13 @@ class Controls {
         const label = document.getElementById('gun-ammo-label');
         if (label) label.textContent = `${state.gunType.toUpperCase()} · ${state.ammo}/${state.capacity} · ${Number.isFinite(state.reserve) ? state.reserve : '∞'}${state.reloading ? ` · ↻ ${state.reloadRemaining.toFixed(1)}с` : ''}${performance.now() < (this.player.gunHitUntil || 0) ? ' · × HIT' : ''}`;
 
+        const hudIcon = document.getElementById('gun-hud-icon');
+        if (hudIcon) {
+            const held = this.player.getSelectedItem?.();
+            const reg = held && window.ITEM_REGISTRY?.[held.itemId];
+            const src = reg && window.game?.ui?.textureManager?.getIconDataURL?.(reg.icon);
+            if (src && hudIcon.getAttribute('src') !== src) hudIcon.src = src;
+        }
         const nameBadge = document.getElementById('gun-name-badge');
         if (nameBadge) nameBadge.textContent = `🔫 ${state.gunType.toUpperCase()}`;
         const mainCount = document.getElementById('gun-ammo-main');

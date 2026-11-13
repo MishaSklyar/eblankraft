@@ -6944,3 +6944,114 @@ body.hud-shooter .btn-attack { background: rgba(120, 28, 28, 0.85); border-color
 body.hud-shooter .btn-scope.active { background: rgba(0, 120, 110, 0.9); }
 body.hud-shooter #gun-hud { left: auto; right: 8px; top: 56px; bottom: auto; transform: none; max-width: 40vw; }
 body.hud-shooter.hold-gun #hud-block-name { display: none; }
+
+/* ==========================================================================
+   SHOOTER layout (hand-built, matches a competitive-shooter touch HUD 1:1).
+   Everything is pinned with !important, so the editor's grid / clamps / per-button size don't apply.
+   Reference canvas is 800x400, sizes use vh so it scales with the screen.
+   ========================================================================== */
+body.hud-shooter {
+    --ico-cross: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='24' cy='24' r='9'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23e9e9ec'/%3E%3Cpath d='M24 5v8M24 35v8M5 24h8M35 24h8'/%3E%3C/svg%3E");
+    --ico-bullet: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 40V22c0-6 4-11 8-14 4 3 8 8 8 14v18z'/%3E%3Cpath d='M16 32h16'/%3E%3C/svg%3E");
+    --ico-chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 14l15 12 15-12M9 26l15 12 15-12'/%3E%3C/svg%3E");
+    --ico-cart: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 8h6l5 22h20l4-15H13'/%3E%3Ccircle cx='19' cy='38' r='3'/%3E%3Ccircle cx='33' cy='38' r='3'/%3E%3Cpath d='M24 20v6m-3-3h6' stroke-width='2'/%3E%3C/svg%3E");
+    --ico-pliers: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 6l7 17M31 6l-7 17'/%3E%3Cpath d='M24 23l-8 19M24 23l8 19'/%3E%3Ccircle cx='24' cy='23' r='2.5' fill='%23e9e9ec'/%3E%3C/svg%3E");
+    --ico-fire: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23e9e9ec' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='24' cy='24' r='14'/%3E%3Ccircle cx='24' cy='24' r='5' fill='%23ffb4b4' stroke='none'/%3E%3C/svg%3E");
+}
+
+/* dark flat round buttons with line icons */
+body.hud-shooter .touch-btn {
+    transform: translate(-50%, -50%) !important;
+    --hs: 1 !important;
+    opacity: 1 !important;
+    background-color: rgba(26, 27, 31, 0.86) !important;
+    border: 2px solid rgba(255, 255, 255, 0.16) !important;
+    box-shadow: none !important;
+    color: #e9e9ec;
+}
+body.hud-shooter .touch-btn:active, body.hud-shooter .touch-btn.active {
+    transform: translate(-50%, -50%) scale(0.93) !important;
+    background-color: rgba(70, 72, 80, 0.92) !important;
+}
+body.hud-shooter .btn-attack, body.hud-shooter .btn-scope, body.hud-shooter .btn-reload,
+body.hud-shooter .btn-jump, body.hud-shooter .btn-buy, body.hud-shooter .btn-tnt {
+    font-size: 0 !important; background-repeat: no-repeat !important; background-position: center !important; background-size: 56% !important;
+}
+body.hud-shooter .btn-attack span, body.hud-shooter .btn-scope span, body.hud-shooter .btn-reload span,
+body.hud-shooter .btn-jump span, body.hud-shooter .btn-buy span, body.hud-shooter .btn-tnt span { display: none; }
+body.hud-shooter .btn-attack { background-image: var(--ico-fire) !important; }
+body.hud-shooter .btn-scope  { background-image: var(--ico-cross) !important; }
+body.hud-shooter .btn-reload { background-image: var(--ico-bullet) !important; }
+body.hud-shooter .btn-jump   { background-image: var(--ico-chev) !important; background-size: 52% !important; }
+body.hud-shooter .btn-buy    { background-image: var(--ico-cart) !important; }
+body.hud-shooter .btn-tnt    { background-image: var(--ico-pliers) !important; }
+body.hud-shooter .btn-scope.active { border-color: #4dd0c4 !important; }
+
+/* exact positions (percent of the screen) and sizes (vh) */
+body.hud-shooter #btn-attack  { left: 26.4% !important; top: 40%   !important; width: 17vh !important; height: 17vh !important; border-color: rgba(255,120,120,0.5) !important; }
+body.hud-shooter #btn-buy     { left: 29.5% !important; top: 64%   !important; width: 18vh !important; height: 18vh !important; display: flex !important; }
+body.hud-shooter #btn-tnt     { left: 29.5% !important; top: 75%   !important; width: 18vh !important; height: 18vh !important; }
+body.hud-shooter #btn-scope   { left: 70.9% !important; top: 75%   !important; width: 20vh !important; height: 20vh !important; }
+body.hud-shooter #btn-reload  { left: 83.4% !important; top: 75%   !important; width: 20vh !important; height: 20vh !important; }
+body.hud-shooter #btn-jump    { left: 94.5% !important; top: 87.5% !important; width: 22vh !important; height: 22vh !important; }
+body.hud-shooter #btn-dodge   { left: 94.5% !important; top: 38.5% !important; width: 14vh !important; height: 14vh !important; }
+body.hud-shooter #btn-inspect { left: 82%   !important; top: 38.5% !important; width: 14vh !important; height: 14vh !important; }
+body.hud-shooter #btn-sprint  { left: 28%   !important; top: 92%   !important; width: 11vh !important; height: 11vh !important; }
+body.hud-shooter #btn-scope, body.hud-shooter #btn-reload { display: flex !important; }
+body.hud-shooter #btn-break, body.hud-shooter #btn-place { display: none !important; }
+body.hud-shooter:not(.hold-gun) #btn-scope, body.hud-shooter:not(.hold-gun) #btn-reload { opacity: 0.45 !important; }
+
+/* fixed movement ring with arrows (always visible, instead of the floating joystick) */
+body.hud-shooter:not(.in-main-menu):not(.is-preloading):not(.hud-editing) #joystick-base { display: block !important; }
+body.hud-shooter #joystick-base {
+    left: 11.9% !important; top: 75% !important; width: 30vh; height: 30vh;
+    background: rgba(26, 27, 31, 0.8); border: 2px solid rgba(255,255,255,0.14); box-shadow: none; pointer-events: none;
+}
+body.hud-shooter #joystick-base::before, body.hud-shooter #joystick-base::after {
+    content: '▲'; position: absolute; left: 50%; top: 3%; transform: translateX(-50%); font-size: 2.4vh; color: #e9e9ec;
+}
+body.hud-shooter #joystick-base::after { content: '▼'; top: auto; bottom: 3%; }
+body.hud-shooter #joystick-knob { width: 12vh; height: 12vh; background: rgba(60,60,66,0.95); border: 2px solid rgba(255,255,255,0.25); box-shadow: none; }
+body.hud-shooter #joystick-knob::before, body.hud-shooter #joystick-knob::after {
+    content: '◀'; position: absolute; top: 50%; left: -62%; transform: translateY(-50%); font-size: 2.4vh; color: #e9e9ec;
+}
+body.hud-shooter #joystick-knob::after { content: '▶'; left: auto; right: -62%; }
+
+/* current weapon pill, bottom centre */
+#shooter-weapon { display: none; }
+body.hud-shooter:not(.in-main-menu):not(.is-preloading) #shooter-weapon {
+    display: flex; position: fixed; left: 50%; top: 81.25%; transform: translate(-50%, -50%);
+    width: 40vh; height: 12.5vh; border-radius: 6.25vh; align-items: center; justify-content: center;
+    background: rgba(26, 27, 31, 0.88); border: 2px solid rgba(255,255,255,0.16); z-index: 36; touch-action: none; user-select: none;
+}
+#shooter-weapon img { height: 8.5vh; width: auto; image-rendering: pixelated; pointer-events: none; }
+#shooter-weapon span { position: absolute; right: 3.5vh; bottom: 1vh; font-size: 2.2vh; color: #aaa; pointer-events: none; }
+
+/* hotbar is hidden in shooter mode; hold the pill to peek at it */
+body.hud-shooter #hotbar-container { display: none !important; }
+body.hud-shooter.hotbar-peek #hotbar-container { display: flex !important; position: fixed !important; left: 50% !important; top: auto !important; bottom: 24vh !important; transform: translateX(-50%) !important; z-index: 40; }
+
+/* top-right ammo panel */
+body.hud-shooter #gun-hud {
+    top: 0 !important; right: 0 !important; left: auto !important; bottom: auto !important; transform: none !important; max-width: none; width: 24vh; min-width: 150px;
+    flex-direction: column; align-items: flex-end; gap: 0; padding: 1.2vh 2vh 1vh; border: 0 !important; border-radius: 0 0 0 1.5vh;
+    background: linear-gradient(to left, rgba(26,27,31,0.95), rgba(26,27,31,0.55)); box-shadow: none;
+}
+body.hud-shooter #gun-hud .eblan-gun-title, body.hud-shooter #gun-hud .eblan-gun-status, body.hud-shooter #gun-hud .eblan-gun-reload-btn { display: none !important; }
+body.hud-shooter #gun-hud .eblan-gun-count-big { font-size: 4.5vh; color: #ff9d2e; }
+body.hud-shooter #gun-hud .eblan-gun-count-big.low { color: #ff4444; }
+body.hud-shooter #gun-hud .eblan-gun-reserve { font-size: 3.6vh; color: #fff; }
+body.hud-shooter #gun-hud #gun-ammo-capacity { display: none; }
+#gun-hud-icon { display: none; }
+body.hud-shooter #gun-hud #gun-hud-icon { display: block; height: 9vh; width: auto; image-rendering: pixelated; margin-top: 0.5vh; }
+
+/* corner buttons (menu / chat bottom-left, backpack bottom-right-centre), the rest of the top bar is hidden */
+body.hud-shooter #top-buttons .top-btn { display: none !important; }
+body.hud-shooter #top-buttons #btn-menu, body.hud-shooter #top-buttons #btn-chat-toggle, body.hud-shooter #top-buttons #btn-inventory {
+    display: flex !important; position: fixed !important; top: auto !important; bottom: 0 !important; width: 14.5vh; height: 7.5vh; padding: 0;
+    justify-content: center; align-items: center; border-radius: 0; border: 0 !important; background: rgba(26,27,31,0.9) !important; pointer-events: auto;
+}
+body.hud-shooter #top-buttons #btn-menu { left: 0 !important; } body.hud-shooter #top-buttons #btn-chat-toggle { left: 17.5% !important; } body.hud-shooter #top-buttons #btn-inventory { left: 76% !important; }
+body.hud-shooter #top-buttons .top-btn-text { display: none; }
+body.hud-shooter .hud-sub-row { display: none; }
+body.hud-shooter #hud-stats-group { background: rgba(26,27,31,0.55); }

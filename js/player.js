@@ -1112,6 +1112,7 @@ class Player {
             document.body.classList.toggle('hold-gun', !!heldReg?.isGun);
             document.body.classList.toggle('hold-knife', !!heldReg?.isKnife);
             document.getElementById?.('btn-scope')?.classList?.remove('active');
+            this.game?.ui?.refreshShooterPill?.();
         }
         disposeHeldModel(this.heldGunMesh); this.heldGunMesh = null;
         disposeHeldModel(this.heldKnifeMesh); this.heldKnifeMesh = null;

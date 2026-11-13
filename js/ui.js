@@ -3878,6 +3878,7 @@ class UIManager {
             { id: 'btn-tnt',     label: '💣 ТНТ' },
             { id: 'btn-scope',   label: '🔭 Приціл' },
             { id: 'btn-reload',  label: '🔄 Перезарядка' },
+            { id: 'btn-buy',     label: '🛒 Рюкзак' },
             { id: 'btn-inspect', label: '🔍 Огляд ножа' }
         ];
         this.DEFAULT_HUD_LAYOUT = { version: 2, mode: 'standard', preset: 'default', btnScale: 1, btnOpacity: 0.9, hotbarScale: 1, leftHanded: false, snap: true, hotbar: null, buttons: {} };
@@ -3892,19 +3893,8 @@ class UIManager {
             } }),
             compact:     mk({ preset: 'compact', btnScale: 0.8, btnOpacity: 0.8, hotbarScale: 0.85 }),
             giant:       mk({ preset: 'giant', btnScale: 1.35, btnOpacity: 0.95, hotbarScale: 1.15 }),
-            // Shooter: movement left, fire above it, jump / reload / scope in the bottom-right, weapon bar at the bottom centre
-            shooter:     mk({ preset: 'shooter', mode: 'shooter', btnScale: 1, btnOpacity: 0.85, hotbarScale: 0.95,
-                hotbar: { x: 0.5, y: 0.9 },
-                buttons: {
-                    'btn-attack': { x: 0.14, y: 0.42, s: 1.15 },
-                    'btn-jump':   { x: 0.93, y: 0.82, s: 1.3 },
-                    'btn-reload': { x: 0.81, y: 0.82 },
-                    'btn-scope':  { x: 0.70, y: 0.82 },
-                    'btn-inspect': { x: 0.80, y: 0.60 },
-                    'btn-dodge':  { x: 0.92, y: 0.60 },
-                    'btn-sprint': { x: 0.27, y: 0.84 },
-                    'btn-break': { hidden: true }, 'btn-place': { hidden: true }, 'btn-tnt': { hidden: true }
-                } })
+            // Shooter: a fixed, hand-built layout (see body.hud-shooter in style.css) that ignores the editor's grid / clamps
+            shooter:     mk({ preset: 'shooter', mode: 'shooter', btnOpacity: 0.95 })
         };
 
         let parsed = null;
@@ -3914,6 +3904,7 @@ class UIManager {
             parsed = { btnScale: parsed.btnScale, btnOpacity: parsed.btnOpacity, hotbarScale: parsed.hotbarScale, leftHanded: !!parsed.leftHanded };
         }
         document.body.classList.add('hud-free');
+        this.initShooterPill();
         this.applyLayout(this.normalizeLayout(parsed || {}));
 
         let rt = null;
@@ -3957,7 +3948,7 @@ class UIManager {
             'btn-jump': [cx[0], cy[0]], 'btn-place': [cx[1], cy[0]], 'btn-sprint': [cx[2], cy[0]],
             'btn-attack': [cx[0], cy[1]], 'btn-break': [cx[1], cy[1]], 'btn-dodge': [cx[2], cy[1]],
             'btn-scope': [cx[0], cy[2]], 'btn-inspect': [cx[1], cy[2]], 'btn-tnt': [cx[2], cy[2]],
-            'btn-reload': [cx[2], cy[3]]
+            'btn-reload': [cx[2], cy[3]], 'btn-buy': [cx[1], cy[3]]
         };
         const out = {};
         for (const id in p) out[id] = { x: (leftHanded ? W - p[id][0] : p[id][0]) / W, y: p[id][1] / H };
@@ -4155,6 +4146,7 @@ class UIManager {
 
     positionHudHandles() {
         if (!this._hudHandles) return;
+        if (this.layout.mode === 'shooter') { for (const id in this._hudHandles) this._hudHandles[id].style.display = 'none'; return; }
         for (const id in this._hudHandles) {
             const el = document.getElementById(id), h = this._hudHandles[id];
             if (!el) { h.style.display = 'none'; continue; }
@@ -4188,7 +4180,9 @@ class UIManager {
         // selected control: its own size / visibility / reset
         const sel = $('#hude-sel');
         const id = this.hudSel;
-        if (!id) {
+        if (L.mode === 'shooter') {
+            sel.innerHTML = '<span class="hude-hint">🔫 Режим «Шутер» має фіксовану розкладку (як у Standoff 2). Оберіть інший пресет, щоб розставляти кнопки вручну.</span>';
+        } else if (!id) {
             sel.innerHTML = '<span class="hude-hint">Торкніться кнопки, щоб вибрати її. Перетягніть, щоб перемістити.</span>';
         } else if (id === 'hotbar-container') {
             sel.innerHTML = '<b>🎒 Хотбар</b> <span class="hude-hint">— розмір змінюється повзунком «Хотбар»</span> <button class="hude-chip" id="hude-reset-one">↺ На місце</button>';
@@ -4214,6 +4208,37 @@ class UIManager {
             $('#hude-reset-one').onclick = () => { delete this.layout.buttons[id]; this.applyLayout(this.layout); this.refreshHudEditor(); };
         }
         this.positionHudHandles();
+    }
+
+    // Shooter layout: weapon pill. Tap = next hotbar slot, hold = show / hide the hotbar
+    initShooterPill() {
+        const pill = document.getElementById('shooter-weapon');
+        if (!pill) return;
+        let timer = null, held = false;
+        pill.addEventListener('pointerdown', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            held = false;
+            timer = setTimeout(() => { held = true; document.body.classList.toggle('hotbar-peek'); }, 450);
+        });
+        const end = (e) => {
+            if (timer === null) return;
+            clearTimeout(timer); timer = null;
+            if (!held) this.selectHotbarSlot((this.player.selectedHotbarIndex + 1) % 9);
+        };
+        pill.addEventListener('pointerup', end);
+        pill.addEventListener('pointercancel', () => { clearTimeout(timer); timer = null; });
+        this.refreshShooterPill();
+    }
+
+    refreshShooterPill() {
+        const icon = document.getElementById('shooter-weapon-icon');
+        if (!icon || !this.player) return;
+        const it = this.player.getSelectedItem?.();
+        const reg = it && ITEM_REGISTRY[it.itemId];
+        const src = reg ? this.textureManager.getIconDataURL(reg.icon || 'stone') : '';
+        if (src) { icon.src = src; icon.style.visibility = 'visible'; } else icon.style.visibility = 'hidden';
+        const n = document.getElementById('shooter-weapon-slot');
+        if (n) n.textContent = String(this.player.selectedHotbarIndex + 1);
     }
 
     stopHudDragMode(saveChanges) {
