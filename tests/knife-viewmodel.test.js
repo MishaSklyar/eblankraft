@@ -68,4 +68,55 @@ for (const prefix of ['js', 'web/js']) {
         p.getSelectedItem = () => ({ itemId: 'stone' });
         assert.equal(p.inspectKnife(), false);
     });
+
+    test(`${prefix}: every knife type has its own pickup and inspect animation that start offset and end at rest`, () => {
+        const c = load();
+        const sigs = new Set();
+        for (const type of TYPES) {
+            const p = pose(c, { knifeDraw: 1, _knifeType: type, heldKnifeMesh: c.createVoxelKnifeModel(type) });
+            p.getSelectedItem = () => ({ itemId: 'knife_m9' });
+            p.updateKnifeView(1 / 60, 0, 0, 0);
+            const r0 = p.heldKnifeMesh.rotation, start = [p.itemPivot.position.y, r0.x, r0.y, r0.z].map(v => +v.toFixed(2)).join();
+            for (let i = 0; i < 120; i++) p.updateKnifeView(1 / 60, 0, 0, 0);
+            assert.equal(p.knifeDraw, 0, `${type}: pickup ends`);
+            assert.deepEqual(p.heldKnifeMesh.rotation.toArray().slice(0, 3), [0, 0, 0], `${type}: knife at rest after pickup`);
+            p.knifeInspect = 1; let moved = 0;
+            for (let i = 0; i < 400; i++) { p.updateKnifeView(1 / 60, 0, 0, 0); const q = p.heldKnifeMesh.rotation; moved = Math.max(moved, Math.abs(q.x), Math.abs(q.y), Math.abs(q.z)); }
+            assert.ok(moved > .5, `${type}: inspect animates the knife`);
+            assert.equal(p.knifeInspect, 0);
+            sigs.add(start + '|' + moved.toFixed(2));
+        }
+        assert.equal(sigs.size, TYPES.length, 'animations differ per knife');
+    });
+
+    test(`${prefix}: every knife has its own hold pose and swing; balisong handles fan; karambit spins around its ring`, () => {
+        const c = load();
+        const holds = new Set(), swings = new Set();
+        for (const type of TYPES) {
+            const p = pose(c, { knifeDraw: 0, _knifeType: type, heldKnifeMesh: c.createVoxelKnifeModel(type) });
+            p.updateKnifeView(1 / 60, 0, 0, 0);
+            holds.add([...p.itemPivot.position.toArray(), ...p.itemPivot.rotation.toArray().slice(0, 3), c.KNIFE_ANIMS[type].pose.scale].map(v => +v.toFixed(2)).join());
+            const row = [];
+            for (let k = 0; k < 3; k++) {
+                p.armSwing = 1; p.updateKnifeView(1 / 60, 0, 0, 0); p.updateKnifeView(1 / 60, 0, 0, 1);
+                row.push([...p.itemPivot.position.toArray(), ...p.heldKnifeMesh.rotation.toArray().slice(0, 3)].map(v => +v.toFixed(2)).join());
+                p.armSwing = 0; p.updateKnifeView(1 / 60, 0, 0, 0);
+            }
+            swings.add(row.join('|'));
+        }
+        assert.equal(holds.size, TYPES.length, 'hold pose differs per knife');
+        assert.equal(swings.size, TYPES.length, 'swings differ per knife');
+        // butterfly: handle halves rotate during inspect
+        const b = pose(c, { _knifeType: 'butterfly', heldKnifeMesh: c.createVoxelKnifeModel('butterfly'), knifeInspect: .75 });
+        b.updateKnifeView(1 / 60, 0, 0, 0);
+        const [hA, hB] = b.heldKnifeMesh.userData.halves;
+        assert.ok(hA.rotation.x > 1 && hB.rotation.x > 0 && hA.rotation.x !== hB.rotation.x, 'handles fan out of sync');
+        // karambit: the spin keeps the ring in place (pivot offset), the handle moves
+        const k = pose(c, { _knifeType: 'karambit', heldKnifeMesh: c.createVoxelKnifeModel('karambit'), knifeInspect: .8 });
+        k.updateKnifeView(1 / 60, 0, 0, 0);
+        const m = k.heldKnifeMesh, ring = new THREE.Vector3(...c.KNIFE_ANIMS.karambit.pivot);
+        const worldRing = ring.clone().applyEuler(m.rotation).multiplyScalar(m.scale.x).add(m.position);
+        assert.ok(worldRing.distanceTo(ring.clone().multiplyScalar(m.scale.x)) < 1e-6, 'ring stays fixed while spinning');
+        assert.ok(m.position.length() > .01, 'knife orbits the ring');
+    });
 }

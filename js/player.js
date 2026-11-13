@@ -155,12 +155,15 @@ function createVoxelKnifeModel(type) {
 
     if (type === 'butterfly') {
         // two handle halves flanking the tang, with pivot pins
-        for (const sx of [-1, 1]) {
-            box('handle_half', .011, .038, .17, sx * .0105, 0, .09, 'handle');
-            box('handle_rail', .013, .01, .17, sx * .0105, -.02, .09, 'guard');
-        }
+        // each handle half swings around the pin at the blade end (animated by the viewmodel)
+        const halves = [-1, 1].map(sx => {
+            const g = new THREE.Group(); g.name = 'handle_group'; g.position.set(0, 0, .02); inner.add(g);
+            for (const m of [box('handle_half', .011, .038, .17, sx * .0105, 0, .09, 'handle'), box('handle_rail', .013, .01, .17, sx * .0105, -.02, .09, 'guard')]) { m.position.z -= .02; g.add(m); }
+            if (sx > 0) { const l = box('latch', .03, .02, .02, 0, .0, .185, 'dark'); l.position.z -= .02; g.add(l); }
+            return g;
+        });
+        root.userData.halves = halves;
         for (const z of [.02, .12]) box('pivot_pin', .036, .012, .012, 0, 0, z, 'guard');
-        box('latch', .03, .02, .02, 0, .0, .185, 'dark');
         return root;
     }
 
@@ -179,6 +182,109 @@ function createVoxelKnifeModel(type) {
     return root;
 }
 window.createVoxelKnifeModel = createVoxelKnifeModel;
+
+// --- Per-knife viewmodel: hold pose, pickup (draw), 3 attacks and inspect ---
+// pose = rest position/rotation/scale of the knife in view. draw(d, o): d = remaining pickup weight (1 -> 0).
+// inspect(p, o): p = progress 0 -> 1. swing[k](s, o, a): s = sin swing envelope, a = raw armSwing (1 -> 0).
+// o collects additive offsets (px/py/pz position, rx/ry/rz arm rotation), a spin of the knife itself
+// (mx/my/mz, around `pivot` in knife space) and balisong handle angles (hA/hB).
+const TAU = Math.PI * 2;
+const _ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const _clamp01 = t => Math.max(0, Math.min(1, t));
+const _seg = (p, a, b) => _ease(_clamp01((p - a) / (b - a)));
+function _inspectLift(o, p, k = 1) {   // raise the knife toward the screen centre while it is shown off
+    const l = Math.sin(p * Math.PI) * k;
+    o.px += (.16 - o.bx) * l * .6; o.py += .05 * l; o.pz += .05 * l; o.ry += .35 * l; o.rx += .12 * l;
+    return l;
+}
+const _DEF_SWINGS = [
+    (s, o) => { o.px -= s * .36; o.py -= s * .08; o.pz -= s * .12; o.ry += s * .95; o.rz -= s * .6; o.rx += s * .1; },
+    (s, o) => { o.px -= s * .1; o.py += s * .14; o.pz -= s * .10; o.ry -= s * .55; o.rz += s * .95; o.rx -= s * .22; },
+    (s, o) => { o.pz -= s * .38; o.py += s * .05; o.px -= s * .08; o.rx -= s * .18; o.ry -= o.by * s * .55; },
+];
+const KNIFE_ANIMS = {
+    default: {
+        pose: { px: .22, py: -.215, pz: -.43, rx: .34, ry: .52, rz: -.34, scale: 1.12 },
+        drawTime: .35, inspectTime: 1.9,
+        draw(d, o) { o.py -= d * .42; o.px += d * .12; o.rx -= d * 1.2; o.rz += d * .9; },
+        inspect(p, o) { const l = _inspectLift(o, p); o.mz = _ease(p) * TAU; o.my = l * .2; },
+    },
+    bayonet: {   // heavy combat knife: held forward and upright, hacking swings
+        pose: { px: .20, py: -.20, pz: -.47, rx: .22, ry: .40, rz: -.16, scale: 1.16 },
+        drawTime: .5, inspectTime: 1.9,
+        draw(d, o) { o.py -= d * .4; o.px += d * .2; o.ry -= d * .8; o.mz = -d * 1.6; o.pz += d * .1; },
+        inspect(p, o) { const l = _inspectLift(o, p, 1.2); o.ry += Math.sin(p * Math.PI) * .7; o.mx = -l * .7; o.mz = Math.sin(p * TAU) * .5 + _ease(p) * Math.PI; o.my = Math.sin(p * Math.PI) * .6; },
+        swing: [
+            (s, o) => { o.px -= s * .30; o.py += s * .14; o.pz -= s * .18; o.ry += s * 1.1; o.rz -= s * .8; o.rx += s * .45; },   // overhead chop
+            (s, o) => { o.px += s * .05; o.py -= s * .06; o.pz -= s * .16; o.ry -= s * .8; o.rz += s * .7; o.rx -= s * .1; },
+            (s, o) => { o.pz -= s * .46; o.py += s * .02; o.rx -= s * .3; o.ry -= o.by * s * .7; },
+        ],
+    },
+    huntsman: {   // low, tilted hunting grip with quick hooking cuts
+        pose: { px: .24, py: -.23, pz: -.41, rx: .52, ry: .62, rz: -.52, scale: 1.12 },
+        drawTime: .6, inspectTime: 2,
+        draw(d, o) { o.py -= d * .4; o.px += d * .08; o.mx = -d * TAU; },
+        inspect(p, o) { const l = _inspectLift(o, p); o.mx = -_ease(p) * TAU; o.mz = l * .35; },
+        swing: [
+            (s, o) => { o.px -= s * .26; o.py -= s * .12; o.ry += s * .8; o.rz -= s * 1.0; o.mz = s * .6; },
+            (s, o) => { o.px -= s * .06; o.py += s * .16; o.ry -= s * .7; o.rz += s * 1.1; o.mz = -s * .6; },
+            (s, o) => { o.pz -= s * .34; o.py += s * .08; o.rx -= s * .35; o.ry -= o.by * s * .5; },
+        ],
+    },
+    m9: {   // big bayonet blade: wide sweeping arcs
+        pose: { px: .21, py: -.20, pz: -.45, rx: .28, ry: .46, rz: -.30, scale: 1.2 },
+        drawTime: .6, inspectTime: 2.2,
+        draw(d, o) { o.py -= d * .42; o.px += d * .1; o.rx -= d * .8; o.mz = d * TAU; },
+        inspect(p, o) { const l = _inspectLift(o, p, 1.1); o.mz = _ease(p) * TAU; o.mx = Math.sin(p * TAU) * .45; o.my = l * .3; },
+        swing: [
+            (s, o) => { o.px -= s * .46; o.py -= s * .06; o.pz -= s * .14; o.ry += s * 1.2; o.rz -= s * .75; o.mz = s * .5; },
+            (s, o) => { o.px -= s * .16; o.py += s * .18; o.pz -= s * .12; o.ry -= s * .7; o.rz += s * 1.1; o.rx -= s * .25; o.mz = -s * .5; },
+            (s, o) => { o.pz -= s * .42; o.py += s * .04; o.rx -= s * .2; o.ry -= o.by * s * .6; },
+        ],
+    },
+    butterfly: {   // balisong: spinning handles, fans open/closed, flips mid-swing
+        pose: { px: .19, py: -.19, pz: -.40, rx: .46, ry: .40, rz: -.26, scale: 1.3 },
+        drawTime: .95, inspectTime: 3.2,
+        draw(d, o) {   // flicked open from closed: handles whip around the blade while the knife double-flips in
+            o.py -= d * .36; o.px += d * .1; o.mx = d * TAU * 2; o.mz = d * .6;
+            o.hA = Math.PI * _clamp01(d * 1.6); o.hB = Math.PI * _clamp01(d * 1.6 - .25);
+        },
+        inspect(p, o) {   // close handles -> double flip closed -> fan open -> roll
+            const l = _inspectLift(o, p, 1.15);
+            const close = a => _seg(p, a, a + .22) - _seg(p, .58 + (a - .08), .8 + (a - .08));
+            o.hA = Math.PI * close(.08); o.hB = Math.PI * close(.13);
+            o.mx = _seg(p, .3, .58) * TAU * 2; o.mz = _seg(p, .78, 1) * TAU; o.my = l * .25;
+        },
+        swing: [
+            (s, o, a) => { o.px -= s * .34; o.py -= s * .08; o.pz -= s * .12; o.ry += s * 1.0; o.rz -= s * .7; o.mx = (1 - a) * TAU; o.hA = s * .7; o.hB = s * .35; },   // flip-slash
+            (s, o, a) => { o.px -= s * .12; o.py += s * .16; o.ry -= s * .6; o.rz += s * 1.0; o.mz = -(1 - a) * TAU; o.hB = s * .7; o.hA = s * .35; },
+            (s, o, a) => { o.pz -= s * .4; o.py += s * .05; o.rx -= s * .2; o.ry -= o.by * s * .6; o.mx = -(1 - a) * TAU; },
+        ],
+    },
+    karambit: {   // reverse grip, finger through the ring: twirls on the ring, wrist-roll slashes
+        pose: { px: .19, py: -.20, pz: -.38, rx: .14, ry: .36, rz: -.62, scale: 1.34 },
+        pivot: [0, -.012, .09],   // the finger ring
+        drawTime: .85, inspectTime: 3,
+        draw(d, o) { o.py -= d * .38; o.px += d * .15; o.rz += d * .5; o.mx = -d * TAU * 1.5; o.mz = d * .5; },
+        inspect(p, o) {   // two fast ring spins, a hold to show the curve, a reverse flick and a final spin
+            const l = _inspectLift(o, p, 1.3);
+            o.mx = -(_seg(p, .05, .35) * TAU * 2 + _seg(p, .62, .9) * TAU);
+            o.my = Math.sin(p * TAU) * .3 + _seg(p, .38, .52) * .5 * (1 - _seg(p, .52, .62)); o.mz = l * .45;
+        },
+        swing: [
+            (s, o, a) => { o.px -= s * .34; o.py -= s * .1; o.pz -= s * .14; o.ry += s * 1.0; o.rz -= s * .9; o.mx = -(1 - a) * TAU; },   // twirl-slash
+            (s, o) => { o.px -= s * .08; o.py += s * .18; o.pz -= s * .1; o.ry -= s * .6; o.rz += s * 1.2; o.rx -= s * .3; o.mz = -s * .9; },
+            (s, o, a) => { o.pz -= s * .4; o.py += s * .04; o.rx -= s * .22; o.ry -= o.by * s * .6; o.mx = -(1 - a) * TAU * 2; },
+        ],
+    },
+    gold: {   // slow, showy rotation so the shine catches the light
+        pose: { px: .22, py: -.21, pz: -.44, rx: .30, ry: .50, rz: -.30, scale: 1.2 },
+        drawTime: .7, inspectTime: 2.7,
+        draw(d, o) { o.py -= d * .45; o.px += d * .1; o.rx -= d * .7; o.my = d * TAU; o.mz = d * .5; },
+        inspect(p, o) { const l = _inspectLift(o, p, 1.5); o.my = _ease(p) * TAU; o.mz = l * .55; o.mx = -l * .3; },
+    },
+};
+window.KNIFE_ANIMS = KNIFE_ANIMS;
 function disposeHeldModel(model) {
     if (!model) return;
     const materials = new Set();
@@ -813,11 +919,13 @@ class Player {
             if (this.heldToolMesh) this.heldToolMesh.visible = false;
         } else if (reg?.isKnife) {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
-            this.heldKnifeMesh = createVoxelKnifeModel(String(reg.icon).replace('knife_', ''));
-            this.heldKnifeMesh.scale.setScalar(1.12);
+            this._knifeType = String(reg.icon).replace('knife_', '');
+            this.heldKnifeMesh = createVoxelKnifeModel(this._knifeType);
+            const kp = (KNIFE_ANIMS[this._knifeType] || KNIFE_ANIMS.default).pose;
+            this.heldKnifeMesh.scale.setScalar(kp.scale);
             this.itemPivot.add(this.heldKnifeMesh);
             // the hand sits on the grip; the forearm points down-right/back, in camera space (base rotation cancelled)
-            const qBase = new THREE.Quaternion().setFromEuler(new THREE.Euler(.34, .52, -.34)).invert();
+            const qBase = new THREE.Quaternion().setFromEuler(new THREE.Euler(kp.rx, kp.ry, kp.rz)).invert();
             const forearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(.38, -.78, .5).normalize());
             this.armMesh.quaternion.copy(qBase).multiply(forearm);
             this.armMesh.position.set(.0, -.035, .02).applyQuaternion(qBase);
@@ -2803,7 +2911,7 @@ class Player {
     }
 
 
-    // --- Knife viewmodel: pose, breathing, draw, 3 alternating attacks, inspect (key X) ---
+    // --- Knife viewmodel: pose, breathing, per-knife pickup, 3 alternating attacks, per-knife inspect (key X) ---
     inspectKnife() {
         const held = this.getSelectedItem();
         if (!held || !ITEM_REGISTRY[held.itemId]?.isKnife || this.isDead || this.isThirdPerson) return false;
@@ -2820,37 +2928,37 @@ class Player {
             this.knifeInspect = 0;
         }
         this._knifePrevSwing = this.armSwing;
-        this.knifeDraw = Math.max(0, (this.knifeDraw || 0) - dt * 3.2);
-        if (this.knifeInspect > 0) this.knifeInspect = Math.max(0, this.knifeInspect - dt / 1.9);
+        const anim = KNIFE_ANIMS[this._knifeType] || KNIFE_ANIMS.default, base = anim.pose;
+        this.knifeDraw = Math.max(0, (this.knifeDraw || 0) - dt / anim.drawTime);
+        if (this.knifeInspect > 0) this.knifeInspect = Math.max(0, this.knifeInspect - dt / anim.inspectTime);
 
         const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
-        let px = .22 + bobX, py = -.215 + bobY + Math.sin(t * 1.6) * .004, pz = -.43;
-        let rx = .34, ry = .52, rz = -.34 + Math.sin(t * 1.3) * .012;
+        let px = base.px + bobX, py = base.py + bobY + Math.sin(t * 1.6) * .004, pz = base.pz;
+        let rx = base.rx, ry = base.ry, rz = base.rz + Math.sin(t * 1.3) * .012;
 
         if (this.isSprinting && this.onGround && !this.isAiming) { py -= .05; px += .03; rx -= .28; rz -= .12; }
 
-        const draw = (this.knifeDraw || 0) ** 2;
-        if (draw > 0) { py -= draw * .42; px += draw * .12; rx -= draw * 1.2; rz += draw * .9; }
-
-        const s = swing;
-        if (s > 0) {
-            const k = this.knifeSwingIdx || 0;
-            if (k === 0) { px -= s * .36; py -= s * .08; pz -= s * .12; ry += s * .95; rz -= s * .6; rx += s * .1; }
-            else if (k === 1) { px -= s * .1; py += s * .14; pz -= s * .10; ry -= s * .55; rz += s * .95; rx -= s * .22; }
-            else { pz -= s * .38; py += s * .05; px -= s * .08; rx -= s * .18; ry *= 1 - s * .55; }
-        }
-
-        // inspect: the knife is lifted toward the centre and rolled around its own axis; the arm stays put
+        // additive offsets: swing, pickup, inspect (+ spin of the knife itself and balisong handle angles)
+        const o = { bx: px, by: ry, px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0, mx: 0, my: 0, mz: 0, hA: 0, hB: 0 };
+        if (swing > 0) (anim.swing || _DEF_SWINGS)[this.knifeSwingIdx || 0](swing, o, this.armSwing);
+        const d = (this.knifeDraw || 0) ** 2;
+        if (d > 0) anim.draw(d, o);
         const ins = this.knifeInspect || 0;
-        let roll = 0, tilt = 0;
-        if (ins > 0) {
-            const p = 1 - ins, e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;   // ease in/out
-            const lift = Math.sin(p * Math.PI);
-            px += (.16 - px) * lift * .6; py += .05 * lift; pz += .05 * lift;
-            ry += lift * .35; rx += lift * .12;
-            roll = e * Math.PI * 2; tilt = lift * .5;
+        if (ins > 0) anim.inspect(1 - ins, o);
+        px += o.px; py += o.py; pz += o.pz; rx += o.rx; ry += o.ry; rz += o.rz;
+
+        const m = this.heldKnifeMesh;
+        if (m) {
+            m.rotation.set(o.mx, o.my, o.mz);
+            m.position.set(0, 0, 0);
+            if (anim.pivot && (o.mx || o.my || o.mz)) {   // spin around a point (e.g. the karambit ring) instead of the handle
+                const c = new THREE.Vector3(...anim.pivot);
+                const r = c.clone().applyEuler(m.rotation);
+                m.position.copy(c).sub(r).multiplyScalar(m.scale.x);
+            }
+            const h = m.userData.halves;
+            if (h) { h[0].rotation.x = o.hA; h[1].rotation.x = o.hB; }
         }
-        if (this.heldKnifeMesh) this.heldKnifeMesh.rotation.set(0, tilt * .4, roll);
 
         this.itemPivot.position.set(px, py, pz);
         this.itemPivot.rotation.set(rx, ry, rz);
