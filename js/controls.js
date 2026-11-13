@@ -355,14 +355,14 @@ class Controls {
             }
         });
 
-        // Shooter layout: a finger held on the fire zone / bullet / scope button keeps steering the camera when it slides,
+        // A finger held on any action button keeps steering the camera when it slides,
         // so the buttons never block aiming. (The button's own press / release behaviour is unchanged.)
-        for (const btnId of ['btn-reload', 'btn-attack', 'btn-scope']) {
+        for (const btnId of ['btn-reload', 'btn-attack', 'btn-scope', 'btn-place', 'btn-break', 'btn-jump', 'btn-sprint', 'btn-tnt', 'btn-inspect', 'btn-buy']) {
             const el = document.getElementById(btnId);
             if (!el) continue;
             let tid = null, px = 0, py = 0;
             el.addEventListener('touchstart', (e) => {
-                if (tid !== null || !document.body.classList.contains('hud-shooter')) return;
+                if (tid !== null || window.game?.ui?.dragModeOpen) return;
                 const t = e.changedTouches[0];
                 tid = t.identifier; px = t.clientX; py = t.clientY;
             }, { passive: true });
