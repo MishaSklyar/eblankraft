@@ -3875,7 +3875,6 @@ class UIManager {
             { id: 'btn-place',   label: '🧱 Блок / приціл' },
             { id: 'btn-jump',    label: '🦘 Стрибок' },
             { id: 'btn-sprint',  label: '🏃 Біг' },
-            { id: 'btn-dodge',   label: '💨 Кувирок' },
             { id: 'btn-tnt',     label: '💣 ТНТ' },
             { id: 'btn-scope',   label: '🔭 Приціл' },
             { id: 'btn-reload',  label: '🔄 Перезарядка' },
@@ -3948,7 +3947,7 @@ class UIManager {
         const cy = [H - bottom - r, H - bottom - r - pitch, H - bottom - r - 2 * pitch, H - bottom - r - 3 * pitch];
         const p = {
             'btn-jump': [cx[0], cy[0]], 'btn-place': [cx[1], cy[0]], 'btn-sprint': [cx[2], cy[0]],
-            'btn-attack': [cx[0], cy[1]], 'btn-break': [cx[1], cy[1]], 'btn-dodge': [cx[2], cy[1]],
+            'btn-attack': [cx[0], cy[1]], 'btn-break': [cx[1], cy[1]],
             'btn-scope': [cx[0], cy[2]], 'btn-inspect': [cx[1], cy[2]], 'btn-tnt': [cx[2], cy[2]],
             'btn-reload': [cx[2], cy[3]], 'btn-buy': [cx[1], cy[3]]
         };

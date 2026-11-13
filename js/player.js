@@ -576,9 +576,6 @@ class Player {
         this.comboStep = 0; // 0=jab, 1=slash, 2=finisher
         this.lastAttackHitTime = 0;
         this.whiffLagTimer = 0; // miss penalty delay
-        this.dodgeCooldown = 0;
-        this.dodgeRollInvulnerable = false;
-        this.dodgeTimer = 0;
         this.totemInvulnerableTimer = 0;
         this.isTargetLocked = false;
         this.gunReload = null;
@@ -1269,9 +1266,6 @@ class Player {
         if (this.game?.arenaClient?.isActive) { return; }
         if (this.godMode || this.isCreative || this.isDead) return;
 
-        // 0. Evasion frames from Dodge Roll (i-frames)
-        if (this.dodgeRollInvulnerable) return;
-
         // 1. Divine Shield from Totem of Undying
         if (this.totemInvulnerableTimer > 0) return;
 
@@ -1405,41 +1399,6 @@ class Player {
         if (this.game && this.game.ui) {
             this.game.ui.showToast("✨ ТОТЕМ БЕЗСМЕРТЯ ВРЯТУВАВ ВАС ВІД ЗАГИБЕЛІ!");
         }
-    }
-
-    // Tactical Dodge Roll / Dash (i-frames)
-    tryDodgeRoll(dirVector = null) {
-        if (this.game?.arenaClient?.isActive) { return false; }
-        if (this.dodgeCooldown > 0 || this.isDead || this.mountedVehicle || this.isInWater || this.isInLava) return false;
-
-        this.dodgeCooldown = 1.1; // 1.1s cooldown
-        this.dodgeRollInvulnerable = true;
-        this.dodgeTimer = 0.32; // 0.32s i-frames
-
-        let rollDir = new THREE.Vector3();
-        if (dirVector && (dirVector.x !== 0 || dirVector.y !== 0)) {
-            const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).normalize();
-            const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).normalize();
-            rollDir.addScaledVector(forward, dirVector.y);
-            rollDir.addScaledVector(right, -dirVector.x);
-            if (rollDir.lengthSq() > 0.01) rollDir.normalize();
-        } else {
-            rollDir.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).normalize();
-        }
-
-        const rollForce = 15.5;
-        this.velocity.x = rollDir.x * rollForce;
-        this.velocity.z = rollDir.z * rollForce;
-        if (this.onGround) this.velocity.y = 2.4;
-
-        if (this.soundManager) this.soundManager.playDodgeRoll();
-        if (this.particleSystem) {
-            this.particleSystem.spawnBlockBreakParticles(this.position.x, this.position.y + 0.1, this.position.z, BLOCK_TYPES.DIRT, 8);
-        }
-        if (this.game && this.game.ui) {
-            this.game.ui.showToast("💨 УХИЛЕННЯ! (i-frames)");
-        }
-        return true;
     }
 
     heal(amount) {
@@ -2342,15 +2301,6 @@ class Player {
         }
         if (this.whiffLagTimer > 0) {
             this.whiffLagTimer -= dt;
-        }
-        if (this.dodgeCooldown > 0) {
-            this.dodgeCooldown -= dt;
-        }
-        if (this.dodgeTimer > 0) {
-            this.dodgeTimer -= dt;
-            if (this.dodgeTimer <= 0) {
-                this.dodgeRollInvulnerable = false;
-            }
         }
         if (this.totemInvulnerableTimer > 0) {
             this.totemInvulnerableTimer -= dt;
@@ -3529,8 +3479,11 @@ class Player {
         const result = manager.shoot({
             damage: spec.damage, range: spec.range, spread,
             recoilPitch: spec.recoil, recoilYaw: spec.recoil * 0.45,
-            bulletCount: spec.bulletCount || 1, pitch: spec.pitch, volume: 0.4,
+            bulletCount: spec.bulletCount || 1, pitch: spec.pitch, volume: 0.95,
+            shake: Math.min(0.5, 0.14 + spec.recoil * 3.2),
         });
+        // Haptic thump on phones: heavier guns hit harder
+        try { navigator.vibrate?.(Math.round(Math.min(70, 14 + spec.recoil * 380))); } catch (e) {}
         if (result?.hit && result.type !== 'block') {
             this.gunHitUntil = now + 150;
             this.gunHitType = result.type;
