@@ -65,6 +65,10 @@ class Game {
         this.initLights();
         this.initSkyAndAtmosphere();
         this.updateGraphicsLighting();
+        this.upscaler = (typeof FSRUpscaler !== 'undefined') ? new FSRUpscaler(this) : null;
+        if (this.upscaler) { let m = 'off'; try { m = localStorage.getItem('eblankraft_upscaler') || 'off'; } catch (e) {} this.upscaler.setMode(m); }
+        this.rtx = (typeof RTXPipeline !== 'undefined') ? new RTXPipeline(this) : null;
+        if (this.rtx && this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
 
         this.lastTime = performance.now();
         this.animate = this.animate.bind(this);
@@ -128,6 +132,8 @@ class Game {
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(w, h);
             this.renderer.setPixelRatio(this.getEffectivePixelRatio());
+            if (this.upscaler) this.upscaler.resize();
+            if (this.rtx) this.rtx.setSize();
         });
     }
 
@@ -351,6 +357,8 @@ class Game {
             const w = window.innerWidth;
             const h = window.innerHeight;
             this.renderer.setSize(w, h);
+            if (this.upscaler) this.upscaler.resize();
+            if (this.rtx) this.rtx.setSize();
             if (this.renderer.domElement) {
                 this.renderer.domElement.style.imageRendering = (this.renderScale < 1.0) ? 'pixelated' : 'auto';
             }
@@ -973,7 +981,11 @@ class Game {
 
         // Render submission time is CPU time, not GPU execution time.
         const renderStarted = performance.now();
-        this.renderer.render(this.scene, this.camera);
+        if (!(this.rtx && this.rtx.active && this.rtx.render(rawDt * 1000))) {
+            if (this.rtx && this.rtx.saved) this.renderer.toneMapping = this.rtx.saved.toneMapping;
+            if (this.upscaler && this.upscaler.active) this.upscaler.renderScene();
+            else this.renderer.render(this.scene, this.camera);
+        }
         const renderedAt = performance.now();
         this.lastRenderSubmitTime = renderedAt - renderStarted;
         this.lastFrameCpuTime = renderedAt - now;

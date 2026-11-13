@@ -963,6 +963,7 @@ class Chunk {
             geom.setAttribute('position', new THREE.BufferAttribute(combinedPositions, 3));
             geom.setAttribute('normal', new THREE.BufferAttribute(combinedNormals, 3));
             geom.setAttribute('uv', new THREE.BufferAttribute(combinedUVs, 2));
+            geom.setAttribute('uv2', new THREE.BufferAttribute(combinedUVs, 2)); // aoMap (x64 PBR)
 
             for (let g of groups) {
                 geom.addGroup(g.start, g.count, g.materialIndex);
