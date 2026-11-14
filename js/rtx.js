@@ -22,8 +22,8 @@
 class RTXPipeline {
     constructor(game) {
         this.game = game;
-        this.parts = RTXPipeline.loadParts();
-        this.cfg = RTXPipeline.loadCfg();
+        this.parts = RTXPipeline.loadParts(game);
+        this.cfg = RTXPipeline.loadCfg(game);
         this.fgPhase = 0;          // frame generation: 0 = render a real frame next, 1 = present a reprojected one
         this.fgRT = null;
         this.fgCam = null;
@@ -67,7 +67,7 @@ class RTXPipeline {
 
     supported() {
         const g = this.game;
-        return !!(g && g.renderer && !g.isA02Mode && !g.turboFPS && !g.isUL20FT);
+        return !!(g && g.renderer && !g.isA02Mode && !g.isUL20FT);   // phones run the 'low' preset: RTX is allowed there (lite defaults)
     }
 
     setEnabled(on) {
@@ -159,8 +159,9 @@ class RTXPipeline {
         const g = this.game, r = g.renderer;
         this.computeBaseScale();
         const size = this.targetSize();
+        const hdrOk = r.capabilities.isWebGL2 ? (r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float')) : r.extensions.has('EXT_color_buffer_half_float');
         const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
-            type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+            type: hdrOk ? THREE.HalfFloatType : THREE.UnsignedByteType, format: THREE.RGBAFormat,
             minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter
         });
         const composer = new THREE.EffectComposer(r, rt);
@@ -675,9 +676,13 @@ RTXPipeline.PARTS = [
     { id: 'smaa',     group: 'post',  icon: '📐', name: 'SMAA згладжування',    note: 'Прибирає «драбинки» на краях' }
 ];
 RTXPipeline.GROUPS = { mat: '🧱 Матеріали', light: '💡 Світло і довкілля', post: '🎬 Постобробка' };
-RTXPipeline.loadParts = function () {
+// Phones get a "lite" RTX by default (materials, sun, sky, tone-mapping, grading); the GPU-heavy effects stay available in the panel.
+RTXPipeline.MOBILE_OFF = ['pom', 'shadows', 'ssao', 'ssr', 'bloom', 'godrays', 'smaa'];
+RTXPipeline.isMobile = function (game) { return !!(game && game.isMobile) || /Android|Mobile|Silk/i.test((typeof navigator !== 'undefined' && navigator.userAgent) || ''); };
+RTXPipeline.loadParts = function (game) {
     const o = {};
-    for (const p of RTXPipeline.PARTS) o[p.id] = true;
+    const mobile = RTXPipeline.isMobile(game);
+    for (const p of RTXPipeline.PARTS) o[p.id] = !(mobile && RTXPipeline.MOBILE_OFF.includes(p.id));
     try { Object.assign(o, JSON.parse(localStorage.getItem('eblankraft_rtx_parts') || '{}')); } catch (e) {}
     return o;
 };
@@ -689,8 +694,9 @@ RTXPipeline.CFG_DEFAULTS = {
     aoRadius: 1.1, aoIntensity: 1.25, ssrOpacity: 0.55, ssrDistance: 40, pomDepth: 1,
     autoTier: false, targetFps: 30, frameGen: false, texFilter: 'sharp', sharpen: 0.35
 };
-RTXPipeline.loadCfg = function () {
+RTXPipeline.loadCfg = function (game) {
     const o = Object.assign({}, RTXPipeline.CFG_DEFAULTS);
+    if (RTXPipeline.isMobile(game)) Object.assign(o, { autoTier: true, targetFps: 30, texFilter: 'pixel', sharpen: 0.15 });
     try { Object.assign(o, JSON.parse(localStorage.getItem('eblankraft_rtx_cfg') || '{}')); } catch (e) {}
     return o;
 };
