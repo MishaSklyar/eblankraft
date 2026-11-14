@@ -2661,6 +2661,30 @@ class Player {
                     this.velocity.x *= f;
                     this.velocity.z *= f;
                 }
+            } else if (this.bunnyhop && !this.isFlying) {
+                // Bunnyhop mode: Source-style ground friction + acceleration instead of snapping the velocity to the
+                // input. Landing no longer wipes the air-strafe momentum or yanks you toward the held key, and
+                // walking without jumping ramps up/down in ~0.1s instead of being instant.
+                const vx = this.velocity.x, vz = this.velocity.z;
+                const speed = Math.hypot(vx, vz);
+                if (speed > 0.001) {
+                    const control = Math.max(speed, 2.0);                 // stop-speed: low speeds still brake quickly
+                    const newSpeed = Math.max(0, speed - control * 9 * dt);
+                    const k = newSpeed / speed;
+                    this.velocity.x *= k;
+                    this.velocity.z *= k;
+                }
+                const mag = Math.hypot(moveX, moveZ);
+                if (mag > 0.001) {
+                    const wx = moveX / mag, wz = moveZ / mag;
+                    const wishSpeed = baseSpeed * Math.min(1, mag);
+                    const add = wishSpeed - (this.velocity.x * wx + this.velocity.z * wz);
+                    if (add > 0) {
+                        const acc = Math.min(add, 12 * baseSpeed * dt);
+                        this.velocity.x += wx * acc;
+                        this.velocity.z += wz * acc;
+                    }
+                }
             } else {
                 // Crisp Ground Movement (Instant responsive deceleration)
                 this.velocity.x = moveX * baseSpeed;
