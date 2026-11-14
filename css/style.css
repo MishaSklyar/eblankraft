@@ -6824,7 +6824,7 @@ body.hud-free #hotbar-container:not(.hud-moved) {
     transform-origin: bottom center;
 }
 
-/* New context buttons: scope shows with a gun in hand, inspect with a knife */
+/* New context buttons: scope shows with a gun in hand, inspect with a knife or a gun */
 .btn-scope, .btn-inspect {
     display: none;
     width: 48px; height: 48px;
@@ -6835,7 +6835,7 @@ body.hud-free #hotbar-container:not(.hud-moved) {
 .btn-scope { background: rgba(0, 150, 136, 0.82); border-color: #4db6ac; }
 .btn-inspect { background: rgba(123, 31, 162, 0.82); border-color: #ba68c8; }
 .btn-scope.active { background: #26a69a !important; border-color: #fff; }
-body.hold-gun .btn-scope, body.hold-knife .btn-inspect,
+body.hold-gun .btn-scope, body.hold-gun .btn-inspect, body.hold-knife .btn-inspect,
 body.hud-editing .btn-scope, body.hud-editing .btn-inspect { display: flex; }
 body.hud-editing .touch-btn.hud-hidden { display: flex !important; opacity: 0.3 !important; }
 body.hud-editing #hud-top { opacity: 0.35; pointer-events: none; }

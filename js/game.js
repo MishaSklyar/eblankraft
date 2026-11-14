@@ -23,7 +23,7 @@ class Game {
         const mobile = /Android|Mobile|Silk/i.test(navigator.userAgent);
         this.isMobile = mobile;
         this.graphicsPreset = GRAPHICS_PRESETS[savedPreset] ? savedPreset :
-            (legacyLow || mobile || navigator.hardwareConcurrency <= 2 ? 'low' : 'medium');
+            (legacyLow || mobile || Game.isWeakDevice() ? 'low' : 'medium');
         localStorage.setItem('eblankraft_graphics_preset', this.graphicsPreset);
         const preset = GRAPHICS_PRESETS[this.graphicsPreset];
         // Compatibility flags for existing renderer/material consumers, derived
@@ -50,7 +50,8 @@ class Game {
         // MSAA is very costly on mobile GPUs: off by default there (still can be forced on in settings).
         this.antialias = setting('eblankraft_antialias', !mobile);
         // Mobile dynamic resolution: only when the player never picked a render scale by hand.
-        this.autoScale = mobile && !Number.isFinite(storedScale);
+        // Dynamic resolution: on phones and on the Low preset (potato PCs), unless the player picked a render scale by hand.
+        this.autoScale = (mobile || this.graphicsPreset === 'low') && !Number.isFinite(storedScale);
         this.autoScaleMax = this.renderScale;
         this._frameEma = 0; this._slowCount = 0; this._fastCount = 0;
         this.cloudOffset = 0;
@@ -85,11 +86,34 @@ class Game {
         requestAnimationFrame(this.animate);
     }
 
+    // Potato detection for the first-run default preset: few cores, little RAM, or a software GL renderer
+    // (SwiftShader / llvmpipe / Microsoft Basic Render), where every pixel and draw call is paid for on the CPU.
+    static isWeakDevice() {
+        try {
+            if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) return true;
+            if (navigator.deviceMemory && navigator.deviceMemory <= 2) return true;
+            if (typeof document === 'undefined' || !document.createElement) return false;
+            const gl = document.createElement('canvas').getContext('webgl');
+            if (!gl) return true;
+            const ext = gl.getExtension('WEBGL_debug_renderer_info');
+            const name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+            gl.getExtension('WEBGL_lose_context')?.loseContext();
+            return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+        } catch (e) { return false; }
+    }
+
+    // Compile every visible material while the loading screen is still up, so the first seconds of play do not stall
+    // on shader compilation (on weak CPUs that was the single biggest hitch).
+    warmShaders() {
+        if (!this.renderer || !this.scene || !this.camera) return;
+        try { this.renderer.compile(this.scene, this.camera); } catch (e) {}
+    }
+
     // Mobile dynamic resolution (not persisted): sheds pixels when frames are slow, regains them when fast.
     adaptMobileScale(ms) {
         if (document.hidden || (this.ui && this.ui.mainMenuOpen)) { this._slowCount = this._fastCount = 0; return; }
         this._frameEma = this._frameEma ? this._frameEma * 0.92 + ms * 0.08 : ms;
-        const minScale = 0.4;
+        const minScale = this.graphicsPreset === 'low' ? 0.35 : 0.4;
         if (this._frameEma > 30) { this._slowCount++; this._fastCount = 0; }
         else if (this._frameEma < 19) { this._fastCount++; this._slowCount = 0; }
         else { this._slowCount = this._fastCount = 0; }
@@ -134,6 +158,9 @@ class Game {
         });
         this.renderer.setSize(width, height);
         this.renderer.setPixelRatio(this.getEffectivePixelRatio());
+        // Checking shader errors forces a synchronous getProgramInfoLog round-trip for every new program, which stalls
+        // weak CPUs mid-game. Opt back in with localStorage eblankraft_debug_shaders = 1.
+        this.renderer.debug.checkShaderErrors = localStorage.getItem('eblankraft_debug_shaders') === '1';
         this.renderer.outputEncoding = THREE.sRGBEncoding;
 
         // Tone Mapping: disabled in A02 / Turbo / UL20FT mode to save massive ALU cycles on weak GPUs
@@ -410,6 +437,7 @@ class Game {
     }
 
     setRenderScale(scale) {
+        this.autoScale = false;   // a hand-picked scale wins over dynamic resolution
         this.renderScale = Math.max(0.25, Math.min(1.5, parseFloat(scale) || 1.0));
         try { localStorage.setItem('eblankraft_render_scale', this.renderScale.toString()); } catch (e) {}
         if (this.renderer) {
@@ -441,6 +469,8 @@ class Game {
         this.isUL20FT = false;
         this.lowGraphicsMode = this.turboFPS;
         this.setRenderScale(preset.scale);
+        this.autoScaleMax = preset.scale;
+        this.autoScale = !!this.isMobile || name === 'low';
         this.setShadowsEnabled(preset.shadows);
         this.setCloudsEnabled(preset.clouds);
         this.windLeavesEnabled = preset.wind;

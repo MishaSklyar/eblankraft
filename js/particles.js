@@ -86,7 +86,7 @@ class ParticleSystem {
             const old = this.bulletHoles.shift();
             if (old && old.mesh) {
                 this.scene.remove(old.mesh);
-                old.mesh.geometry?.dispose();
+                if (old.mesh.geometry !== this._bulletHoleGeom) old.mesh.geometry?.dispose();
                 if (old.mesh.material) {
                     if (Array.isArray(old.mesh.material)) old.mesh.material.forEach(m => m.dispose());
                     else old.mesh.material.dispose();
@@ -99,7 +99,8 @@ class ParticleSystem {
             ? new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.94, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
             : new THREE.MeshBasicMaterial({ color: 0x111116, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 
-        const geom = new THREE.PlaneGeometry(0.18, 0.18);
+        // one shared quad for every decal (each keeps its own material only so it can fade on its own)
+        const geom = this._bulletHoleGeom || (this._bulletHoleGeom = new THREE.PlaneGeometry(0.18, 0.18));
         const mesh = new THREE.Mesh(geom, mat);
 
         const nx = normal?.x || 0, ny = normal?.y || 0, nz = normal?.z || 1;
@@ -109,7 +110,7 @@ class ParticleSystem {
             z + nz * 0.008
         );
 
-        mesh.lookAt(new THREE.Vector3(x + nx, y + ny, z + nz));
+        mesh.lookAt(x + nx, y + ny, z + nz);
         mesh.rotateZ(Math.random() * Math.PI * 2);
 
         this.scene.add(mesh);
@@ -118,19 +119,21 @@ class ParticleSystem {
 
     spawnBulletImpact(x, y, z, normal) {
         if (!this.scene || typeof THREE === 'undefined' || !THREE.BoxGeometry || !THREE.MeshBasicMaterial || !THREE.Mesh) return;
-        const sparkCount = 6;
+        const sparkCount = window.game && (window.game.turboFPS || window.game.isA02Mode) ? 2 : 6;
         while (this.particles.length + sparkCount > 80) {
             const old = this.particles.shift();
             if (old && old.mesh) this.scene.remove(old.mesh);
         }
 
-        const sparkColors = [0xfff066, 0xffaa00, 0xff4400, 0xffffff];
+        // Shared spark geometry / materials: every shot used to allocate (and leak) 6 geometries + 6 materials.
+        if (!this._sparkGeom) {
+            this._sparkGeom = new THREE.BoxGeometry(0.04, 0.04, 0.04);
+            this._sparkMats = [0xfff066, 0xffaa00, 0xff4400, 0xffffff].map(color => new THREE.MeshBasicMaterial({ color }));
+        }
         const nx = normal?.x || 0, ny = normal?.y || 1, nz = normal?.z || 0;
 
         for (let i = 0; i < sparkCount; i++) {
-            const geom = new THREE.BoxGeometry(0.04, 0.04, 0.04);
-            const mat = new THREE.MeshBasicMaterial({ color: sparkColors[i % sparkColors.length] });
-            const mesh = new THREE.Mesh(geom, mat);
+            const mesh = new THREE.Mesh(this._sparkGeom, this._sparkMats[i % this._sparkMats.length]);
             mesh.position.set(x, y, z);
 
             const spread = 2.2;
@@ -664,7 +667,7 @@ class ParticleSystem {
                     const fade = (elapsed - 25000) / 5000;
                     if (fade >= 1.0) {
                         if (this.scene) this.scene.remove(bh.mesh);
-                        bh.mesh.geometry?.dispose();
+                        if (bh.mesh.geometry !== this._bulletHoleGeom) bh.mesh.geometry?.dispose();
                         if (bh.mesh.material) {
                             if (Array.isArray(bh.mesh.material)) bh.mesh.material.forEach(m => m.dispose());
                             else bh.mesh.material.dispose();

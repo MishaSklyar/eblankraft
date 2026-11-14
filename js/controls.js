@@ -392,7 +392,7 @@ class Controls {
 
         // Inspect the held knife
         this.bindTouchButton('btn-inspect', (isDown) => {
-            if (isDown) this.player.inspectKnife?.();
+            if (isDown) this.player.inspectWeapon?.();
         });
 
         this.bindTouchButton('btn-tnt', (isDown) => {
@@ -685,7 +685,11 @@ class Controls {
                 this.game.arenaClient.equip(this.game.arenaClient.localState?.slot === 1 ? 2 : 1);
                 return;
             }
-            let nextSlot = this.player.selectedHotbarIndex + (e.deltaY > 0 ? 1 : -1);
+            // Shift+wheel is turned into a horizontal scroll by most browsers (deltaY = 0, deltaX set), so take
+            // whichever axis actually moved; a zero delta (e.g. trackpad noise) changes nothing.
+            const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+            if (!delta) return;
+            let nextSlot = this.player.selectedHotbarIndex + (delta > 0 ? 1 : -1);
             if (nextSlot < 0) nextSlot = 8;
             if (nextSlot > 8) nextSlot = 0;
             if (window.game && window.game.ui) {
@@ -850,7 +854,7 @@ class Controls {
                 if (e.repeat) return;
                 this.player.dropItem();
             } else if (e.code === 'KeyX') {
-                if (!e.repeat) this.player.inspectKnife?.();
+                if (!e.repeat) this.player.inspectWeapon?.();
             } else if (e.code === 'KeyV') {
                 this.player.toggleThirdPerson();
             } else if (e.code === 'KeyT') {
@@ -866,9 +870,11 @@ class Controls {
             }
 
             // Hotbar 1..9
-            if (e.key >= '1' && e.key <= '9') {
+            // Use the physical key: with Shift held e.key is '!', '@', ... (or layout symbols), so e.key misses it.
+            const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code || '')?.[1] || (e.key >= '1' && e.key <= '9' && e.key.length === 1 ? e.key : null);
+            if (digit) {
                 if (this.game?.arenaClient?.isActive) { e.preventDefault(); return; }
-                const idx = parseInt(e.key) - 1;
+                const idx = parseInt(digit) - 1;
                 if (window.game && window.game.ui) window.game.ui.selectHotbarSlot(idx);
             }
 
