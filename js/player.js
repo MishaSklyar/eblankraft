@@ -112,9 +112,10 @@ function _buildVoxelKnifeModel(type) {
     const inner = new THREE.Group(); inner.position.z = -.085; root.add(inner);   // origin in the middle of the handle
     const mats = {};
     const mat = (key) => mats[key] || (mats[key] = new THREE.MeshLambertMaterial({ color: new THREE.Color(style[key]).multiplyScalar(.78), emissive: style.shine && (key === 'blade' || key === 'edge') ? style.shine : 0x000000 }));
+    let tgt = inner;   // parent the next boxes go into
     const box = (name, w, h, d, x, y, z, key, rx = 0, ry = 0, rz = 0) => {
         const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(key));
-        m.name = name; m.position.set(x, y, z); m.rotation.set(rx, ry, rz); inner.add(m); return m;
+        m.name = name; m.position.set(x, y, z); m.rotation.set(rx, ry, rz); tgt.add(m); return m;
     };
 
     if (type === 'karambit') {
@@ -143,6 +144,8 @@ function _buildVoxelKnifeModel(type) {
 
     const bl = KNIFE_BLADES[type] || KNIFE_BLADES.default;
     const slice = bl.L / bl.n;
+    let bladeG = null;
+    if (type === 'butterfly') { bladeG = new THREE.Group(); bladeG.name = 'balisong_blade'; tgt = bladeG; }
     for (let i = 0; i < bl.n; i++) {
         const t = (i + .5) / bl.n, lo = bl.low(t), hi = Math.max(lo + .006, bl.high(t));
         const z = -(i + .5) * slice;
@@ -154,16 +157,36 @@ function _buildVoxelKnifeModel(type) {
     if (bl.saw) for (let i = 0; i < 6; i++) box('saw_tooth', bl.th, .008, .012, 0, .029, -.06 - i * .022, 'dark');
 
     if (type === 'butterfly') {
-        // two handle halves flanking the tang, with pivot pins
-        // each handle half swings around the pin at the blade end (animated by the viewmodel)
-        const halves = [-1, 1].map(sx => {
-            const g = new THREE.Group(); g.name = 'handle_group'; g.position.set(0, 0, .02); inner.add(g);
-            for (const m of [box('handle_half', .011, .038, .17, sx * .0105, 0, .09, 'handle'), box('handle_rail', .013, .01, .17, sx * .0105, -.02, .09, 'guard')]) { m.position.z -= .02; g.add(m); }
-            if (sx > 0) { const l = box('latch', .03, .02, .02, 0, .0, .185, 'dark'); l.position.z -= .02; g.add(l); }
-            return g;
-        });
-        root.userData.halves = halves;
-        for (const z of [.02, .12]) box('pivot_pin', .036, .012, .012, 0, 0, z, 'guard');
+        // Real balisong layout: one pin axis at the blade end of the handles.
+        //   safe handle (-X side)  fixed, this is what the fist holds
+        //   blade + tang           swings around the pin   (viewmodel channel hA: 0 = open, ±PI = folded back into the handles)
+        //   bite handle (+X side)  swings around the pin   (channel hB, same frame: 0 = beside the safe handle, PI = over the blade)
+        // closed = hA PI / hB 0, open = 0 / 0, bite handle flipped over the open blade = 0 / PI.
+        const PZ = .013;
+        box('tang', bl.th, .034, .028, 0, -.004, .004, 'blade');
+        box('kicker', bl.th + .002, .01, .012, 0, -.022, -.004, 'spine');
+        for (const m of bladeG.children) m.position.z -= PZ;
+        bladeG.position.z = PZ;
+        const biteG = new THREE.Group(); biteG.name = 'balisong_bite'; biteG.position.z = PZ;
+        const handle = (g, sx, bite) => {
+            tgt = g;
+            const L = .175, z0 = g === inner ? PZ : 0, zc = z0 + L / 2;
+            box('handle_slab', .005, .044, L, sx * .0135, 0, zc, 'handle');
+            box('handle_rail', .011, .006, L, sx * .0105, .019, zc, 'handle');
+            box('handle_rail', .011, .006, L, sx * .0105, -.019, zc, 'handle');
+            for (let i = 0; i < 3; i++) box('handle_window', .002, .022, .03, sx * .0165, 0, z0 + .045 + i * .043, 'dark');
+            box('pin_cap', .004, .018, .018, sx * .0172, 0, z0, 'guard');
+            box('screw', .004, .008, .008, sx * .0172, 0, z0 + L - .012, 'guard');
+            box('end_cap', .012, .044, .01, sx * .0105, 0, z0 + L, 'guard');
+            if (bite) box('latch', .006, .007, .034, sx * .004, -.024, z0 + L - .016, 'guard');
+            tgt = inner;
+        };
+        handle(inner, -1, false);
+        box('pivot_pin', .038, .009, .009, 0, 0, PZ, 'guard');
+        inner.add(bladeG);
+        handle(biteG, 1, true);
+        inner.add(biteG);
+        root.userData.blade = bladeG; root.userData.bite = biteG; root.userData.inner = inner;
         return root;
     }
 
@@ -187,6 +210,10 @@ function createVoxelKnifeModel(type) {
     // blade tip and a point halfway down the blade (knife space), used by the slash trail
     if (type === 'karambit') { root.userData.tip = new THREE.Vector3(0, -.112, -.246); root.userData.mid = new THREE.Vector3(0, -.035, -.17); }
     else { root.userData.tip = new THREE.Vector3(0, -.004, -.085 - bl.L); root.userData.mid = new THREE.Vector3(0, -.004, -.085 - bl.L * .42); }
+    if (root.userData.blade) {   // balisong: the trail follows the swinging blade, so keep the points in blade space too
+        const o = new THREE.Vector3(0, 0, -.085).add(root.userData.blade.position);
+        root.userData.tipLocal = root.userData.tip.clone().sub(o); root.userData.midLocal = root.userData.mid.clone().sub(o);
+    }
     const c = new THREE.Color(style.edge);
     root.userData.trailColor = [c.r * .6 + .4, c.g * .6 + .4, c.b * .6 + .4];
     return root;
@@ -229,6 +256,10 @@ function sampleKnifeTrack(tr, t) {   // cubic Hermite with Catmull-Rom tangents 
     const tan = j => (j <= 0 || j >= n - 1) ? 0 : (tr[j + 1][1] - tr[j - 1][1]) / (tr[j + 1][0] - tr[j - 1][0]);
     const s = (t - t0) / h, s2 = s * s, s3 = s2 * s;
     return (2 * s3 - 3 * s2 + 1) * v0 + (s3 - 2 * s2 + s) * tan(i) * h + (3 * s2 - 2 * s3) * v1 + (s3 - s2) * tan(i + 1) * h;
+}
+function knifeClipEvents(clip, t0, t1, fn) {   // fire clip.events = [[time, name, arg]] crossed in (t0, t1]
+    if (!clip.events || !(t1 > t0)) return;
+    for (const e of clip.events) if (e[0] > t0 && e[0] <= t1) fn(e[1], e[2]);
 }
 function applyKnifeClip(clip, t, o, w = 1) {
     for (const ch in clip.tracks) o[ch] += sampleKnifeTrack(clip.tracks[ch], t) * w;
@@ -400,31 +431,67 @@ _defKnife('m9', {   // big bayonet blade: wide sweeping arcs, spun in from the h
     ]),
 });
 
-_defKnife('butterfly', {   // balisong: handles flick open, flips mid-swing, full fan routine on inspect
+// Balisong helpers. hA = blade angle around the pin, hB = bite-handle angle (both relative to the held safe handle).
+// Positive hA and negative hB swing over the top of the fist (thumb side), so every flip stays in view.
+const BPI = Math.PI;
+const _bfFold = a => ({ hA: a, hB: a - BPI });   // bite handle folded over the blade, both swinging together
+_defKnife('butterfly', {   // balisong: real pin-pivot flips — snap open on draw, full fan / rollover / aerial routine on inspect
     pose: { px: .175, py: -.175, pz: -.35, rx: .55, ry: .6, rz: -.8, scale: 1.2 },
-    draw: knifeClip(1.05, [
-        [0, { py: -.36, px: .1, mx: TAU * 2, mz: .6, hA: Math.PI, hB: Math.PI, open: .6 }],
-        [.3, { py: -.04, hA: Math.PI * .65, hB: Math.PI }],
-        [.5, { py: .03, hA: -.25, hB: Math.PI * .5 }],
-        [.7, { hA: .06, hB: -.2, open: 0 }],
-        [.82, { py: -.008, hB: .05 }],
-    ]),
+    // Draw (CS style): comes up closed with the wrist cocked, flick #1 throws the blade + bite handle out over the top,
+    // flick #2 whips the bite handle round into the palm — clack — then one last fast twirl of the bite handle and the latch snaps.
+    draw: knifeClip(1.3, [
+        [0, { py: -.4, px: .12, pz: .06, rx: -.75, ry: -.35, rz: .65, hA: BPI, hB: 0, open: .15 }],
+        [.2, { py: -.06, px: .03, pz: .02, rx: .02, ry: -.12, rz: .42, hA: BPI, hB: 0, open: .1 }],       // up, closed, cocked
+        [.3, { py: -.03, px: .01, rx: .12, ry: -.02, rz: .55, ..._bfFold(BPI * .95), open: .2 }],           // load the flick
+        [.39, { py: .02, px: -.005, rx: -.04, ry: .06, rz: -.12, ..._bfFold(BPI * .3), open: .45 }],        // flick #1: blade flies out
+        [.45, { py: .025, rz: -.24, ..._bfFold(-.16), open: .5 }],                                         // overshoot...
+        [.5, { py: .018, rz: -.14, ..._bfFold(0), open: .55 }],                                            // ...blade locked out
+        [.58, { py: .02, rx: .1, rz: .12, hA: 0, hB: -BPI * .65, open: .7 }],                               // flick #2: bite handle comes round
+        [.65, { py: .008, rx: -.02, rz: -.02, hA: 0, hB: .1, open: .15 }],                           // clack into the palm
+        [.71, { py: .012, rz: .06, hA: 0, hB: 0, open: 0 }],
+        [.8, { py: .02, rz: .16, hA: 0, hB: -BPI * .9, open: .55 }],                                   // twirl: bite handle once more
+        [.9, { py: .004, rz: -.05, hA: 0, hB: -TAU - .08, open: .1 }],                                  // latch
+        [.97, { py: .006, rz: .02, hA: 0, hB: -TAU, open: 0 }],
+        [1.1, { py: -.006, rz: -.01, hA: 0, hB: -TAU }],
+        [1.3, { hA: 0, hB: -TAU }],
+    ], { events: [[.36, 'flip', 1.15], [.5, 'clack', .9], [.56, 'flip', 1.3], [.65, 'clack', 1.1], [.78, 'flip', 1.45], [.9, 'latch', 1]] }),
     attacks: p => [
-        _slash(p, { dur: .42, keys: [[.12, { mx: 0, ky: 0 }], [.3, { mx: Math.PI, ky: .035, hA: .9, hB: .45 }], [.48, { mx: TAU, ky: 0, hA: 0, hB: 0 }], [1, { mx: TAU }]] }),
-        _backslash(p, { dur: .42, keys: [[.12, { mz: 0 }], [.45, { mz: -TAU, hB: .8, hA: .35 }], [.6, { hA: 0, hB: 0 }], [1, { mz: -TAU }]] }),
-        _stab(p, { dur: .46, keys: [[.15, { mx: 0 }], [.32, { mx: -TAU }], [1, { mx: -TAU }]] }),
+        // forehand: bite handle fans a full turn through the swing
+        _slash(p, { dur: .44, keys: [[.12, { hB: 0, open: .1 }], [.34, { hB: -BPI * 1.1, open: .55 }], [.5, { hB: -TAU - .06, open: 0 }], [.62, { hB: -TAU }], [1, { hB: -TAU }]] }),
+        // backhand: the knife rolls a full turn in the hand while the bite handle swings the other way
+        _backslash(p, { dur: .44, keys: [[.12, { mz: 0, hB: 0 }], [.45, { mz: -TAU, hB: -BPI * .9, open: .45 }], [.62, { mz: -TAU, hB: -TAU, open: 0 }], [1, { mz: -TAU, hB: -TAU }]] }),
+        // stab: quick reverse twirl of the bite handle on the pull-out
+        _stab(p, { dur: .48, keys: [[.45, { hB: 0 }], [.68, { hB: -BPI * 1.05, open: .4 }], [.86, { hB: -TAU, open: 0 }], [1, { hB: -TAU }]] }),
     ],
-    inspect: p => knifeClip(3.4, [
-        [.3, _lift(p, 1.1)],
-        [.6, _lift(p, 1.15, { hA: Math.PI, hB: .3, open: .6 })],                       // first handle swings around the blade
-        [.85, _lift(p, 1.15, { hA: Math.PI, hB: Math.PI, mx: 0 })],                      // fully closed
-        [1.35, _lift(p, 1.2, { hA: Math.PI, hB: Math.PI, mx: TAU, ky: .04 })],           // double flip closed
-        [1.8, _lift(p, 1.2, { hA: Math.PI, hB: Math.PI, mx: TAU * 2, ky: 0 })],
-        [2.15, _lift(p, 1.15, { hA: .0, hB: Math.PI * .8, mx: TAU * 2 })],               // fan open again
-        [2.45, _lift(p, 1.1, { hA: 0, hB: 0, mx: TAU * 2, rz: -.6, open: 0 })],
-        [2.9, _lift(p, 1, { mx: TAU * 2, mz: TAU, rz: -.3 })],
-        [3.4, { mx: TAU * 2, mz: TAU }],
-    ]),
+    // Inspect: lift and admire, bite handle over the blade, fold shut, aerial toss (closed knife flips and is caught),
+    // double flick open, two-turn rollover fan, wrist roll showing both blade faces, then back down.
+    inspect: p => knifeClip(4.1, [
+        [.32, _lift(p, 1.1, { rz: .12, hA: 0, hB: 0 })],
+        [.62, _lift(p, 1.15, { rz: -.35, ry: .12, hA: 0, hB: 0 })],                                         // look at the blade
+        [.78, _lift(p, 1.15, { rz: -.2, hA: 0, hB: -BPI * .55, open: .5 })],                                  // bite handle swings over...
+        [.88, _lift(p, 1.15, { rz: -.25, hA: 0, hB: -BPI, open: .3 })],                                       // ...and covers the edge
+        [1.04, _lift(p, 1.16, { rz: .1, rx: .08, ..._bfFold(BPI * .55), open: .4 })],                       // fold the blade back
+        [1.16, _lift(p, 1.16, { rz: .02, ..._bfFold(BPI), open: .1 })],                                      // closed — clack
+        [1.32, _lift(p, 1.08, { rz: .2, py: -.02, ..._bfFold(BPI), open: 0 })],                              // dip
+        [1.48, _lift(p, 1.2, { rz: -.1, ..._bfFold(BPI), ky: .05, kz: -.01, mx: -BPI * .7, open: 1 })],       // aerial: toss it up...
+        [1.66, _lift(p, 1.22, { rz: -.12, ..._bfFold(BPI), ky: .075, kz: -.015, mx: -BPI * 1.5, open: 1 })],
+        [1.84, _lift(p, 1.15, { rz: -.05, ..._bfFold(BPI), ky: .01, mx: -TAU, open: .4 })],                  // ...and catch
+        [1.92, _lift(p, 1.12, { rz: .02, py: -.012, ..._bfFold(BPI), ky: 0, mx: -TAU, open: 0 })],
+        [2.04, _lift(p, 1.14, { rz: .3, ..._bfFold(BPI * .95), mx: -TAU, open: .2 })],                       // cock
+        [2.13, _lift(p, 1.16, { rz: -.08, ..._bfFold(BPI * .25), mx: -TAU, open: .45 })],                    // flick open
+        [2.2, _lift(p, 1.16, { rz: -.16, ..._bfFold(0), mx: -TAU, open: .5 })],
+        [2.28, _lift(p, 1.16, { rz: .05, hA: 0, hB: -BPI * .6, mx: -TAU, open: .6 })],
+        [2.35, _lift(p, 1.15, { rz: -.04, hA: 0, hB: 0, mx: -TAU, open: 0 })],                            // clack, open
+        [2.5, _lift(p, 1.15, { rz: .15, hA: 0, hB: 0, mx: -TAU })],
+        [2.82, _lift(p, 1.18, { rz: -.15, hA: TAU, hB: 0, mx: -TAU, open: .35 })],                        // rollover fan x2
+        [3.14, _lift(p, 1.18, { rz: .18, hA: TAU * 2, hB: 0, mx: -TAU, open: 0 })],
+        [3.25, _lift(p, 1.15, { rz: .05, hA: TAU * 2, hB: 0, mx: -TAU })],
+        [3.5, _lift(p, 1.12, { rz: -.7, ry: .45, rx: .1, hA: TAU * 2, hB: 0, mx: -TAU })],              // roll the wrist, show the face
+        [3.68, _lift(p, 1.1, { rz: -.65, ry: .4, hA: TAU * 2, hB: 0, mx: -TAU })],
+        [3.86, _lift(p, .7, { rz: -.35, hA: TAU * 2, hB: 0, mx: -TAU })],
+        [4.1, { hA: TAU * 2, hB: 0, mx: -TAU }],
+    ], { events: [[.72, 'flip', 1.3], [.88, 'clack', .8], [.98, 'flip', 1.1], [1.16, 'clack', 1], [1.42, 'flip', .9], [1.88, 'clack', .7],
+        [2.1, 'flip', 1.15], [2.2, 'clack', .9], [2.26, 'flip', 1.3], [2.35, 'clack', 1.1], [2.62, 'flip', 1.4], [2.95, 'flip', 1.5], [3.14, 'latch', .8]] }),
 });
 
 _defKnife('karambit', {   // reverse grip, finger through the ring: twirls on the ring, wrist-roll slashes
@@ -466,7 +533,7 @@ _defKnife('gold', {   // slow, showy rotations so the shine catches the light
     ]),
 });
 window.KNIFE_ANIMS = KNIFE_ANIMS;
-window.knifeClip = knifeClip; window.sampleKnifeTrack = sampleKnifeTrack;
+window.knifeClip = knifeClip; window.sampleKnifeTrack = sampleKnifeTrack; window.knifeClipEvents = knifeClipEvents;
 
 // Gloved fist wrapped around a knife handle (knife-root units: handle along Z, blade toward -Z, edge down).
 const KNIFE_GLOVE = { glove: 0x30343a, dark: 0x1d2024, pad: 0x4b525b, tip: 0x3a3f46, skin: 0xd2a27c };
@@ -3218,11 +3285,18 @@ class Player {
         return true;
     }
 
+    _knifeSfx(name, arg = 1) {   // sounds fired by clip events (balisong flips, handle clacks, latch)
+        const sm = this.soundManager;
+        if (!sm) return;
+        if (name === 'clack' || name === 'latch') sm.playBalisongClack ? sm.playBalisongClack(arg, name === 'latch') : sm.playClick?.();
+        else if (name === 'flip') sm.playKnifeSwish?.(arg * (.95 + Math.random() * .1));
+    }
+
     _knifeCrossfade(time = .1) {   // freeze the current pose and blend out of it, so cancelled clips never pop
         const st = this._kv;
         if (!st?.last) return;
         st.from = { ...st.last };
-        for (const c of ['mx', 'my', 'mz']) st.from[c] = _wrapPi(st.from[c]);
+        for (const c of ['mx', 'my', 'mz', 'hA', 'hB']) st.from[c] = _wrapPi(st.from[c]);
         st.blend = 1; st.blendTime = time;
     }
 
@@ -3290,9 +3364,14 @@ class Player {
         }
         st.prevSwing = sw;
         if (this.knifeDraw >= 1 && !st.drawSfx) { st.drawSfx = true; this.soundManager?.playKnifeDeploy?.(); }
+        const sfx = (name, arg) => this._knifeSfx(name, arg);
+        const d0 = (1 - (this.knifeDraw || 0)) * anim.draw.dur, i0 = (1 - (this.knifeInspect || 0)) * anim.inspect.dur;
+        const drawOn = this.knifeDraw > 0, inspOn = this.knifeInspect > 0;
         this.knifeDraw = Math.max(0, (this.knifeDraw || 0) - dt / anim.drawTime);
         if (this.knifeDraw <= 0) st.drawSfx = false;
         if (this.knifeInspect > 0) this.knifeInspect = Math.max(0, this.knifeInspect - dt / anim.inspectTime);
+        if (drawOn) knifeClipEvents(anim.draw, d0, (1 - this.knifeDraw) * anim.draw.dur, sfx);
+        if (inspOn) knifeClipEvents(anim.inspect, i0, (1 - this.knifeInspect) * anim.inspect.dur, sfx);
 
         // --- keyframed layers ---
         const o = {}; for (const c of KNIFE_CHANNELS) o[c] = 0;
@@ -3301,6 +3380,7 @@ class Player {
         let trailOn = false;
         if (st.atk) {
             const a = st.atk, c = a.clip;
+            knifeClipEvents(c, a.t, a.t + dt, (n, v) => this._knifeSfx(n, v));
             a.t += dt;
             if (!a.sfx && a.t >= c.hit * c.dur) { a.sfx = true; this.soundManager?.playKnifeSwish?.(c.swish * (.94 + Math.random() * .12)); }
             trailOn = a.t >= c.trail[0] * c.dur && a.t <= c.trail[1] * c.dur;
@@ -3366,8 +3446,13 @@ class Player {
                 off.applyQuaternion(mq).add(new THREE.Vector3(...anim.mount.pos).multiplyScalar(km.scale.x));
             }
             km.position.set(o.kx, o.ky, o.kz).add(off);
-            const h = km.userData.halves;
-            if (h) { h[0].rotation.x = o.hA; h[1].rotation.x = o.hB; }
+            const u = km.userData;
+            if (u.blade) {   // balisong: blade and bite handle swing around the pin; the trail points ride on the blade
+                u.blade.rotation.x = o.hA; u.bite.rotation.x = o.hB;
+                u.blade.updateMatrix(); u.inner.updateMatrix();
+                u.tip.copy(u.tipLocal).applyMatrix4(u.blade.matrix).applyMatrix4(u.inner.matrix);
+                u.mid.copy(u.midLocal).applyMatrix4(u.blade.matrix).applyMatrix4(u.inner.matrix);
+            }
         }
         const hand = this.knifeHand;
         if (hand) {

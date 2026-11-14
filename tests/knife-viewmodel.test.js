@@ -155,10 +155,24 @@ for (const prefix of ['js', 'web/js']) {
 
     test(`${prefix}: balisong handles fan out of sync; karambit sits in a reverse grip and spins around its ring`, () => {
         const c = load();
-        const b = mk(c, 'butterfly', { knifeInspect: .75 });
+        // balisong: blade and bite handle swing around the pin — open on the draw, closed mid-inspect, open again at the end
+        const b = mk(c, 'butterfly', { knifeDraw: 1 });
+        const bu = b.heldKnifeMesh.userData, B = c.KNIFE_ANIMS.butterfly;
+        const bladeDir = () => new THREE.Vector3(0, 0, -1).applyQuaternion(bu.blade.quaternion);
+        const biteDir = () => new THREE.Vector3(0, 0, 1).applyQuaternion(bu.bite.quaternion);
         b.updateKnifeView(DT);
-        const [hA, hB] = b.heldKnifeMesh.userData.halves;
-        assert.ok(hA.rotation.x > 1 && hB.rotation.x > 0 && hA.rotation.x !== hB.rotation.x, 'handles fan out of sync');
+        assert.ok(bladeDir().z > .95 && biteDir().z > .95, 'draw starts closed: blade folded back between the handles');
+        run(b, 90);
+        assert.ok(bladeDir().z < -.99 && biteDir().z > .99, 'draw ends fully open');
+        const tipZ = bu.tip.z;
+        b.knifeInspect = 1 - 1.25 / B.inspect.dur; b.updateKnifeView(DT);
+        assert.ok(bladeDir().z > .9 && bu.tip.z > tipZ + .2, 'inspect folds it shut (trail tip follows the blade)');
+        b.knifeInspect = 1 - .88 / B.inspect.dur; b.updateKnifeView(DT);
+        assert.ok(bladeDir().z < -.9 && biteDir().z < -.9, 'bite handle flips over the open blade');
+        const sounds = [];
+        const s2 = mk(c, 'butterfly', { knifeDraw: 1, soundManager: { playBalisongClack: (v, l) => sounds.push(l ? 'latch' : 'clack'), playKnifeSwish: () => sounds.push('flip'), playKnifeDeploy() {} } });
+        run(s2, 90);
+        assert.ok(sounds.filter(x => x === 'clack').length >= 2 && sounds.includes('latch') && sounds.includes('flip'), 'draw clacks and latches: ' + sounds);
 
         const k = mk(c, 'karambit');
         k.updateKnifeView(DT);
