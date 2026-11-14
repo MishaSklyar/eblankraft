@@ -41,6 +41,11 @@ class RTXGui {
         this.stats.tier = r && r.composer ? ['lights only', 'no SSR/AO', 'no SSR', 'full'][r.quality] : '-';
         this.stats.mode = r && r.composer ? (r.scenePass ? 'depth AO' : 'legacy AO') : 'off';
         if (window.game && window.game.rtxOnnx) this.onnx.status = window.game.rtxOnnx.status;
+        if (this.ptState && g.pathTracer) { const pt = g.pathTracer; this.ptState.on = pt.active; this.ptState.status = pt.status; this.ptState.frames = String(pt.accum || 0);
+            this.ptState.gpu = pt.gpuMs ? pt.gpuMs.toFixed(1) + ' ms GPU' + (pt.gpuName ? ' (' + pt.gpuName + ')' : '') : (pt.hasTimestamps === false ? 'n/a (no timestamp-query)' : '-');
+            this.ptState.fps = pt.fps ? pt.fps.toFixed(0) : '-';
+            this.ptState.res = pt.w ? pt.w + 'x' + pt.h + ' -> ' + pt.outW + 'x' + pt.outH : '-';
+            const ms = pt.meshStats || {}; this.ptState.meshes = (ms.instances || 0) + ' meshes + ' + (ms.overlay || 0) + ' first-person, ' + (ms.tris || 0) + ' tris'; }
         this.gui.controllersRecursive().forEach(c => { if (c._listen) c.updateDisplay(); });
     }
 
@@ -49,6 +54,12 @@ class RTXGui {
         const P = RTXGui.PRESETS[name]; if (!P) return;
         for (const k in P.cfg) r.setCfg(k, P.cfg[k]);
         for (const p of RTXPipeline.PARTS) r.setPart(p.id, P.parts === 'all' ? true : P.parts.includes(p.id));
+        // Cinematic = real path tracing on WebGPU (falls back to the WebGL stack above when WebGPU is missing)
+        const pt = this.game.pathTracer;
+        if (pt) {
+            if (P.pathTrace && WebGPUPathTracer.isAvailable()) { for (const k in (P.ptCfg || {})) pt.setCfg(k, P.ptCfg[k]); pt.enable(); }
+            else if (!P.pathTrace && pt.active) pt.disable();
+        }
         this.gui.controllersRecursive().forEach(c => c.updateDisplay());
     }
 
@@ -122,6 +133,85 @@ class RTXGui {
         cfgCtl(fgF, 'frameGen', undefined, undefined, undefined, 'Reprojection 2x');
         fgF.add({ i: 'Renders every 2nd frame, warps the other with depth + camera pose. Mobs update on real frames only.' }, 'i').name('Note').disable();
 
+        // WebGPU path tracing (Cinematic)
+        const pt = g.pathTracer;
+        if (pt) {
+            const ptF = gui.addFolder('Path tracing (WebGPU)  Alt+P');
+            const C = pt.cfg;
+            const ptCtl = (key, min, max, step, name) => ptF.add(C, key, min, max, step).name(name).onChange(v => pt.setCfg(key, v));
+            this.ptState = { on: pt.active, status: pt.status, frames: '0', gpu: '-', fps: '-', res: '-', meshes: '-', preset: 'Balanced' };
+            ptF.add(this.ptState, 'on').name('Path tracing ON').onChange(v => { if (v) pt.enable(); else pt.disable(); });
+            listen(ptF.controllers[0]);
+            listen(ptF.add(this.ptState, 'status').name('Status').disable());
+            listen(ptF.add(this.ptState, 'frames').name('Accumulated frames').disable());
+            listen(ptF.add(this.ptState, 'fps').name('FPS').disable());
+            listen(ptF.add(this.ptState, 'gpu').name('GPU time / frame').disable());
+            listen(ptF.add(this.ptState, 'res').name('Internal -> output').disable());
+            listen(ptF.add(this.ptState, 'meshes').name('Ray-traced meshes').disable());
+            ptF.add(this.ptState, 'preset', Object.keys(WebGPUPathTracer.PRESETS)).name('Quality preset').onChange(v => { pt.applyPreset(v); ptF.controllersRecursive().forEach(c => c.updateDisplay()); });
+            ptCtl('scale', 0.25, 1, 0.05, 'Resolution scale');
+            ptCtl('spp', 1, 16, 1, 'Samples / pixel / frame');
+            ptCtl('bounces', 1, 12, 1, 'Max bounces');
+            ptCtl('exposure', 0.1, 6, 0.01, 'Exposure');
+            ptCtl('nightBoost', 1, 20, 0.5, 'Night exposure boost');
+            const envF = ptF.addFolder('Environment / HDRI');
+            envF.add(C, 'hdri', ['procedural', ...Object.keys(WebGPUPathTracer.HDRI_PRESETS)]).name('Sky / HDRI').onChange(v => pt.setCfg('hdri', v));
+            envF.add({ f: () => { const i = document.createElement('input'); i.type = 'file'; i.accept = '.hdr,.pic'; i.onchange = () => { if (i.files[0]) pt.loadHdriFile(i.files[0]).catch(e => { pt.status = 'HDRI failed: ' + e.message; }); }; i.click(); } }, 'f').name('Load .hdr file...');
+            const urlO = { url: '' };
+            envF.add(urlO, 'url').name('HDRI URL (.hdr)');
+            envF.add({ l: () => { if (urlO.url) pt.loadHdriUrl(urlO.url, urlO.url.split('/').pop()); } }, 'l').name('Load from URL');
+            envF.add(C, 'hdriIntensity', 0, 8, 0.01).name('HDRI intensity').onChange(v => pt.setCfg('hdriIntensity', v));
+            envF.add(C, 'hdriRotation', -180, 180, 1).name('HDRI rotation °').onChange(v => pt.setCfg('hdriRotation', v));
+            envF.add(C, 'sunIntensity', 0, 5, 0.01).name('Sun intensity').onChange(v => pt.setCfg('sunIntensity', v));
+            envF.add(C, 'sunSize', 0.27, 8, 0.01).name('Sun size ° (shadow softness)').onChange(v => pt.setCfg('sunSize', v));
+            envF.add(C, 'skyIntensity', 0, 5, 0.01).name('Sky intensity').onChange(v => pt.setCfg('skyIntensity', v));
+            envF.add(C, 'sunOverride').name('Override sun position').onChange(v => pt.setCfg('sunOverride', v));
+            envF.add(C, 'sunElevation', -10, 90, 0.5).name('Sun elevation °').onChange(v => pt.setCfg('sunElevation', v));
+            envF.add(C, 'sunAzimuth', 0, 360, 1).name('Sun azimuth °').onChange(v => pt.setCfg('sunAzimuth', v));
+            envF.add(C, 'fog', 0, 0.05, 0.0005).name('Haze density').onChange(v => pt.setCfg('fog', v));
+            envF.add(C, 'volumetrics').name('Volumetric sun shafts').onChange(v => pt.setCfg('volumetrics', v));
+            envF.add(C, 'emissive', 0, 10, 0.05).name('Emissive blocks strength').onChange(v => pt.setCfg('emissive', v));
+            envF.add(C, 'waves').name('Water waves').onChange(v => pt.setCfg('waves', v));
+            envF.add(C, 'clouds', 0, 1, 0.01).name('Cloud cover').onChange(v => pt.setCfg('clouds', v));
+            envF.add(C, 'cloudShadows').name('Cloud shadows').onChange(v => pt.setCfg('cloudShadows', v));
+            envF.add(C, 'cloudDrift').name('Clouds drift (re-bakes sky)').onChange(v => pt.setCfg('cloudDrift', v));
+            const geoF = ptF.addFolder('Ray-traced geometry / materials');
+            geoF.add(C, 'meshes').name('Ray trace mobs, players, items, hand').onChange(v => pt.setCfg('meshes', v));
+            geoF.add(C, 'normalStrength', 0, 3, 0.05).name('Block normal maps').onChange(v => pt.setCfg('normalStrength', v));
+            geoF.add(C, 'translucency').name('Leaf / plant translucency').onChange(v => pt.setCfg('translucency', v));
+            const postF = ptF.addFolder('Camera post-processing');
+            postF.add(C, 'autoExposure').name('Auto exposure (eye adaptation)').onChange(v => pt.setCfg('autoExposure', v));
+            postF.add(C, 'exposureComp', -4, 4, 0.05).name('Exposure compensation EV').onChange(v => pt.setCfg('exposureComp', v));
+            postF.add(C, 'adaptSpeed', 0.1, 10, 0.1).name('Adaptation speed').onChange(v => pt.setCfg('adaptSpeed', v));
+            postF.add(C, 'tonemap', { 'AgX (filmic, punchy)': 'agx', 'ACES': 'aces' }).name('Tone mapping').onChange(v => pt.setCfg('tonemap', v));
+            postF.add(C, 'bloom', 0, 0.4, 0.005).name('Bloom').onChange(v => pt.setCfg('bloom', v));
+            postF.add(C, 'sharpen', 0, 1, 0.01).name('Sharpen (CAS)').onChange(v => pt.setCfg('sharpen', v));
+            postF.add(C, 'chromatic', 0, 0.01, 0.0001).name('Chromatic aberration').onChange(v => pt.setCfg('chromatic', v));
+            postF.add(C, 'vignette', 0, 1, 0.01).name('Vignette').onChange(v => pt.setCfg('vignette', v));
+            postF.add(C, 'grain', 0, 0.15, 0.001).name('Film grain').onChange(v => pt.setCfg('grain', v));
+            postF.add(C, 'letterbox').name('Cinematic 2.39:1 bars').onChange(v => pt.setCfg('letterbox', v));
+            const perfF = ptF.addFolder('Performance');
+            perfF.add(C, 'dynRes').name('Dynamic resolution').onChange(v => pt.setCfg('dynRes', v));
+            perfF.add(C, 'targetFps', 15, 144, 1).name('Target FPS').onChange(v => pt.setCfg('targetFps', v));
+            const dnF = ptF.addFolder('Denoiser / accumulation');
+            dnF.add(C, 'denoise').name('SVGF denoiser').onChange(v => pt.setCfg('denoise', v));
+            dnF.add(C, 'atrous', 1, 6, 1).name('A-trous iterations').onChange(v => pt.setCfg('atrous', v));
+            dnF.add(C, 'accumulate').name('Accumulate while still').onChange(v => pt.setCfg('accumulate', v));
+            dnF.add(C, 'maxFrames', 16, 16384, 1).name('Max accumulated frames').onChange(v => pt.setCfg('maxFrames', v));
+            dnF.add(C, 'temporalAlpha', 0.02, 1, 0.01).name('Temporal blend (moving)').onChange(v => pt.setCfg('temporalAlpha', v));
+            dnF.add(C, 'clamp', 1, 100, 0.5).name('Firefly clamp').onChange(v => pt.setCfg('clamp', v));
+            const camF = ptF.addFolder('Camera');
+            camF.add(C, 'dof').name('Depth of field').onChange(v => pt.setCfg('dof', v));
+            camF.add(C, 'autoFocus').name('Auto focus (crosshair)').onChange(v => pt.setCfg('autoFocus', v));
+            camF.add(C, 'aperture', 0, 0.5, 0.005).name('Aperture radius').onChange(v => pt.setCfg('aperture', v));
+            camF.add(C, 'focusDistance', 0.5, 200, 0.1).name('Focus distance').onChange(v => pt.setCfg('focusDistance', v));
+            ptF.add({ s: () => pt.screenshot() }, 's').name('Screenshot -> PNG');
+            ptF.add({ r: () => pt.resetAccumulation() }, 'r').name('Restart accumulation');
+            ptF.add({ i: 'Stand still to converge to a noise-free image.' }, 'i').name('Note').disable();
+            for (const f of [envF, dnF, camF, geoF, postF, perfF]) f.close();
+            if (!WebGPUPathTracer.isAvailable()) ptF.controllers.forEach(c => { if (c.property === 'on') c.disable(); });
+        }
+
         // ONNX
         const ox = gui.addFolder('AI model (ONNX)');
         const O = this.onnx;
@@ -145,6 +235,6 @@ RTXGui.PRESETS = {
     Performance: { parts: ['pbr', 'sun', 'fog', 'env', 'aces', 'grade', 'sky'], cfg: { pomDepth: 0.6, targetFps: 60, bloomStrength: 0.45, aoRadius: 0.9 } },
     Balanced:    { parts: ['pbr', 'pom', 'sun', 'shadows', 'env', 'fog', 'ssao', 'bloom', 'godrays', 'sky', 'aces', 'grade', 'smaa'], cfg: { pomDepth: 1, targetFps: 30 } },
     Quality:     { parts: 'all', cfg: { pomDepth: 1.1, targetFps: 24, aoRadius: 1.3, bloomStrength: 0.7 } },
-    Cinematic:   { parts: 'all', cfg: { pomDepth: 1.3, targetFps: 20, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
+    Cinematic:   { parts: 'all', pathTrace: true, ptCfg: { bounces: 5, denoise: true, volumetrics: true }, cfg: { pomDepth: 1.3, targetFps: 20, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
 };
 window.RTXGui = RTXGui;
