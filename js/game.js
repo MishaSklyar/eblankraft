@@ -79,6 +79,7 @@ class Game {
         if (this.upscaler) { let m = 'off'; try { m = localStorage.getItem('eblankraft_upscaler') || 'off'; } catch (e) {} this.upscaler.setMode(m); }
         this.rtx = (typeof RTXPipeline !== 'undefined') ? new RTXPipeline(this) : null;
         if (this.rtx && this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
+        this.pathTracer = (typeof WebGPUPathTracer !== 'undefined') ? new WebGPUPathTracer(this) : null;   // Alt+P, WebGPU path tracing (Cinematic)
         this.rtxGui = (typeof RTXGui !== 'undefined') ? new RTXGui(this) : null;   // Alt+X panel
 
         this.lastTime = performance.now();
@@ -1080,7 +1081,9 @@ class Game {
 
         // Render submission time is CPU time, not GPU execution time.
         const renderStarted = performance.now();
-        if (!(this.rtx && this.rtx.active && this.rtx.render(rawDt * 1000))) {
+        if (this.pathTracer && this.pathTracer.active && this.pathTracer.render(rawDt * 1000)) {
+            // WebGPU path tracer drew the frame on its own canvas; the WebGL scene is skipped
+        } else if (!(this.rtx && this.rtx.active && this.rtx.render(rawDt * 1000))) {
             if (this.rtx && this.rtx.saved) this.renderer.toneMapping = this.rtx.saved.toneMapping;
             if (this.upscaler && this.upscaler.active) this.upscaler.renderScene();
             else this.renderer.render(this.scene, this.camera);
