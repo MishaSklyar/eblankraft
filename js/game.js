@@ -21,6 +21,7 @@ class Game {
             localStorage.getItem('eblankraft_a02_mode') === 'true' ||
             localStorage.getItem('eblankraft_ul20ft_preset') === 'true';
         const mobile = /Android|Mobile|Silk/i.test(navigator.userAgent);
+        this.isMobile = mobile;
         this.graphicsPreset = GRAPHICS_PRESETS[savedPreset] ? savedPreset :
             (legacyLow || mobile || navigator.hardwareConcurrency <= 2 ? 'low' : 'medium');
         localStorage.setItem('eblankraft_graphics_preset', this.graphicsPreset);
@@ -46,7 +47,12 @@ class Game {
         this.underwaterEffectsEnabled = setting('eblankraft_underwater_fx', !this.turboFPS);
         this.quickModsEnabled = setting('eblankraft_quick_mods', true);
         this.creativeMobsEnabled = setting('eblankraft_creative_mobs', false);
-        this.antialias = setting('eblankraft_antialias', true);
+        // MSAA is very costly on mobile GPUs: off by default there (still can be forced on in settings).
+        this.antialias = setting('eblankraft_antialias', !mobile);
+        // Mobile dynamic resolution: only when the player never picked a render scale by hand.
+        this.autoScale = mobile && !Number.isFinite(storedScale);
+        this.autoScaleMax = this.renderScale;
+        this._frameEma = 0; this._slowCount = 0; this._fastCount = 0;
         this.cloudOffset = 0;
         this.renderFrameCount = 0;
 
@@ -79,10 +85,28 @@ class Game {
         requestAnimationFrame(this.animate);
     }
 
+    // Mobile dynamic resolution (not persisted): sheds pixels when frames are slow, regains them when fast.
+    adaptMobileScale(ms) {
+        if (document.hidden || (this.ui && this.ui.mainMenuOpen)) { this._slowCount = this._fastCount = 0; return; }
+        this._frameEma = this._frameEma ? this._frameEma * 0.92 + ms * 0.08 : ms;
+        const minScale = 0.4;
+        if (this._frameEma > 30) { this._slowCount++; this._fastCount = 0; }
+        else if (this._frameEma < 19) { this._fastCount++; this._slowCount = 0; }
+        else { this._slowCount = this._fastCount = 0; }
+        let next = this.renderScale;
+        if (this._slowCount > 45 && next > minScale) next = Math.max(minScale, next - 0.1);
+        else if (this._fastCount > 360 && next < this.autoScaleMax) next = Math.min(this.autoScaleMax, next + 0.05);
+        else return;
+        this._slowCount = this._fastCount = 0; this._frameEma = 0;
+        this.renderScale = next;
+        this.applyViewport();
+    }
+
     getEffectivePixelRatio() {
         // Scale relative to one fixed native ratio. Device presets must not
         // introduce plateaus or a discontinuity when the slider reaches 100%.
-        const nativeRatio = Math.min(window.devicePixelRatio || 1, 2);
+        // Phones (e.g. Redmi 13 4G, DPR ~2.75, Mali-G52) cap the native ratio at 1.5: fill-rate is their bottleneck.
+        const nativeRatio = Math.min(window.devicePixelRatio || 1, this.isMobile ? 1.5 : 2);
         return nativeRatio * this.renderScale;
     }
 
@@ -97,10 +121,11 @@ class Game {
         this.camera = new THREE.PerspectiveCamera(this.fovSetting || 72, width / height, 0.1, 500);
         this.scene.add(this.camera);
 
-        const isPotato = this.isA02Mode || this.turboFPS || this.isUL20FT || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+        const isPotato = this.isA02Mode || this.turboFPS || this.isUL20FT || this.isMobile || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
 
         this.renderer = new THREE.WebGLRenderer({
             antialias: (this.antialias !== false) && (!isPotato || this.ultraGraphics || localStorage.getItem('eblankraft_antialias') === 'true'),
+            failIfMajorPerformanceCaveat: false,
             powerPreference: 'high-performance',
             precision: isPotato ? 'mediump' : 'highp',
             depth: true,
@@ -815,6 +840,7 @@ class Game {
         const rawDt = (now - this.lastTime) / 1000;
         const dt = Math.min(rawDt, 0.1); // Clamp dt against lag spikes
         this.lastTime = now;
+        if (this.autoScale) this.adaptMobileScale(Math.min(rawDt, 0.25) * 1000);
 
         // Day/Night Cycle & Atmosphere
         this.updateDayNight(dt);

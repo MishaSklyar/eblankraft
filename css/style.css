@@ -6115,21 +6115,24 @@ body.is-preloading #mining-progress-container {
     border-right: 3px solid #14141a;
     border-radius: 6px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    padding: 8px 18px 10px 18px;
+    padding: 4px 10px 5px 10px;
     text-align: center;
-    min-width: 340px;
+    min-width: 0;
+    width: min(360px, 56vw);
     max-width: 92vw;
     box-sizing: border-box;
-    pointer-events: auto;
+    pointer-events: none;   /* the HUD must never block aiming/taps; only the leave button is clickable */
+    opacity: 0.88;
 }
+#duel-leave { pointer-events: auto; }
 
 .eblan-duel-header {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin-bottom: 6px;
-    font-size: 13px;
+    margin-bottom: 2px;
+    font-size: 11px;
     font-weight: bold;
     color: #ffd700;
     text-shadow: 2px 2px 0 #000;
@@ -6153,14 +6156,14 @@ body.is-preloading #mining-progress-container {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin: 6px 0;
+    margin: 2px 0;
 }
 
 .eblan-duel-fighter {
     display: flex;
     flex-direction: column;
     flex: 1;
-    min-width: 120px;
+    min-width: 0;
 }
 
 .eblan-duel-fighter.player {
@@ -6190,7 +6193,7 @@ body.is-preloading #mining-progress-container {
 }
 
 .eblan-hp-bar-bg {
-    height: 14px;
+    height: 9px;
     background: #111116;
     border: 2px solid #000;
     border-top: 2px solid #22222a;
@@ -6236,8 +6239,8 @@ body.is-preloading #mining-progress-container {
 }
 
 #duel-countdown {
-    margin-top: 6px;
-    font-size: 16px;
+    margin-top: 2px;
+    font-size: 14px;
     font-weight: 900;
     color: #ffaa00;
     text-shadow: 2px 2px 0 #000;
@@ -7109,3 +7112,19 @@ body.hud-shooter #btn-attack::after {
 /* Shooter: tapping the ammo panel reloads */
 body.hud-shooter #gun-hud { cursor: pointer; touch-action: manipulation; }
 body.hud-shooter #gun-hud:active { filter: brightness(1.3); }
+
+
+/* Compact duel HUD: the panel shrinks to a slim top bar so the arena stays visible (phones especially). */
+#duel-leave { margin-top: 3px !important; padding: 2px 8px !important; font-size: 10px !important; }
+#duel-hud #duel-hud-label { display: none; }
+#duel-countdown:empty { display: none; }
+@media (max-width: 900px), (pointer: coarse) {
+    .eblan-duel-panel { top: 4px; width: min(250px, 46vw); padding: 3px 6px 4px; border-width: 2px; }
+    .eblan-duel-header { display: none; }
+    .eblan-fighter-name { font-size: 10px; margin-bottom: 1px; }
+    .eblan-hp-text { font-size: 9px; margin-top: 1px; }
+    .eblan-hp-bar-bg { height: 7px; }
+    .eblan-duel-vs { font-size: 12px; }
+    #duel-leave { padding: 1px 6px !important; font-size: 9px !important; margin-top: 2px !important; }
+    #duel-countdown { font-size: 12px; }
+}
