@@ -292,6 +292,36 @@ const GUN_DRAW_CLIP = knifeClip(.7, [
     [.55, { py: 0, pz: .075, rx: .07 }],
     [.64, { pz: -.012, rx: -.015 }],                              // ...and let it slam forward
 ]);
+// Gun inspect (X / 🔍), like the knives: the weapon is lifted and turned to show one side, rolled over to show the other,
+// then the magazine is checked. Pistols finish with a twirl, heavy guns are slower. Same spline clip system.
+const GUN_INSPECT_CLIPS = {
+    rifle: knifeClip(2.6, [
+        [.35, { px: -.13, py: .07, pz: .05, rx: .12, ry: .85, rz: .38 }],
+        [.95, { px: -.15, py: .08, pz: .04, rx: .16, ry: .98, rz: .46 }],
+        [1.35, { px: -.07, py: .05, pz: .02, rx: .3, ry: -.32, rz: -1.2 }],
+        [1.85, { px: -.06, py: .055, pz: .02, rx: .27, ry: -.4, rz: -1.32 }],
+        [2.12, { px: -.02, py: -.06, pz: .03, rx: -.32, ry: .1, rz: -.22 }],   // magazine check
+        [2.3, { py: -.075, rx: -.36, rz: -.18 }],
+    ], { magAt: 2.2 }),
+    pistol: knifeClip(2.3, [
+        [.3, { px: -.12, py: .07, pz: .07, rx: .1, ry: .95, rz: .3 }],
+        [.85, { px: -.13, py: .075, pz: .06, rx: .14, ry: 1.05, rz: .36 }],
+        [1.2, { px: -.05, py: .06, pz: .04, rx: .25, ry: -.45, rz: -1.15 }],
+        [1.55, { px: -.04, py: .065, pz: .04, rx: .2, ry: -.5, rz: -1.25 }],
+        [1.7, { px: 0, py: .02, rx: 0, ry: 0, rz: 0 }],
+        [2.05, { px: 0, py: .03, rx: -TAU, ry: 0, rz: 0 }],                      // trigger-guard twirl
+        [2.3, { rx: -TAU }],
+    ], { magAt: 1.62 }),
+    heavy: knifeClip(3.1, [
+        [.45, { px: -.1, py: .06, pz: .06, rx: .1, ry: .7, rz: .3 }],
+        [1.15, { px: -.11, py: .065, pz: .05, rx: .13, ry: .78, rz: .36 }],
+        [1.65, { px: -.05, py: .04, pz: .03, rx: .24, ry: -.25, rz: -1.0 }],
+        [2.25, { px: -.04, py: .045, pz: .03, rx: .22, ry: -.3, rz: -1.08 }],
+        [2.65, { px: 0, py: -.05, pz: .04, rx: -.24, ry: .05, rz: -.15 }],
+    ], { magAt: 2.6 }),
+};
+const GUN_INSPECT_KIND = { glock: 'pistol', deagle: 'pistol', awp: 'heavy', rpg: 'heavy' };
+const _gunInspectClip = type => GUN_INSPECT_CLIPS[GUN_INSPECT_KIND[type] || 'rifle'];
 const GUN_DRAW_TIME = { default: .7, awp: 1.0, rpg: 1.05, shotgun: .85, ak47: .8, m4a1: .75, mp5: .62, deagle: .6, glock: .5 };
 const _defKnife = (name, def) => {
     const p = def.pose;
@@ -1141,7 +1171,7 @@ class Player {
 
         const reg = ITEM_REGISTRY[it.itemId];
         if (!reg?.isKnife) this._knifeKey = null;
-        if (!reg?.isGun) { this._gunKey = null; this.gunDraw = 0; }
+        if (!reg?.isGun) { this._gunKey = null; this.gunDraw = 0; this.gunInspect = 0; }
         if (this.armMesh) {
             this.armMesh.visible = true;
             this.armMesh.rotation.set(2.8, .2, -.2);
@@ -1170,7 +1200,7 @@ class Player {
             this.heldBlockMesh.visible = this.heldToolMesh.visible = false;
             this.heldGunMesh = createVoxelGunModel(reg.gunType, reg.skin);
             this.itemPivot.add(this.heldGunMesh);
-            if (this._gunKey !== it) { this._gunKey = it; this.gunDraw = 1; this._gunDrawSfx = false; }   // pickup animation only when the gun is (re)selected
+            if (this._gunKey !== it) { this._gunKey = it; this.gunDraw = 1; this._gunDrawSfx = false; this.gunInspect = 0; this._gv = null; }   // pickup animation only when the gun is (re)selected
             this.armMesh.position.set(.025, -.12, .16);
             this.armMesh.rotation.set(2.1, 0, -.10);
         } else {
@@ -2895,24 +2925,7 @@ class Player {
             const heldKnife = held && ITEM_REGISTRY[held.itemId]?.isKnife;
 
             if (heldGun) {
-                const arenaReload = this.game?.arenaClient?.isActive && this.game.arenaClient.localState?.reloadRemaining > 0;
-                const reloading = arenaReload || this.gunReload?.item === held;
-                const aim = this.aimBlend || 0, kick = this.weaponKick || 0;
-                const type = ITEM_REGISTRY[held.itemId]?.gunType;
-                const aimHeight = type === 'awp' ? .17 : type === 'rpg' ? .245 : .13;
-                this.itemPivot.position.set(.34 * (1 - aim) + bobX * (1 - aim),
-                    -.31 * (1 - aim) - aimHeight * aim + bobY * (1 - aim) - (reloading ? .14 : 0),
-                    -.48 - aim * .06 + kick * .10);
-                this.itemPivot.rotation.set(kick * .16, -.045 * (1 - aim), reloading ? -.45 : -kick * .035);
-                if (this.gunDraw > 0) {
-                    const dur = GUN_DRAW_TIME[type] || GUN_DRAW_TIME.default;
-                    if (!this._gunDrawSfx) { this._gunDrawSfx = true; this.soundManager?.playGunDraw?.(type); }
-                    this.gunDraw = Math.max(0, this.gunDraw - dt / dur);
-                    const o = { px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0 };
-                    applyKnifeClip(GUN_DRAW_CLIP, (1 - this.gunDraw) * GUN_DRAW_CLIP.dur, o, 1 - aim * .8);
-                    this.itemPivot.position.x += o.px; this.itemPivot.position.y += o.py; this.itemPivot.position.z += o.pz;
-                    this.itemPivot.rotation.x += o.rx; this.itemPivot.rotation.y += o.ry; this.itemPivot.rotation.z += o.rz;
-                }
+                this.updateGunView(dt, held, bobX, bobY);
             } else if (heldKnife) {
                 this.updateKnifeView(dt, bobX, bobY, swingOffset);
             } else if (this.isBlocking) {
@@ -2939,75 +2952,43 @@ class Player {
         this.updateTargetLock();
     }
 
+    // Crosshair "target locked" check. Runs every frame, so it is allocation-free and only touches the DOM on a change.
     updateTargetLock() {
-        if (!this.camera || this.isDead) {
-            this.isTargetLocked = false;
-            const ch = document.getElementById('crosshair');
-            if (ch) ch.classList.remove('target-locked');
-            return;
-        }
-
-        const origin = new THREE.Vector3(this.position.x, this.position.y + this.eyeHeight, this.position.z);
-        const dir = new THREE.Vector3(
-            -Math.sin(this.yaw) * Math.cos(this.pitch),
-            Math.sin(this.pitch),
-            -Math.cos(this.yaw) * Math.cos(this.pitch)
-        ).normalize();
-
-        const reach = this.customReach || (this.isCreative ? 8.0 : 4.8);
         let locked = false;
-
-        // Check Mobs
-        if (this.game && this.game.mobManager) {
-            for (let mob of this.game.mobManager.mobs) {
-                if (!mob.isDead && mob.group && !this.game.mobManager.creativeMobsDisabled) {
-                    const mobCenter = mob.position.clone().add(new THREE.Vector3(0, (mob.height || 1.8) * 0.5, 0));
-                    const toMob = mobCenter.sub(origin);
-                    const distAlongRay = toMob.dot(dir);
-                    if (distAlongRay > 0 && distAlongRay < reach) {
-                        const perpDist = toMob.sub(dir.clone().multiplyScalar(distAlongRay)).length();
-                        const hitboxRadius = (mob.width || 0.65) * 0.95 + 0.18;
-                        if (perpDist <= hitboxRadius) {
-                            locked = true;
-                            break;
-                        }
-                    }
+        if (this.camera && !this.isDead) {
+            const t = this._lockTmp || (this._lockTmp = { o: new THREE.Vector3(), d: new THREE.Vector3(), c: new THREE.Vector3() });
+            const origin = t.o.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
+            const cp = Math.cos(this.pitch);
+            const dir = t.d.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp).normalize();
+            const reach = this.customReach || (this.isCreative ? 8.0 : 4.8);
+            const hits = (x, y, z, radius) => {   // does the view ray pass within radius of (x, y, z) inside reach?
+                const v = t.c.set(x, y, z).sub(origin), along = v.dot(dir);
+                if (along <= 0 || along >= reach) return false;
+                return v.lengthSq() - along * along <= radius * radius;
+            };
+            const mm = this.game && this.game.mobManager;
+            if (mm && !mm.creativeMobsDisabled) {
+                for (const mob of mm.mobs) {
+                    if (mob.isDead || !mob.group) continue;
+                    if (hits(mob.position.x, mob.position.y + (mob.height || 1.8) * .5, mob.position.z, (mob.width || 0.65) * 0.95 + 0.18)) { locked = true; break; }
                 }
             }
-            if (!locked && this.game.mobManager.dragon && !this.game.mobManager.dragon.isDead && this.game.mobManager.dragon.mesh) {
-                if (this.position.distanceTo(this.game.mobManager.dragon.mesh.position) < 14.0) {
-                    locked = true;
-                }
-            }
-        }
-
-        // Check remote multiplayer players
-        if (!locked && this.game && this.game.multiplayer && this.game.multiplayer.players) {
-            for (let [id, remote] of this.game.multiplayer.players.entries()) {
-                if (remote && remote.mesh) {
-                    const pCenter = remote.mesh.position.clone().add(new THREE.Vector3(0, 0.9, 0));
-                    const toP = pCenter.sub(origin);
-                    const distAlongRay = toP.dot(dir);
-                    if (distAlongRay > 0 && distAlongRay < reach) {
-                        const perpDist = toP.sub(dir.clone().multiplyScalar(distAlongRay)).length();
-                        if (perpDist <= 0.65) {
-                            locked = true;
-                            break;
-                        }
-                    }
+            if (!locked && mm && mm.dragon && !mm.dragon.isDead && mm.dragon.mesh && this.position.distanceTo(mm.dragon.mesh.position) < 14.0) locked = true;
+            const players = !locked && this.game && this.game.multiplayer && this.game.multiplayer.players;
+            if (players) {
+                for (const remote of players.values()) {
+                    const m = remote && remote.mesh;
+                    if (m && hits(m.position.x, m.position.y + .9, m.position.z, .65)) { locked = true; break; }
                 }
             }
         }
-
         this.isTargetLocked = locked;
-        const crosshair = document.getElementById('crosshair');
-        if (crosshair) {
-            if (locked) {
-                crosshair.classList.add('target-locked');
-            } else {
-                crosshair.classList.remove('target-locked');
-            }
-            crosshair.classList.toggle('block-target', !locked && !!this.targetBlock);
+        const blockTarget = !locked && !!this.targetBlock;
+        const ch = this._crosshairEl && this._crosshairEl.isConnected ? this._crosshairEl : (this._crosshairEl = typeof document !== 'undefined' ? document.getElementById('crosshair') : null);
+        if (ch && (this._chLocked !== locked || this._chBlock !== blockTarget)) {
+            this._chLocked = locked; this._chBlock = blockTarget;
+            ch.classList.toggle('target-locked', locked);
+            ch.classList.toggle('block-target', blockTarget);
         }
     }
 
@@ -3139,8 +3120,96 @@ class Player {
 
 
     // --- Knife viewmodel: gloved hand + IK forearm, per-knife pickup / 3-hit combo / inspect clips, springy sway ---
+    // X / 🔍 inspects whatever weapon is held: knives play their per-knife clip, guns their gun clip.
+    inspectWeapon() {
+        const held = this.getSelectedItem();
+        if (held && ITEM_REGISTRY[held.itemId]?.isGun) return this.inspectGun();
+        return this.inspectKnife();
+    }
+
+    inspectGun() {
+        const held = this.getSelectedItem(), reg = held && ITEM_REGISTRY[held.itemId];
+        if (!reg?.isGun || this.isDead || this.isThirdPerson || this.isAiming) return false;
+        const arena = this.game?.arenaClient;
+        const reloading = arena?.isActive ? !!arena.localState?.reloading || arena.localState?.reloadRemaining > 0 : this.gunReload?.item === held;
+        if (reloading || this.gunInspect > 0 || this.gunDraw > .2) return false;
+        this.gunInspect = 1;
+        this._gunInspectMag = false;
+        this.soundManager?.playClick?.();
+        return true;
+    }
+
+    // Gun viewmodel: hip / ADS pose, recoil kick, reload dip, draw + inspect clips, and the same springy procedural layers
+    // as the knives (mouse sway, strafe roll, walk figure-8, jump / landing, sprint lowering, breathing). Allocation-free.
+    updateGunView(dt, held, bobX = 0, bobY = 0) {
+        dt = Math.min(Math.max(+dt || 0, 0), .05);
+        const reg = ITEM_REGISTRY[held.itemId], type = reg?.gunType;
+        const arena = this.game?.arenaClient;
+        const reloading = (arena?.isActive && arena.localState?.reloadRemaining > 0) || this.gunReload?.item === held;
+        const aim = this.aimBlend || 0, hip = 1 - aim, kick = this.weaponKick || 0;
+        const st = this._gv || (this._gv = { swX: { x: 0, v: 0 }, swY: { x: 0, v: 0 }, swR: { x: 0, v: 0 }, land: { x: 0, v: 0 }, vy: { x: 0, v: 0 },
+            sprint: 0, move: 0, time: 0, lastYaw: this.yaw || 0, lastPitch: this.pitch || 0, wasGround: true, airVy: 0, lastKick: 0, reload: 0,
+            o: { px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0 } });
+        st.time += dt;
+
+        // firing, reloading or aiming cancels an inspect
+        if (this.gunInspect > 0 && (kick > st.lastKick + .05 || reloading || this.isAiming)) this.gunInspect = 0;
+        st.lastKick = kick;
+        st.reload += ((reloading ? 1 : 0) - st.reload) * (1 - Math.exp(-14 * dt));
+
+        const o = st.o; o.px = o.py = o.pz = o.rx = o.ry = o.rz = 0;
+        if (this.gunDraw > 0) {
+            const dur = GUN_DRAW_TIME[type] || GUN_DRAW_TIME.default;
+            if (!this._gunDrawSfx) { this._gunDrawSfx = true; this.soundManager?.playGunDraw?.(type); }
+            this.gunDraw = Math.max(0, this.gunDraw - dt / dur);
+            applyKnifeClip(GUN_DRAW_CLIP, (1 - this.gunDraw) * GUN_DRAW_CLIP.dur, o, 1 - aim * .8);
+        }
+        if (this.gunInspect > 0) {
+            const clip = _gunInspectClip(type);
+            this.gunInspect = Math.max(0, this.gunInspect - dt / clip.dur);
+            const t = (1 - this.gunInspect) * clip.dur;
+            if (!this._gunInspectMag && t >= clip.magAt) { this._gunInspectMag = true; this.game?.modManager?.soundSynth?.reload?.('mag_in'); }
+            applyKnifeClip(clip, t, o);
+        }
+        const busy = Math.max(this.gunInspect > 0 ? 1 : 0, this.gunDraw || 0);
+
+        // springs
+        const dYaw = _wrapPi((this.yaw || 0) - st.lastYaw), dPitch = (this.pitch || 0) - st.lastPitch;
+        st.lastYaw = this.yaw || 0; st.lastPitch = this.pitch || 0;
+        const inv = dt > 0 ? 1 / dt : 0;
+        const yawRate = Math.max(-9, Math.min(9, dYaw * inv)), pitchRate = Math.max(-9, Math.min(9, dPitch * inv));
+        const sway = .35 + hip * .65;   // aimed guns stay steadier
+        const sx = _kSpring(st.swX, yawRate * .008 * sway, dt, 12, .5), sy = _kSpring(st.swY, -pitchRate * .007 * sway, dt, 12, .5);
+        const sr = _kSpring(st.swR, yawRate * .03 * sway, dt, 10, .45);
+        const v = this.velocity || { x: 0, y: 0, z: 0 };
+        const yaw = this.yaw || 0, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+        const side = v.x * -fz + v.z * fx, speed = Math.hypot(v.x, v.z);
+        st.move += (Math.min(1.3, this.onGround ? speed / 4.3 : 0) - st.move) * (1 - Math.exp(-8 * dt));
+        const sprinting = this.isSprinting && this.onGround && !this.isAiming && !reloading && !busy;
+        st.sprint += ((sprinting ? 1 : 0) - st.sprint) * (1 - Math.exp(-9 * dt));
+        if (!this.onGround) st.airVy = v.y || 0;
+        if (this.onGround && !st.wasGround) st.land.v -= Math.min(1.6, Math.max(0, -st.airVy) * .08);
+        st.wasGround = !!this.onGround;
+        const land = _kSpring(st.land, 0, dt, 16, .42);
+        const air = _kSpring(st.vy, this.onGround ? 0 : Math.max(-.04, Math.min(.03, -(v.y || 0) * .004)), dt, 9, .7);
+        const th = (this.walkCycle || 0) * .5, m = st.move * (1 - busy * .7) * (.25 + hip * .75), sp = st.sprint * hip;
+        const breathe = Math.sin(st.time * 1.6) * .0032 * (.4 + hip * .6);
+
+        const aimHeight = type === 'awp' ? .17 : type === 'rpg' ? .245 : .13;
+        const rl = st.reload;
+        this.itemPivot.position.set(
+            .34 * hip + o.px + sx + Math.sin(th) * .016 * m - side * .003 * hip - sp * .05,
+            -.31 * hip - aimHeight * aim + o.py + sy + (Math.cos(2 * th) - 1) * .008 * m + breathe + air + land * .05 - rl * .14 - sp * .05,
+            -.48 - aim * .06 + kick * .10 + o.pz + sp * .03 + land * .015);
+        this.itemPivot.rotation.set(
+            kick * .16 + o.rx + sy * 2 + land * .3 - air * 1.6 - sp * .32 + breathe * 2,
+            -.045 * hip + o.ry + sx * 2.2 + sp * .55,
+            -kick * .035 * (1 - rl) - rl * .45 + o.rz + sr + Math.sin(th) * .04 * m - side * .02 * hip - sp * .18);
+    }
+
     inspectKnife() {
         const held = this.getSelectedItem();
+        if (held && ITEM_REGISTRY[held.itemId]?.isGun) return this.inspectGun();
         if (!held || !ITEM_REGISTRY[held.itemId]?.isKnife || this.isDead || this.isThirdPerson) return false;
         if (this.knifeInspect > 0 || this.knifeDraw > 0.2 || this._kv?.atk) return false;
         this._knifeCrossfade();

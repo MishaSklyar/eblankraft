@@ -1591,6 +1591,7 @@ class UIManager {
     }
 
     async hidePreloader() {
+        this.game?.warmShaders?.();
         const screen = document.getElementById('preloading-screen');
         if (!screen) {
             document.body.classList.remove('is-preloading');
@@ -2192,8 +2193,20 @@ class UIManager {
             });
         }
 
+        // Each colour's glowing dot is drawn once with shadowBlur into a small sprite; per frame the particles are just
+        // drawImage calls (live shadowBlur on 38 particles every frame is very slow on weak machines).
+        const sprites = {};
+        const sprite = (color) => {
+            if (sprites[color]) return sprites[color];
+            const R = 3.5, pad = 10, c = document.createElement('canvas');
+            c.width = c.height = Math.ceil((R + pad) * 2);
+            const g = c.getContext('2d');
+            g.fillStyle = color; g.shadowBlur = 8; g.shadowColor = color;
+            g.beginPath(); g.arc(c.width / 2, c.height / 2, R, 0, Math.PI * 2); g.fill();
+            return (sprites[color] = { c, R });
+        };
         const render = () => {
-            if (this.mainMenuOpen) {
+            if (this.mainMenuOpen && !document.hidden) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 for (let p of particles) {
                     p.y += p.speedY;
@@ -2205,16 +2218,11 @@ class UIManager {
                     if (p.x < -10) p.x = canvas.width + 10;
                     if (p.x > canvas.width + 10) p.x = -10;
 
-                    ctx.save();
+                    const sp = sprite(p.color), k = p.radius / sp.R, size = sp.c.width * k;
                     ctx.globalAlpha = p.alpha;
-                    ctx.fillStyle = p.color;
-                    ctx.shadowBlur = 8;
-                    ctx.shadowColor = p.color;
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
+                    ctx.drawImage(sp.c, p.x - size / 2, p.y - size / 2, size, size);
                 }
+                ctx.globalAlpha = 1;
             }
             requestAnimationFrame(render);
         };
@@ -3879,7 +3887,7 @@ class UIManager {
             { id: 'btn-scope',   label: '🔭 Приціл' },
             { id: 'btn-reload',  label: '🔄 Перезарядка' },
             { id: 'btn-buy',     label: '🛒 Рюкзак' },
-            { id: 'btn-inspect', label: '🔍 Огляд ножа' }
+            { id: 'btn-inspect', label: '🔍 Огляд зброї' }
         ];
         this.DEFAULT_HUD_LAYOUT = { version: 2, mode: 'standard', preset: 'default', btnScale: 1, btnOpacity: 0.9, hotbarScale: 1, leftHanded: false, snap: true, hotbar: null, buttons: {} };
 
