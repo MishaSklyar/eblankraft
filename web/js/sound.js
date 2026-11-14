@@ -1171,6 +1171,36 @@ class SoundManager {
         } catch (e) {}
     }
 
+    // 🦋 Balisong: handle hitting the tang (bright click + short metallic ring); latch = heavier double click
+    playBalisongClack(vol = 1, latch = false) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+            const now = this.ctx.currentTime, v = Math.max(.2, Math.min(1.5, vol));
+            const hit = (t, f, q, g0, dur) => {
+                const src = this.ctx.createBufferSource();
+                src.buffer = this.createNoiseBuffer(dur + .03);
+                const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+                bp.frequency.setValueAtTime(f * (.95 + Math.random() * .1), now + t);
+                const g = this.ctx.createGain();
+                g.gain.setValueAtTime(0.001, now + t);
+                g.gain.exponentialRampToValueAtTime(g0 * v, now + t + .003);
+                g.gain.exponentialRampToValueAtTime(0.001, now + t + dur);
+                src.connect(bp); bp.connect(g); g.connect(this.getDestination());
+                src.start(now + t, Math.random() * 2); src.stop(now + t + dur + .02);
+            };
+            hit(0, 3800, 4, .28, .035);
+            hit(.004, 1500, 2, .12, .05);
+            if (latch) hit(.045, 2600, 5, .22, .04);
+            const osc = this.ctx.createOscillator(), og = this.ctx.createGain();
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(4200 + Math.random() * 600, now);
+            og.gain.setValueAtTime(0.001, now); og.gain.exponentialRampToValueAtTime(.035 * v, now + .004);
+            og.gain.exponentialRampToValueAtTime(0.001, now + .16);
+            osc.connect(og); og.connect(this.getDestination()); osc.start(now); osc.stop(now + .18);
+        } catch (e) {}
+    }
+
     // 🔪 Knife deploy: short metallic scrape + ring
     playKnifeDeploy() {
         if (!this.enabled) return;
