@@ -122,3 +122,49 @@ test('game wiring: script tag, render hook, Cinematic preset', () => {
     const gui = fs.readFileSync(path.join(__dirname, '../js/rtx_gui.js'), 'utf8');
     assert.match(gui, /Cinematic:\s*\{[^\n]*pathTrace: true/);
 });
+
+test('BVH builder covers every primitive once and parents contain children', () => {
+    const { PT } = load();
+    const n = 257, boxes = [];
+    for (let i = 0; i < n; i++) { const x = (i * 37) % 101, y = (i * 13) % 7, z = (i * 71) % 53; boxes.push([x, y, z, x + 1 + (i % 3), y + 1, z + 0.5]); }
+    const bvh = PT.buildBVH(n, (i, o) => { for (let k = 0; k < 6; k++) o[k] = boxes[i][k]; }, 4);
+    const nu = new Uint32Array(bvh.nodes.buffer, bvh.nodes.byteOffset, bvh.nodes.length);
+    const seen = new Uint8Array(n);
+    const inside = (p, c) => p[0] <= c[0] && p[1] <= c[1] && p[2] <= c[2] && p[3] >= c[3] && p[4] >= c[4] && p[5] >= c[5];
+    const box = (k) => [bvh.nodes[k * 8], bvh.nodes[k * 8 + 1], bvh.nodes[k * 8 + 2], bvh.nodes[k * 8 + 4], bvh.nodes[k * 8 + 5], bvh.nodes[k * 8 + 6]];
+    const stack = [0];
+    while (stack.length) {
+        const k = stack.pop(), cnt = nu[k * 8 + 7], first = nu[k * 8 + 3];
+        if (cnt) {
+            assert.ok(cnt <= 4);
+            for (let j = first; j < first + cnt; j++) { const prim = bvh.order[j]; seen[prim]++; assert.ok(inside(box(k), boxes[prim])); }
+        } else {
+            assert.ok(inside(box(k), box(first)) && inside(box(k), box(first + 1)));
+            stack.push(first, first + 1);
+        }
+    }
+    assert.ok(seen.every(v => v === 1));
+});
+
+test('relief map of a flat texture is a flat normal', () => {
+    const { PT } = load();
+    const S = 8, px = new Uint8Array(S * S * 4).fill(128);
+    const out = PT.reliefMap(px, S, null, 'stone');
+    for (let i = 0; i < S * S; i++) {
+        assert.ok(Math.abs(out[i * 4] - 127.5) <= 1 && Math.abs(out[i * 4 + 1] - 127.5) <= 1 && out[i * 4 + 2] >= 254);
+    }
+});
+
+test('post-processing settings do not restart accumulation; quality presets exist', () => {
+    const { PT } = load();
+    const pt = new PT({ ui: null });
+    pt._resetPending = false;
+    pt.setCfg('bloom', 0.2);
+    pt.setCfg('tonemap', 'aces');
+    assert.equal(pt._resetPending, false);
+    pt.setCfg('bounces', 6);
+    assert.equal(pt._resetPending, true);
+    assert.ok(Object.keys(PT.PRESETS).some(k => /3060/.test(k)));
+    pt.applyPreset(Object.keys(PT.PRESETS)[0]);
+    assert.equal(pt.cfg.dynRes, true);
+});

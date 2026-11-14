@@ -41,7 +41,11 @@ class RTXGui {
         this.stats.tier = r && r.composer ? ['lights only', 'no SSR/AO', 'no SSR', 'full'][r.quality] : '-';
         this.stats.mode = r && r.composer ? (r.scenePass ? 'depth AO' : 'legacy AO') : 'off';
         if (window.game && window.game.rtxOnnx) this.onnx.status = window.game.rtxOnnx.status;
-        if (this.ptState && g.pathTracer) { const pt = g.pathTracer; this.ptState.on = pt.active; this.ptState.status = pt.status; this.ptState.frames = String(pt.accum || 0); }
+        if (this.ptState && g.pathTracer) { const pt = g.pathTracer; this.ptState.on = pt.active; this.ptState.status = pt.status; this.ptState.frames = String(pt.accum || 0);
+            this.ptState.gpu = pt.gpuMs ? pt.gpuMs.toFixed(1) + ' ms GPU' + (pt.gpuName ? ' (' + pt.gpuName + ')' : '') : (pt.hasTimestamps === false ? 'n/a (no timestamp-query)' : '-');
+            this.ptState.fps = pt.fps ? pt.fps.toFixed(0) : '-';
+            this.ptState.res = pt.w ? pt.w + 'x' + pt.h + ' -> ' + pt.outW + 'x' + pt.outH : '-';
+            const ms = pt.meshStats || {}; this.ptState.meshes = (ms.instances || 0) + ' meshes + ' + (ms.overlay || 0) + ' first-person, ' + (ms.tris || 0) + ' tris'; }
         this.gui.controllersRecursive().forEach(c => { if (c._listen) c.updateDisplay(); });
     }
 
@@ -135,11 +139,16 @@ class RTXGui {
             const ptF = gui.addFolder('Path tracing (WebGPU)  Alt+P');
             const C = pt.cfg;
             const ptCtl = (key, min, max, step, name) => ptF.add(C, key, min, max, step).name(name).onChange(v => pt.setCfg(key, v));
-            this.ptState = { on: pt.active, status: pt.status, frames: '0' };
+            this.ptState = { on: pt.active, status: pt.status, frames: '0', gpu: '-', fps: '-', res: '-', meshes: '-', preset: 'Balanced' };
             ptF.add(this.ptState, 'on').name('Path tracing ON').onChange(v => { if (v) pt.enable(); else pt.disable(); });
             listen(ptF.controllers[0]);
             listen(ptF.add(this.ptState, 'status').name('Status').disable());
             listen(ptF.add(this.ptState, 'frames').name('Accumulated frames').disable());
+            listen(ptF.add(this.ptState, 'fps').name('FPS').disable());
+            listen(ptF.add(this.ptState, 'gpu').name('GPU time / frame').disable());
+            listen(ptF.add(this.ptState, 'res').name('Internal -> output').disable());
+            listen(ptF.add(this.ptState, 'meshes').name('Ray-traced meshes').disable());
+            ptF.add(this.ptState, 'preset', Object.keys(WebGPUPathTracer.PRESETS)).name('Quality preset').onChange(v => { pt.applyPreset(v); ptF.controllersRecursive().forEach(c => c.updateDisplay()); });
             ptCtl('scale', 0.25, 1, 0.05, 'Resolution scale');
             ptCtl('spp', 1, 16, 1, 'Samples / pixel / frame');
             ptCtl('bounces', 1, 12, 1, 'Max bounces');
@@ -163,6 +172,27 @@ class RTXGui {
             envF.add(C, 'volumetrics').name('Volumetric sun shafts').onChange(v => pt.setCfg('volumetrics', v));
             envF.add(C, 'emissive', 0, 10, 0.05).name('Emissive blocks strength').onChange(v => pt.setCfg('emissive', v));
             envF.add(C, 'waves').name('Water waves').onChange(v => pt.setCfg('waves', v));
+            envF.add(C, 'clouds', 0, 1, 0.01).name('Cloud cover').onChange(v => pt.setCfg('clouds', v));
+            envF.add(C, 'cloudShadows').name('Cloud shadows').onChange(v => pt.setCfg('cloudShadows', v));
+            envF.add(C, 'cloudDrift').name('Clouds drift (re-bakes sky)').onChange(v => pt.setCfg('cloudDrift', v));
+            const geoF = ptF.addFolder('Ray-traced geometry / materials');
+            geoF.add(C, 'meshes').name('Ray trace mobs, players, items, hand').onChange(v => pt.setCfg('meshes', v));
+            geoF.add(C, 'normalStrength', 0, 3, 0.05).name('Block normal maps').onChange(v => pt.setCfg('normalStrength', v));
+            geoF.add(C, 'translucency').name('Leaf / plant translucency').onChange(v => pt.setCfg('translucency', v));
+            const postF = ptF.addFolder('Camera post-processing');
+            postF.add(C, 'autoExposure').name('Auto exposure (eye adaptation)').onChange(v => pt.setCfg('autoExposure', v));
+            postF.add(C, 'exposureComp', -4, 4, 0.05).name('Exposure compensation EV').onChange(v => pt.setCfg('exposureComp', v));
+            postF.add(C, 'adaptSpeed', 0.1, 10, 0.1).name('Adaptation speed').onChange(v => pt.setCfg('adaptSpeed', v));
+            postF.add(C, 'tonemap', { 'AgX (filmic, punchy)': 'agx', 'ACES': 'aces' }).name('Tone mapping').onChange(v => pt.setCfg('tonemap', v));
+            postF.add(C, 'bloom', 0, 0.4, 0.005).name('Bloom').onChange(v => pt.setCfg('bloom', v));
+            postF.add(C, 'sharpen', 0, 1, 0.01).name('Sharpen (CAS)').onChange(v => pt.setCfg('sharpen', v));
+            postF.add(C, 'chromatic', 0, 0.01, 0.0001).name('Chromatic aberration').onChange(v => pt.setCfg('chromatic', v));
+            postF.add(C, 'vignette', 0, 1, 0.01).name('Vignette').onChange(v => pt.setCfg('vignette', v));
+            postF.add(C, 'grain', 0, 0.15, 0.001).name('Film grain').onChange(v => pt.setCfg('grain', v));
+            postF.add(C, 'letterbox').name('Cinematic 2.39:1 bars').onChange(v => pt.setCfg('letterbox', v));
+            const perfF = ptF.addFolder('Performance');
+            perfF.add(C, 'dynRes').name('Dynamic resolution').onChange(v => pt.setCfg('dynRes', v));
+            perfF.add(C, 'targetFps', 15, 144, 1).name('Target FPS').onChange(v => pt.setCfg('targetFps', v));
             const dnF = ptF.addFolder('Denoiser / accumulation');
             dnF.add(C, 'denoise').name('SVGF denoiser').onChange(v => pt.setCfg('denoise', v));
             dnF.add(C, 'atrous', 1, 6, 1).name('A-trous iterations').onChange(v => pt.setCfg('atrous', v));
@@ -177,8 +207,8 @@ class RTXGui {
             camF.add(C, 'focusDistance', 0.5, 200, 0.1).name('Focus distance').onChange(v => pt.setCfg('focusDistance', v));
             ptF.add({ s: () => pt.screenshot() }, 's').name('Screenshot -> PNG');
             ptF.add({ r: () => pt.resetAccumulation() }, 'r').name('Restart accumulation');
-            ptF.add({ i: 'Voxels only (no mobs / hand). Stand still to converge.' }, 'i').name('Note').disable();
-            for (const f of [envF, dnF, camF]) f.close();
+            ptF.add({ i: 'Stand still to converge to a noise-free image.' }, 'i').name('Note').disable();
+            for (const f of [envF, dnF, camF, geoF, postF, perfF]) f.close();
             if (!WebGPUPathTracer.isAvailable()) ptF.controllers.forEach(c => { if (c.property === 'on') c.disable(); });
         }
 
