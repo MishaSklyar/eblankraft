@@ -795,6 +795,13 @@ class MultiplayerManager {
 
     openWorldPeer(code, hostCode = null) {
         if (typeof Peer !== 'function') {
+            // PeerJS (~90 KB) is loaded only when P2P is actually used.
+            if (window.eblanLoadScript && !this._peerLoadFailed) {
+                this.showToast('🌐 Завантаження P2P...');
+                window.eblanLoadScript('js/peerjs.min.js').then(() => this.openWorldPeer(code, hostCode),
+                    () => { this._peerLoadFailed = true; this.openWorldPeer(code, hostCode); });
+                return;
+            }
             this.showToast('Не вдалося завантажити PeerJS. Перезавантажте сторінку.');
             return;
         }
@@ -907,9 +914,18 @@ class MultiplayerManager {
         }
         if (this.game.serverClient) this.game.serverClient.leaveRoom();
         if (this.peer) this.disconnect();
-        const invite = /^([A-Za-z0-9_-]{1,32}):(T|CT)$/.exec(roomCode);
-        if (invite) this.game.arenaClient.connect(invite[1], invite[2]);
+        const invite = /^([A-Za-z0-9_-]{1,32}):(T|CT)(:1)?$/.exec(roomCode);
+        if (invite && invite[3]) this.game.arenaClient.connect(invite[1], invite[2], 'dust2', { size: 1 });
+        else if (invite) this.game.arenaClient.connect(invite[1], invite[2]);
         else this.game.arenaClient.connect(roomCode);
+    }
+
+    // Dust2 1v1. local: offline against a bot, simulated in this tab (no server). Otherwise online on the PvP
+    // server; an empty side is filled by a bot until a second player joins the same room.
+    joinDust2Duel(local = true, roomCode = 'dust2_1v1') {
+        if (this.game.serverClient) this.game.serverClient.leaveRoom();
+        if (this.peer) this.disconnect();
+        this.game.arenaClient.connect(roomCode, null, 'dust2', { size: 1, local });
     }
 
     // --- PACKET DISPATCH & HANDLING ---
@@ -1561,8 +1577,7 @@ class MultiplayerManager {
                 break;
             case '/potato':
                 if (this.game && this.game.ui) {
-                    const btn = document.getElementById('btn-ultra-potato-preset');
-                    if (btn) btn.click();
+                    if (this.game.ui?.applyGraphicsPreset) this.game.ui.applyGraphicsPreset('potato');
                     this.addChatMessage('СИСТЕМА', '🥔 Режим тостера активовано!', true);
                 }
                 break;

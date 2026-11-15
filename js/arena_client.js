@@ -56,45 +56,63 @@ class ArenaClient {
         return `${protocol}//${host}/ws`;
     }
 
-    connect(room, team = null, mode = 'dust2') {
+    // options.size: Dust2 players per side (1 = 1v1 duel, 3 = classic). options.local: run the arena inside the
+    // page against a bot (js/local_arena.js), no server needed.
+    connect(room, team = null, mode = 'dust2', options = {}) {
         if (this.game.serverClient) this.game.serverClient.leaveRoom();
         this.disconnect();
         if (!/^[A-Za-z0-9_-]{1,32}$/.test(room)) {
             this.multiplayer.showToast('Некоректний код кімнати');
             return;
         }
-        const input = document.getElementById('input-mp-server-url');
-        const address = input ? input.value.trim() : this.defaultUrl();
-        let socket;
-        try {
-            const url = new URL(address);
-            if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error('URL');
-            socket = new WebSocket(url.href);
-        } catch (error) {
-            this.multiplayer.showToast('Вкажіть адресу PvP-сервера: ws:// або wss://');
+        const size = mode === 'dust2' && options.size === 1 ? 1 : null;
+        // Dust2 map data (~1.2 MB) is loaded on demand; fetch it before joining so the map appears at once.
+        if (mode === 'dust2' && !window.EBLAN_MAPS?.de_eblan2 && window.eblanLoadDust2) {
+            const token = this.connectToken = {};
+            this.multiplayer.showToast('🏜️ Завантаження карти de_eblan2...');
+            window.eblanLoadDust2().then(() => {
+                if (this.connectToken === token) this.connect(room, team, mode, options);
+            }, () => this.multiplayer.showToast('Не вдалося завантажити карту de_eblan2'));
             return;
         }
-        localStorage.setItem('eblankraft_pvp_server', address);
+        this.connectToken = null;
+        let socket, address = null;
+        if (options.local && window.LocalArenaSocket) {
+            socket = new LocalArenaSocket();
+        } else {
+            const input = document.getElementById('input-mp-server-url');
+            address = input ? input.value.trim() : this.defaultUrl();
+            try {
+                const url = new URL(address);
+                if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error('URL');
+                socket = new WebSocket(url.href);
+            } catch (error) {
+                this.multiplayer.showToast('Вкажіть адресу PvP-сервера: ws:// або wss://');
+                return;
+            }
+            try { localStorage.setItem('eblankraft_pvp_server', address); } catch (e) {}
+        }
+        this.isLocal = !!socket.local;
         this.socket = socket;
         this.seq = 0;
         this.lastInput = this.lastAttack = -Infinity;
         const status = document.getElementById('mp-status-text');
-        if (status) status.textContent = 'Підключення до PvP-сервера...';
+        if (status) status.textContent = this.isLocal ? 'Запуск локальної арени...' : 'Підключення до PvP-сервера...';
         this.connectTimeout = setTimeout(() => {
             if (this.socket === socket && !this.isConnected) {
                 this.disconnect();
-                this.multiplayer.showToast('PvP-сервер не відповідає. Перевірте адресу та запуск сервера.');
+                this.multiplayer.showToast(this.isLocal ? 'Локальна арена не запустилася.' : 'PvP-сервер не відповідає. Перевірте адресу та запуск сервера.');
             }
-        }, 8000);
+        }, this.isLocal ? 30000 : 8000);
         socket.onopen = () => {
             if (this.socket !== socket) return;
-            window.authenticateAddonWallet?.(socket);
+            if (!socket.local) window.authenticateAddonWallet?.(socket);
             this.mode = mode;
-            this.send({ type: 'arena_join', room, name: this.multiplayer.playerName, mode, ...(team ? { team } : {}) });
+            this.send({ type: 'arena_join', room, name: this.multiplayer.playerName, mode, ...(team ? { team } : {}), ...(size ? { size } : {}) });
         };
         socket.onmessage = event => {
             if (this.socket !== socket) return;
-            try { this.handleMessage(JSON.parse(event.data)); }
+            try { this.handleMessage(typeof event.data === 'string' ? JSON.parse(event.data) : event.data); }
             catch (error) {
                 console.error('Arena protocol error:', error);
                 this.disconnect();
@@ -102,12 +120,12 @@ class ArenaClient {
             }
         };
         socket.onerror = () => {
-            if (this.socket === socket) this.multiplayer.showToast('Не вдалося підключитися до PvP-сервера');
+            if (this.socket === socket) this.multiplayer.showToast(socket.local ? 'Не вдалося запустити локальну арену' : 'Не вдалося підключитися до PvP-сервера');
         };
         socket.onclose = () => {
             if (this.socket !== socket) return;
             this.disconnect();
-            this.multiplayer.showToast('З’єднання з PvP-сервером закрито');
+            this.multiplayer.showToast(socket.local ? 'Локальну арену закрито' : 'З’єднання з PvP-сервером закрито');
         };
     }
 
@@ -151,7 +169,9 @@ class ArenaClient {
         for (const tnt of game.tntEntities || []) hide(tnt.mesh);
         this.isActive = true;
         game.world = new VoxelWorld(game.scene, game.textureManager, {
-            seed: 1, worldType: map.id === 'de_eblan2' ? 'de_eblan2' : 'pvp_arena', arenaMap: map, chunkRadius: 6, game,
+            // Dust2 is ~11x11 chunks: the full map on normal presets, a shorter (fogged) radius on weak devices.
+            seed: 1, worldType: map.id === 'de_eblan2' ? 'de_eblan2' : 'pvp_arena', arenaMap: map,
+            chunkRadius: game.graphicsPreset === 'potato' ? 3 : game.graphicsPreset === 'low' ? 4 : 6, game,
         });
         player.world = game.world;
         player.inventory = Array(27).fill(null);
@@ -206,13 +226,21 @@ class ArenaClient {
                 this.roomCode = message.room;
                 this.mode = message.mode || 'legacy';
                 this.weaponSpecs = message.weaponSpecs || {};
+                this.teamSize = message.teamSize || message.match?.teamSize || 3;
                 this.enterArena(message.map);
                 this.isConnected = mp.isConnected = true;
                 mp.isHost = false;
                 mp.peerId = message.room;
                 mp.updateConnectedUI(true, message.room, false);
                 this.applySnapshot(message.players, message.match);
-                if (this.mode === 'dust2') this.mountDustHud();
+                if (this.mode === 'dust2') {
+                    this.mountDustHud();
+                    const invite = document.querySelector?.('#dust2-hud [data-action="invite"]');
+                    if (invite) {
+                        invite.style.display = this.isLocal ? 'none' : '';
+                        invite.textContent = this.teamSize === 1 ? '＋ Суперник · I' : '＋ Товариш · I';
+                    }
+                }
                 if (this.mode === 'knockback') { this.mountKnockHud(); this.renderKnockHud(); }
                 this.heartbeat = setInterval(() => {
                     const controls = this.game.controls;
@@ -222,7 +250,9 @@ class ArenaClient {
                         !paused && controls?.jumpPressed, !paused && this.game.player.isSprinting, true);
                 }, 5000);
                 mp.showToast(this.mode === 'dust2'
-                    ? 'Dust2: B — купівля, E — встановити / розмінувати, [ ] — спостерігати'
+                    ? (this.teamSize === 1
+                        ? `Dust2 1v1${this.isLocal ? ' проти бота' : ''}: B — купівля, E — встановити / розмінувати C4`
+                        : 'Dust2: B — купівля, E — встановити / розмінувати, [ ] — спостерігати')
                     : this.mode === 'knockback'
                         ? 'Knockback: штовхай суперників з платформи — чим більше %, тим далі відлітають'
                         : 'PvP-арена: алмазний меч, серверний рух та урон');
@@ -410,7 +440,10 @@ class ArenaClient {
 
     async inviteTeammate() {
         if (!this.isConnected || !this.roomCode || !this.localState?.team) return;
-        const code = `${this.roomCode}:${this.localState.team}`;
+        if (this.isLocal) { this.multiplayer.showToast('Офлайн 1v1 проти бота: запрошення недоступні. Оберіть «1v1 онлайн».'); return; }
+        // In a 1v1 room your own side is full: invite the opponent onto the other side.
+        const duel = this.teamSize === 1, side = duel ? (this.localState.team === 'T' ? 'CT' : 'T') : this.localState.team;
+        const code = `${this.roomCode}:${side}${duel ? ':1' : ''}`;
         try {
             if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
             await navigator.clipboard.writeText(code);
@@ -960,6 +993,9 @@ class ArenaClient {
         this.match = null;
         this.playerStates = [];
         this.mode = 'legacy';
+        this.isLocal = false;
+        this.teamSize = 3;
+        this.connectToken = null;
         this.buyOpen = false;
         this.scoreboardOpen = false;
         this.weaponSpecs = {};

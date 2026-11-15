@@ -114,9 +114,9 @@ test('shaders expose their entry points and the uniform layout matches the JS si
 });
 
 test('game wiring: script tag, render hook, Cinematic preset', () => {
-    const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-    assert.ok(html.indexOf('js/webgpu_pt.js') > 0 && html.indexOf('js/webgpu_pt.js') < html.indexOf('js/rtx_gui.js'));
+    // The path tracer and its panel are loaded on first use (Alt+P / Alt+X), path tracer before the panel.
     const game = fs.readFileSync(path.join(__dirname, '../js/game.js'), 'utf8');
+    assert.ok(game.indexOf('js/webgpu_pt.js') > 0 && game.indexOf('js/webgpu_pt.js') < game.indexOf('js/rtx_gui.js'));
     assert.match(game, /new WebGPUPathTracer\(this\)/);
     assert.match(game, /this\.pathTracer\.render\(/);
     const gui = fs.readFileSync(path.join(__dirname, '../js/rtx_gui.js'), 'utf8');

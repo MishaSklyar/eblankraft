@@ -2362,7 +2362,7 @@ class Player {
             this.game.arenaClient.updatePlayer(dt, inputVector, jumpPressed);
             return;
         }
-        if (this.isDuelLocked()) {
+        if (this.isDuelLocked() || this.world?.lazyMapPending) {
             this.velocity.set(0, 0, 0);
             this.gunReload = null;
             this.updateView(dt);

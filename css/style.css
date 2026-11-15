@@ -4612,6 +4612,13 @@ body.is-preloading #mining-progress-container {
     flex: 1;
 }
 
+.mm-dust2-panel { margin-top: 10px; }
+.mm-dust2-title { font-weight: bold; color: #dca64b; font-size: 15px; }
+.mm-dust2-desc { font-size: 12px; color: #bbb; line-height: 1.35; }
+@media (max-width: 520px) {
+    .mm-duels-buttons { flex-direction: column; }
+}
+
 /* Skins Hub Grid */
 .mm-skins-hub-container {
     width: 100%;

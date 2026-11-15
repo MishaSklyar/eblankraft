@@ -1816,7 +1816,7 @@ class UIManager {
             const b = document.createElement('button');
             b.className = 'menu-btn';
             b.textContent = '🎛️ Відкрити RTX Remix (Alt + X)';
-            b.onclick = () => { if (this.game.rtxGui) this.game.rtxGui.toggle(true); };
+            b.onclick = () => this.game.openRtxGui ? this.game.openRtxGui() : this.game.rtxGui?.toggle(true);
             rtxBox.appendChild(b);
             const bAll = document.getElementById('btn-rtx-all'), bNone = document.getElementById('btn-rtx-none');
             if (bAll) bAll.style.display = 'none';
@@ -2450,6 +2450,21 @@ class UIManager {
             btnDust2.onclick = () => {
                 if (this.soundManager) this.soundManager.playClick();
                 this.game?.multiplayer?.joinRoom('dust2');
+            };
+        }
+
+        const btnDust2Bot = document.getElementById('mm-btn-dust2-1v1-bot');
+        if (btnDust2Bot) {
+            btnDust2Bot.onclick = () => {
+                if (this.soundManager) this.soundManager.playClick();
+                this.game?.multiplayer?.joinDust2Duel(true);
+            };
+        }
+        const btnDust2Online = document.getElementById('mm-btn-dust2-1v1-online');
+        if (btnDust2Online) {
+            btnDust2Online.onclick = () => {
+                if (this.soundManager) this.soundManager.playClick();
+                this.game?.multiplayer?.joinDust2Duel(false);
             };
         }
 
@@ -4459,6 +4474,13 @@ class UIManager {
         }
 
         const root = document.getElementById('eblan-os-root');
+        if (root && !window.EblanOS && window.eblanLoadScript) {
+            // EblanOS (~70 KB) is only parsed when its PC is first opened.
+            window.eblanLoadScript('js/eblan_os.js?v=3.6').then(() => {
+                if (this.emuosModal?.style.display !== 'none' && window.EblanOS && (!this.eblanOS || !root.children.length)) this.eblanOS = new EblanOS(root, this.game);
+            }, error => console.error(error));
+            return;
+        }
         if (root && window.EblanOS && (!this.eblanOS || !root.children.length)) {
             this.eblanOS = new EblanOS(root, this.game);
         }

@@ -1121,7 +1121,6 @@ class VoxelWorld {
         this.dimensionStates = new Map();
         this.arenaMap = options.arenaMap || null;
         this.worldType = options.worldType || 'normal'; // 'normal', 'flat', 'mountains', 'tnt_paradise'
-        if (this.worldType === 'de_eblan2' && !window.EBLAN_MAPS?.de_eblan2) throw new Error('de_eblan2 map data is not loaded');
         this.seed = options.seed || Math.floor(Math.random() * 1000000);
         if (window.EblanEng) {
             window.EblanEng.setSeed(this.seed);
@@ -2480,7 +2479,32 @@ class VoxelWorld {
     }
 
     getBuiltinMap() {
-        return this.dimension === 'overworld' ? window.EBLAN_MAPS?.[this.worldType] || null : null;
+        if (this.dimension !== 'overworld') return null;
+        const map = window.EBLAN_MAPS?.[this.worldType];
+        if (map) return map;
+        // Built-in maps are big (de_eblan2 is ~1.2 MB) and are no longer parsed at page load. Until the file
+        // arrives the world is empty air and the player is held in place (Player.updatePhysics), then rebuilt.
+        if (!VoxelWorld.LAZY_MAPS[this.worldType]) return null;
+        this.requestLazyMap();
+        return VoxelWorld.PENDING_MAP;
+    }
+
+    requestLazyMap() {
+        if (this.lazyMapPending) return;
+        const type = this.worldType;
+        this.lazyMapPending = true;
+        window.eblanLoadScript(VoxelWorld.LAZY_MAPS[type]).then(() => {
+            this.lazyMapPending = false;
+            if (this.worldType !== type || !window.EBLAN_MAPS?.[type]) return;
+            this.clearWorld();
+            this.initWorld();
+            const player = this.game?.player;
+            if (player && player.world === this && !this.arenaMap) player.spawnSafe();
+        }, error => {
+            this.lazyMapPending = false;
+            console.error(error);
+            this.game?.ui?.showToast?.('Не вдалося завантажити карту ' + type);
+        });
     }
 
     generateSingleChunk(cx, cz, generatedVoxels = null) {
@@ -3807,3 +3831,6 @@ window.VoxelWorld = VoxelWorld;
 window.CHUNK_SIZE_X = CHUNK_SIZE_X;
 window.CHUNK_SIZE_Y = CHUNK_SIZE_Y;
 window.CHUNK_SIZE_Z = CHUNK_SIZE_Z;
+
+VoxelWorld.LAZY_MAPS = { de_eblan2: 'js/de_eblan2.js?v=1' };
+VoxelWorld.PENDING_MAP = { spawn: [0.5, 5.05, 0.5], chunks: {}, chunkDesigns: {}, designs: [] };

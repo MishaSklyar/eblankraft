@@ -19,14 +19,15 @@ engine = engine[:a] + '        const context = createContext();\n' + engine[b:]
 engine = engine.replace('module.exports = { AuthorityWorld };', 'export { AuthorityWorld };')
 (out / 'engine.js').write_text(factory + engine)
 shutil.copyfile(root / 'js/eblan_core.wasm', out / 'eblan_core.wasm')
-arena = (root / 'server/arena.js').read_text()
-arena = re.sub(r"const fs = require\('node:fs'\);\nconst path = require\('node:path'\);", '', arena)
-a = arena.index('const source = fs.readFileSync(')
-b = arena.index('const levels =', a)
+# js/arena_core.js is a UMD module (Node + browser); keep only its factory and inline the map data.
+arena = (root / 'js/arena_core.js').read_text()
+a = arena.index('function (loadDust2) {')
+b = arena.rindex('});')
 map_source = (root / 'js/de_eblan2.js').read_text()
 data = map_source[map_source.index('{"id"'):].strip().removesuffix(';')
-arena = arena[:a] + 'const data = ' + data + ';\n' + arena[b:]
-arena = re.sub(r'module.exports = (.*);', r'export \1;', arena)
+body = arena[a:b + 1].replace('const data = loadDust2();', 'const data = ' + data + ';')
+arena = ("'use strict';\nconst EblanArena = (" + body + ")();\n"
+         "export const { ArenaService, ArenaRoom, MAP, KNOCK_MAP, DUST2_MAP, WEAPONS, rayBox, obstacleDistance } = EblanArena;\n")
 (out / 'arena.js').write_text(arena)
 server = (root / 'server.js').read_text()
 a = server.index('const WEAPON_DAMAGE')

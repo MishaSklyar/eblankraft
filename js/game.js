@@ -3,6 +3,9 @@
  */
 
 const GRAPHICS_PRESETS = {
+    // Potato: for software-rendered GL, old netbooks, smart TVs and very old phones. Everything of Low, plus a
+    // 1x native pixel ratio, a lower dynamic-resolution floor and a shorter Dust2 draw distance.
+    potato: { scale: 0.35, radius: 1, shadows: false, clouds: false, wind: false, water: false },
     low: { scale: 0.5, radius: 1, shadows: false, clouds: false, wind: false, water: false },
     medium: { scale: 0.75, radius: 2, shadows: false, clouds: true, wind: true, water: false },
     high: { scale: 1, radius: 4, shadows: true, clouds: true, wind: true, water: true }
@@ -22,13 +25,14 @@ class Game {
             localStorage.getItem('eblankraft_ul20ft_preset') === 'true';
         const mobile = /Android|Mobile|Silk/i.test(navigator.userAgent);
         this.isMobile = mobile;
+        const weakTier = GRAPHICS_PRESETS[savedPreset] ? null : Game.weakDeviceTier();
         this.graphicsPreset = GRAPHICS_PRESETS[savedPreset] ? savedPreset :
-            (legacyLow || mobile || Game.isWeakDevice() ? 'low' : 'medium');
+            (weakTier === 'potato' ? 'potato' : legacyLow || mobile || weakTier ? 'low' : 'medium');
         localStorage.setItem('eblankraft_graphics_preset', this.graphicsPreset);
         const preset = GRAPHICS_PRESETS[this.graphicsPreset];
         // Compatibility flags for existing renderer/material consumers, derived
         // exclusively from the selected preset rather than independent modes.
-        this.turboFPS = this.graphicsPreset === 'low';
+        this.turboFPS = Game.isLowPreset(this.graphicsPreset);
         this.isA02Mode = false;
         this.isUL20FT = false;
         const storedScale = parseFloat(localStorage.getItem('eblankraft_render_scale'));
@@ -51,7 +55,7 @@ class Game {
         this.antialias = setting('eblankraft_antialias', !mobile);
         // Mobile dynamic resolution: only when the player never picked a render scale by hand.
         // Dynamic resolution: on phones and on the Low preset (potato PCs), unless the player picked a render scale by hand.
-        this.autoScale = (mobile || this.graphicsPreset === 'low') && !Number.isFinite(storedScale);
+        this.autoScale = (mobile || this.turboFPS) && !Number.isFinite(storedScale);
         this.autoScaleMax = this.renderScale;
         this._frameEma = 0; this._slowCount = 0; this._fastCount = 0;
         this.cloudOffset = 0;
@@ -79,28 +83,67 @@ class Game {
         if (this.upscaler) { let m = 'off'; try { m = localStorage.getItem('eblankraft_upscaler') || 'off'; } catch (e) {} this.upscaler.setMode(m); }
         this.rtx = (typeof RTXPipeline !== 'undefined') ? new RTXPipeline(this) : null;
         if (this.rtx && this.textureManager && this.textureManager.textureX64) this.rtx.setEnabled(true);   // RTX ON saved from last session
-        this.pathTracer = (typeof WebGPUPathTracer !== 'undefined') ? new WebGPUPathTracer(this) : null;   // Alt+P, WebGPU path tracing (Cinematic)
-        this.rtxGui = (typeof RTXGui !== 'undefined') ? new RTXGui(this) : null;   // Alt+X panel
+        // Alt+P WebGPU path tracer and the Alt+X RTX Remix panel (~200 KB of JS together) are loaded on first use.
+        this.pathTracer = (typeof WebGPUPathTracer !== 'undefined') ? new WebGPUPathTracer(this) : null;
+        this.rtxGui = (typeof RTXGui !== 'undefined') ? new RTXGui(this) : null;
+        this.installCinematicLoader();
 
         this.lastTime = performance.now();
         this.animate = this.animate.bind(this);
         requestAnimationFrame(this.animate);
     }
 
+    loadCinematic() {
+        if (this.pathTracer && this.rtxGui) return Promise.resolve();
+        if (!window.eblanLoadScripts) return Promise.reject(new Error('Script loader missing'));
+        return window.eblanLoadScripts(['js/lil-gui.umd.min.js?v=1', 'js/rtx_onnx.js?v=1', 'js/webgpu_pt.js?v=2', 'js/rtx_gui.js?v=5'])
+            .then(() => {
+                if (!this.pathTracer && typeof WebGPUPathTracer !== 'undefined') this.pathTracer = new WebGPUPathTracer(this);
+                if (!this.rtxGui && typeof RTXGui !== 'undefined') this.rtxGui = new RTXGui(this);
+            });
+    }
+
+    openRtxGui() {
+        this.loadCinematic().then(() => this.rtxGui?.toggle(true), error => console.error(error));
+    }
+
+    installCinematicLoader() {
+        if ((this.pathTracer && this.rtxGui) || typeof window.addEventListener !== 'function') return;
+        // Registered before the classes' own capture listeners, so once they exist they handle the keys themselves.
+        window.addEventListener('keydown', e => {
+            if (!e.altKey || e.repeat || (e.code !== 'KeyP' && e.code !== 'KeyX') || (this.pathTracer && this.rtxGui)) return;
+            e.preventDefault(); e.stopImmediatePropagation();
+            const key = e.code;
+            this.loadCinematic().then(() => {
+                if (key === 'KeyX') this.rtxGui?.toggle();
+                else this.pathTracer?.toggle();
+            }, error => console.error(error));
+        }, true);
+    }
+
     // Potato detection for the first-run default preset: few cores, little RAM, or a software GL renderer
     // (SwiftShader / llvmpipe / Microsoft Basic Render), where every pixel and draw call is paid for on the CPU.
-    static isWeakDevice() {
+    static isWeakDevice() { return !!Game.weakDeviceTier(); }
+
+    static isLowPreset(name) { return name === 'low' || name === 'potato'; }
+
+    // null: a normal device. 'low': few cores / little RAM. 'potato': a single core, ~1 GB of RAM, no WebGL
+    // context at all, or a software rasteriser where every pixel is drawn by the CPU.
+    static weakDeviceTier() {
         try {
-            if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) return true;
-            if (navigator.deviceMemory && navigator.deviceMemory <= 2) return true;
-            if (typeof document === 'undefined' || !document.createElement) return false;
-            const gl = document.createElement('canvas').getContext('webgl');
-            if (!gl) return true;
+            const cores = navigator.hardwareConcurrency, memory = navigator.deviceMemory;
+            let tier = null;
+            if ((cores && cores <= 1) || (memory && memory <= 1)) return 'potato';
+            if ((cores && cores <= 2) || (memory && memory <= 2)) tier = 'low';
+            if (typeof document === 'undefined' || !document.createElement) return tier;
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (!gl) return 'potato';
             const ext = gl.getExtension('WEBGL_debug_renderer_info');
             const name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
             gl.getExtension('WEBGL_lose_context')?.loseContext();
-            return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
-        } catch (e) { return false; }
+            return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name) ? 'potato' : tier;
+        } catch (e) { return null; }
     }
 
     // Compile every visible material while the loading screen is still up, so the first seconds of play do not stall
@@ -114,7 +157,7 @@ class Game {
     adaptMobileScale(ms) {
         if (document.hidden || (this.ui && this.ui.mainMenuOpen)) { this._slowCount = this._fastCount = 0; return; }
         this._frameEma = this._frameEma ? this._frameEma * 0.92 + ms * 0.08 : ms;
-        const minScale = this.graphicsPreset === 'low' ? 0.35 : 0.4;
+        const minScale = this.graphicsPreset === 'potato' ? 0.25 : this.graphicsPreset === 'low' ? 0.35 : 0.4;
         if (this._frameEma > 30) { this._slowCount++; this._fastCount = 0; }
         else if (this._frameEma < 19) { this._fastCount++; this._slowCount = 0; }
         else { this._slowCount = this._fastCount = 0; }
@@ -131,7 +174,7 @@ class Game {
         // Scale relative to one fixed native ratio. Device presets must not
         // introduce plateaus or a discontinuity when the slider reaches 100%.
         // Phones (e.g. Redmi 13 4G, DPR ~2.75, Mali-G52) cap the native ratio at 1.5: fill-rate is their bottleneck.
-        const nativeRatio = Math.min(window.devicePixelRatio || 1, this.isMobile ? 1.5 : 2);
+        const nativeRatio = Math.min(window.devicePixelRatio || 1, this.graphicsPreset === 'potato' ? 1 : this.isMobile ? 1.5 : 2);
         return nativeRatio * this.renderScale;
     }
 
@@ -450,7 +493,7 @@ class Game {
     }
 
     updateGraphicsLighting() {
-        const low = this.graphicsPreset === 'low';
+        const low = Game.isLowPreset(this.graphicsPreset);
         if (this.renderer) {
             this.renderer.toneMapping = low ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
             this.renderer.shadowMap.autoUpdate = true;
@@ -465,17 +508,17 @@ class Game {
         const preset = GRAPHICS_PRESETS[name];
         if (!preset) return false;
         this.graphicsPreset = name;
-        this.turboFPS = name === 'low';
+        this.turboFPS = Game.isLowPreset(name);
         this.isA02Mode = false;
         this.isUL20FT = false;
         this.lowGraphicsMode = this.turboFPS;
         this.setRenderScale(preset.scale);
         this.autoScaleMax = preset.scale;
-        this.autoScale = !!this.isMobile || name === 'low';
+        this.autoScale = !!this.isMobile || this.turboFPS;
         this.setShadowsEnabled(preset.shadows);
         this.setCloudsEnabled(preset.clouds);
         this.windLeavesEnabled = preset.wind;
-        this.underwaterEffectsEnabled = name !== 'low';
+        this.underwaterEffectsEnabled = !this.turboFPS;
         this.setFancyWaterEnabled(preset.water);
         if (window.EblanEng?.ready && this.textureManager) window.EblanEng.syncMaterials(this.textureManager);
         if (this.world) {

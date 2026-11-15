@@ -463,6 +463,19 @@
                             <button id="mm-btn-duel-start-queue" class="mc-menu-btn mc-btn-primary">⚔️ Почати пошук суперника (P2P)</button>
                         </div>
                     </div>
+
+                    <div class="mm-duels-controls mm-dust2-panel">
+                        <div class="mm-dust2-title">🏜️ de_eblan2 (Dust2) — 1v1</div>
+                        <div class="mm-dust2-desc">Ти проти одного суперника: закупка, C4 на A/B, перший до 7 раундів. Офлайн-режим працює без сервера та інтернету.</div>
+                        <div class="mm-duels-buttons">
+                            <button id="mm-btn-dust2-1v1-bot" class="mc-menu-btn mc-btn-primary" type="button">🤖 1v1 проти бота (офлайн)</button>
+                            <button id="mm-btn-dust2-1v1-online" class="mc-menu-btn" type="button">🌐 1v1 онлайн</button>
+                        </div>
+                        <div class="mm-duels-buttons">
+                            <button id="mm-btn-dust2" class="mc-menu-btn" type="button">👥 Dust2 3v3 онлайн</button>
+                            <button id="mm-btn-knockback" class="mc-menu-btn" type="button">🥊 Knockback онлайн</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mm-subscreen-footer">
@@ -949,6 +962,7 @@
                         <div class="menu-row">
                             <label for="select-graphics-preset">✨ Пресет графіки</label>
                             <select id="select-graphics-preset">
+                                <option value="potato">Картопля — для дуже слабких пристроїв</option>
                                 <option value="low">Низька — більше FPS</option>
                                 <option value="medium">Середня — баланс</option>
                                 <option value="high">Висока — більше деталей</option>
@@ -1458,11 +1472,11 @@
 
     <!-- Scripts (Modular Load Order) -->
     <script src="js/three.min.js"></script>
+    <script src="js/local_arena.js?v=1"></script>
     <script src="js/gltfloader.js?v=3.6"></script>
     <script src="js/Water.js?v=3.6"></script>
     <script src="js/eblan_eng.js?v=3.6"></script>
     <script src="js/noise.js?v=3.6"></script>
-    <script src="js/peerjs.min.js"></script>
     <script src="js/fengari-web.js"></script>
     <script src="js/textures.js?v=5.1"></script>
     <script src="js/items.js?v=4.7"></script>
@@ -1471,17 +1485,15 @@
     <script src="js/redstone.js?v=3.6"></script>
     <script src="js/particles.js?v=3.7"></script>
     <script src="js/mobs.js?v=4.7"></script>
-    <script src="js/de_eblan2.js?v=1"></script>
-    <script src="js/world.js?v=4.6"></script>
-    <script src="js/player.js?v=5.3"></script>
+    <script src="js/world.js?v=4.7"></script>
+    <script src="js/player.js?v=5.4"></script>
     <script src="js/controls.js?v=5.1"></script>
     <script src="js/block_editor.js?v=2"></script>
     <script src="js/weather.js?v=3.6"></script>
-    <script src="js/arena_client.js?v=3"></script>
+    <script src="js/arena_client.js?v=4"></script>
     <script src="js/shared_world_client.js?v=2"></script>
-    <script src="js/multiplayer.js?v=4.5"></script>
-    <script src="js/eblan_os.js?v=3.6"></script>
-    <script src="js/ui.js?v=5.6"></script>
+    <script src="js/multiplayer.js?v=4.6"></script>
+    <script src="js/ui.js?v=5.7"></script>
     <script src="js/addon_package.js?v=1"></script>
     <script src="js/mods.js?v=4.1"></script>
     <script src="js/addons.js?v=1"></script>
@@ -1489,12 +1501,8 @@
     <script src="js/rtx_sky.js?v=1"></script>
     <script src="js/rtx.js?v=10"></script>
     <script src="js/upscaler.js?v=3"></script>
-    <script src="js/lil-gui.umd.min.js?v=1"></script>
-    <script src="js/rtx_onnx.js?v=1"></script>
-    <script src="js/webgpu_pt.js?v=2"></script>
-    <script src="js/rtx_gui.js?v=5"></script>
     <script src="js/upscaler_nn.js?v=1"></script>
-    <script src="js/game.js?v=5.0"></script>
+    <script src="js/game.js?v=5.1"></script>
 
     <script>
         function startGame() {
