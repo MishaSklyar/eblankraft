@@ -1,5 +1,5 @@
 // Eblankraft LITE — Service Worker for instant offline loading and PWA install
-const CACHE_NAME = 'eblankraft-lite-v10-spread';
+const CACHE_NAME = 'eblankraft-lite-v12-lua';
 
 const CORE_ASSETS = [
   './',
@@ -11,6 +11,9 @@ const CORE_ASSETS = [
   './js/gltfloader.js',
   './js/world.js',
   './js/player.js',
+  './js/crosshair.js',
+  './js/crosshair_examples.js',
+  './js/crosshair_lua.js',
   './js/controls.js',
   './js/block_editor.js',
   './js/entities.js',

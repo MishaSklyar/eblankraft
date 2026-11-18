@@ -9,6 +9,7 @@ const { test } = require('node:test');
 class Vector3 {
     constructor(x = 0, y = 0, z = 0) { Object.assign(this, { x, y, z }); }
     clone() { return new Vector3(this.x, this.y, this.z); }
+    applyEuler() { return this; }
     set(x, y, z) { Object.assign(this, { x, y, z }); return this; }
     add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
     addScaledVector(v, scale) { this.x += v.x * scale; this.y += v.y * scale; this.z += v.z * scale; return this; }
@@ -29,7 +30,8 @@ function harness(gunType = 'ak47', reserve = 40) {
     };
     const context = vm.createContext({
         window: { ITEM_REGISTRY: registry }, ITEM_REGISTRY: registry,
-        THREE: { Vector3 }, performance: { now: () => now },
+        THREE: { Vector3, Euler: class { constructor(x = 0, y = 0, z = 0) { Object.assign(this, { x, y, z }); } } },
+        performance: { now: () => now },
         localStorage: { setItem: (key, value) => saved.push([key, value]) },
         setTimeout: () => 1, clearTimeout() {},
     });
@@ -190,21 +192,29 @@ test('duel countdown prevents damage and movement; duel kit is never persisted',
     assert.equal(h.saved.length, 0);
 });
 
-test('movement and automatic bursts widen spread, resting resets the burst', () => {
+test('movement, airborne time and automatic bloom widen spread; bloom fades after the trigger', () => {
     const h = harness();
+    const settle = seconds => { for (let t = 0; t < seconds; t += 1 / 60) h.player.updateWeaponView(1 / 60); };
     h.player.tryShootGun();
     const resting = h.shots[0].spread;
     h.time(110);
     h.player.tryShootGun();
-    assert.ok(h.shots[1].spread > resting);
-    h.time(600);
+    assert.ok(h.shots[1].spread > resting, 'the second bullet blooms');
+    settle(1);
+    h.time(3000);
     h.player.tryShootGun();
-    assert.equal(h.shots[2].spread, resting);
+    assert.ok(h.shots[2].spread < h.shots[1].spread, 'bloom has faded after a second');
     h.player.velocity.x = 7;
-    h.player.onGround = false;
-    h.time(1000);
+    settle(0.6);
+    h.time(4000);
     h.player.tryShootGun();
-    assert.ok(h.shots[3].spread > resting);
+    assert.ok(h.shots[3].spread > resting + 0.03, 'running widens the cone');
+    h.player.onGround = false;
+    h.player.timeSinceGrounded = 1;
+    settle(0.6);
+    h.time(5000);
+    h.player.tryShootGun();
+    assert.ok(h.shots[4].spread > h.shots[3].spread, 'jumping widens it further');
 });
 
 test('bullet follows aim before camera recoil, and explicit zero recoil is respected', () => {
