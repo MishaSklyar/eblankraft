@@ -699,6 +699,8 @@ return table.concat(out, '\\n')`;
             } } });
         const exampleSelect = h('select', { class: 'ch-select', id: 'lua-example', 'aria-label': 'Example scripts' },
             ...examples.map(ex => h('option', { value: ex.id, text: ex.name })));
+        const startExample = examples.find(ex => ex.id === 'classic') || examples[0];
+        if (startExample) exampleSelect.value = startExample.id;
         const nameInput = h('input', { type: 'text', id: 'lua-name', maxlength: 40, placeholder: 'Name', value: runtime.entry ? runtime.entry.name : '' });
         const authorInput = h('input', { type: 'text', id: 'lua-author', maxlength: 40, placeholder: 'Author', value: runtime.entry ? runtime.entry.author : '' });
         const editor = h('textarea', { class: 'ch-code ch-editor', rows: 16, spellcheck: 'false', wrap: 'off', 'aria-label': 'Lua crosshair script' });
