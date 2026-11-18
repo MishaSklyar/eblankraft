@@ -113,6 +113,23 @@ html, body {
     z-index: 15;
 }
 
+/* Spread ring: its size is set from js/player.js (updateGunSpreadRing) and it is hidden while no gun is held */
+#crosshair-spread {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    box-sizing: border-box;
+    transform: translate(-50%, -50%);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 50%;
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+    display: none;
+    z-index: 14;
+}
+
 #crosshair::before, #crosshair::after {
     content: '';
     position: absolute;
@@ -3465,6 +3482,7 @@ body.in-main-menu #hud-top,
 body.in-main-menu #hud-block-name,
 body.in-main-menu #hotbar-container,
 body.in-main-menu #crosshair,
+body.in-main-menu #crosshair-spread,
 body.in-main-menu #touch-action-buttons,
 body.in-main-menu #touch-zone-left,
 body.in-main-menu #touch-zone-right,
@@ -3476,6 +3494,7 @@ body.in-main-menu #mining-progress-container {
 }
 
 body.is-preloading #crosshair,
+body.is-preloading #crosshair-spread,
 body.is-preloading #hud,
 body.is-preloading #hotbar-container,
 body.is-preloading #pc-hint-bar,

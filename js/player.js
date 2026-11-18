@@ -3183,6 +3183,7 @@ class Player {
             this.gunRecoilPitch -= recovery;
         }
         this.weaponKick = (this.weaponKick || 0) * Math.exp(-13 * time);
+        this.updateGunSpreadRing();
     }
 
 
@@ -3638,8 +3639,7 @@ class Player {
         const manager = (window.modManager && window.modManager.weaponManager) || this.game?.modManager?.weaponManager;
         if (!manager || (reg.gunType === 'rpg' ? !manager.launchRocket : !manager.shoot)) return true;
 
-        const interval = now - (this.lastGunShotTime ?? -Infinity);
-        this.gunBurst = interval > 320 ? 0 : Math.min(8, (this.gunBurst || 0) + 1);
+        this.gunBurst = this.nextGunBurst(now);
         this.lastGunShotTime = now;
         if (!this.isCreative) {
             item.gunAmmo--;
@@ -3648,12 +3648,11 @@ class Player {
         this.weaponKick = Math.min(2, (this.weaponKick || 0) + Math.max(.4, spec.recoil * 14));
         if (reg.gunType === 'rpg') {
             manager.launchRocket({ damage: spec.damage, blastRadius: 4.8, speed: 36 });
+            // The rocket skips WeaponCombatManager.shoot, so it adds its own camera kick here.
+            this.applyGunRecoil(spec.recoil);
             return true;
         }
-        const speed = Math.hypot(this.velocity.x, this.velocity.z);
-        const movement = Math.min(0.04, speed * 0.0025) + (this.onGround ? 0 : 0.025);
-        const spread = (reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread * (this.isAiming ? .55 : 1))
-            + movement + (spec.automatic ? this.gunBurst * 0.003 : 0);
+        const spread = this.gunSpreadFor(reg, spec, this.gunBurst);
         const result = manager.shoot({
             damage: spec.damage, range: spec.range, spread,
             recoilPitch: spec.recoil, recoilYaw: spec.recoil * 0.45,
@@ -3667,6 +3666,52 @@ class Player {
             this.gunHitType = result.type;
         }
         return true;
+    }
+
+    // Accuracy cone (radians) for the next bullet. Aiming tightens it; moving, airborne and sustained automatic fire widen it.
+    // The shot and the crosshair spread ring both read it, so the ring always shows the real spread.
+    gunSpreadFor(reg, spec, burst = 0) {
+        const speed = Math.hypot(this.velocity.x, this.velocity.z);
+        const movement = Math.min(0.04, speed * 0.0025) + (this.onGround ? 0 : 0.025);
+        const aimed = reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread * (this.isAiming ? .55 : 1);
+        return aimed + movement + (spec.automatic ? burst * 0.003 : 0);
+    }
+
+    // Burst count the next shot fired at `now` will carry: holding fire builds it, a pause longer than 320 ms resets it.
+    nextGunBurst(now) {
+        const interval = now - (this.lastGunShotTime ?? -Infinity);
+        return interval > 320 ? 0 : Math.min(8, (this.gunBurst || 0) + 1);
+    }
+
+    // Camera kick and random yaw for a gun shot that does not go through WeaponCombatManager.shoot.
+    applyGunRecoil(pitch, yaw = pitch * .45) {
+        if (pitch > 0) {
+            const before = this.pitch;
+            this.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, this.pitch + pitch));
+            this.gunRecoilPitch = (this.gunRecoilPitch || 0) + this.pitch - before;
+        }
+        if (yaw) this.yaw += (Math.random() - 0.5) * yaw;
+    }
+
+    // Spread ring around the crosshair: the cone the next bullet can land in, drawn at its on-screen radius for the current FOV.
+    updateGunSpreadRing(now = performance.now()) {
+        const ring = this._spreadRingEl && this._spreadRingEl.isConnected ? this._spreadRingEl : (this._spreadRingEl = typeof document !== 'undefined' ? document.getElementById('crosshair-spread') : null);
+        if (!ring) return;
+        const item = this.getSelectedItem();
+        const reg = item && ITEM_REGISTRY[item.itemId];
+        let px = 0;
+        if (reg?.isGun && reg.gunType !== 'rpg' && !this.isDead && this.camera && !this.game?.arenaClient?.isActive) {
+            const spread = this.gunSpreadFor(reg, this.getGunSpec(reg), this.nextGunBurst(now));
+            const tanHalf = Math.tan((this.camera.fov || 72) * Math.PI / 360);
+            // The pattern's outer edge is spread / sqrt(2) in the x/y plane; project that angle onto the screen.
+            px = Math.min(400, Math.tan(spread * Math.SQRT1_2) / tanHalf * (window.innerHeight || 720) / 2);
+        }
+        const shown = px >= 1;
+        if (this._spreadRingShown !== shown) { this._spreadRingShown = shown; ring.style.display = shown ? 'block' : 'none'; }
+        if (shown && Math.abs(px - (this._spreadRingPx || 0)) >= .25) {
+            this._spreadRingPx = px;
+            ring.style.width = ring.style.height = `${(px * 2).toFixed(1)}px`;
+        }
     }
 
     setFOV(fov) {
