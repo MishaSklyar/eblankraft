@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('../js/three.min.js');
 
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: new building blocks have textures, materials and recoverable inventory items`, () => {
         const drawing = new Proxy({
             getImageData: () => ({ data: new Uint8ClampedArray(16 * 16 * 4) }),

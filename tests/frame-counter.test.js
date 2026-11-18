@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { hudHarness } = require('./performance-harness.cjs');
-for (const directory of ['js', 'web/js']) {
+for (const directory of ['js']) {
     test(`${directory}: FPS uses render intervals, includes 200ms stalls and averages elapsed time`, () => {
         const context = vm.createContext({ window: {} });
         vm.runInContext(fs.readFileSync(`${directory}/game.js`, 'utf8'), context);

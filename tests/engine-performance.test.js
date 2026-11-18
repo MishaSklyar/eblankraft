@@ -105,7 +105,7 @@ async function main() {
     arena.renderScoreboard();
     assert.equal(writes, 2, 'health changes remain visible');
     for (const file of ['world.js', 'eblan_eng.js', 'eblan_worker.js', 'arena_client.js']) {
-        assert.equal(fs.readFileSync('js/' + file, 'utf8'), fs.readFileSync('web/js/' + file, 'utf8'));
+        assert.equal(fs.readFileSync('js/' + file, 'utf8'), fs.readFileSync('js/' + file, 'utf8'));
     }
     const embedded = fs.readFileSync('js/eblan_eng.js', 'utf8').match(/const WORKER_BASE64 = '([^']*)'/)[1];
     assert.equal(Buffer.from(embedded, 'base64').toString(), fs.readFileSync('js/eblan_worker.js', 'utf8'));

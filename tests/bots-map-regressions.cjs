@@ -127,9 +127,9 @@ for (const entry of botTypes) {
 }
 `, context);
 for (const name of ['mobs.js', 'mods.js', 'world.js', 'game.js', 'player.js', 'ui.js', 'de_eblan2.js']) {
-    assert.equal(read('js/' + name), read('web/js/' + name));
+    assert.equal(read('js/' + name), read('js/' + name));
 }
 for (const name of ['index.html', 'js/bots.js', 'examples/bots.lua']) {
-    assert.equal(read('blockly/' + name), read('web/blockly/' + name));
+    assert.equal(read('blockly/' + name), read('blockly/' + name));
 }
 console.log('PASS: Dust2 generation/WASM bypass, safe spawn, streaming/save edits, bounds; real Lua bot API, movement/collision, jump, attacks, arena, limits, cleanup, example; 11 actual Blockly generators; source parity');

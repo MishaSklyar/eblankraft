@@ -12,8 +12,8 @@ const context = vm.createContext({
     localStorage: { getItem: () => null },
     performance: { now: () => now }, console,
 });
-vm.runInContext(fs.readFileSync(path.join(root, 'web/js/three.min.js'), 'utf8'), context);
-const source = process.env.ARENA_CLIENT_SOURCE || 'web/js/arena_client.js';
+vm.runInContext(fs.readFileSync(path.join(root, 'js/three.min.js'), 'utf8'), context);
+const source = process.env.ARENA_CLIENT_SOURCE || 'js/arena_client.js';
 vm.runInContext(fs.readFileSync(path.join(root, source), 'utf8'), context);
 const map = { floorY: 8, min: -16, max: 16, wallHeight: 6, obstacles: [[-2, 8, -1, 2, 11, 1]] };
 
@@ -169,8 +169,4 @@ for (const testCase of JSON.parse(fixture.stdout)) {
     }
 }
 
-if (!process.env.ARENA_CLIENT_SOURCE) {
-    assert.equal(fs.readFileSync(path.join(root, 'js/arena_client.js'), 'utf8'),
-        fs.readFileSync(path.join(root, 'web/js/arena_client.js'), 'utf8'), 'root and web clients must match');
-}
 console.log('PASS: per-frame prediction, bounded sends, replay, smooth correction, respawn/death reset, jump, pause, stale connection, server collision/physics parity');

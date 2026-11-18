@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-for (const directory of ['js', 'web/js']) {
+for (const directory of ['js']) {
     const context = vm.createContext({
         console, performance: { now: () => 1000 },
         window: { location: { protocol: 'http:', host: 'localhost:8081', hostname: 'localhost', port: '8081' } },

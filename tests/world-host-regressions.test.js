@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { AuthoritativeGameServer, WSClient } = require('../server');
 
-for (const directory of ['js', 'web/js']) {
+for (const directory of ['js']) {
     function setup() {
         const peers = [];
         class Events {

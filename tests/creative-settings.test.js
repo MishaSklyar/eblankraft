@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('../js/three.min.js');
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     function context() {
         const values = new Map();
         const c = vm.createContext({ window: {}, THREE, localStorage: { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) } });

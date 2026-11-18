@@ -267,10 +267,3 @@ test('worker mesh validation detects neighbor edits, raw voxel writes and unload
     h.world.invalidateChunkCache();
     assert.equal(prepared.isCurrent(), false);
 });
-
-test('performance changes remain identical in root and web builds', () => {
-    for (const name of ['ui', 'player', 'world']) {
-        assert.equal(fs.readFileSync(path.join(__dirname, '../js', `${name}.js`), 'utf8'),
-            fs.readFileSync(path.join(__dirname, '../web/js', `${name}.js`), 'utf8'));
-    }
-});

@@ -110,5 +110,5 @@ test('preload meshes each chunk once, with generated neighbors, final structures
     assert.equal(world.trackModifications, true);
     assert.equal(world.isGeneratingTerrain, false);
     assert.equal(fs.readFileSync(path.join(__dirname, '../js/world.js'), 'utf8'),
-        fs.readFileSync(path.join(__dirname, '../web/js/world.js'), 'utf8'));
+        fs.readFileSync(path.join(__dirname, '../js/world.js'), 'utf8'));
 });

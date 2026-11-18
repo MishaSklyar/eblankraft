@@ -49,6 +49,6 @@ assert.equal(tnt.blastRadius, 3.8);
 assert.ok(CRAFTING_RECIPES.find(r => r.id === 'craft_c4'));
 `, context);
 for (const name of ['items.js', 'textures.js', 'particles.js', 'player.js']) {
-    assert.equal(fs.readFileSync(path.join(root, 'js', name), 'utf8'), fs.readFileSync(path.join(root, 'web/js', name), 'utf8'));
+    assert.equal(fs.readFileSync(path.join(root, 'js', name), 'utf8'), fs.readFileSync(path.join(root, name), 'utf8'));
 }
 console.log('PASS: C4 placement, consumption, stationary charge, duplicate prevention, arena guard, detonation, TNT defaults, recipe, source parity');

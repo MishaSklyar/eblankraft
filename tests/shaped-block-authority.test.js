@@ -46,7 +46,7 @@ test('server accepts block actions above slabs while rejecting actions through t
 
 const fs = require('node:fs');
 const vm = require('node:vm');
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: landing uses the true shape surface and stays clear on authority`, () => {
         const world = new AuthorityWorld(123); emptyWorld(world);
         const source = fs.readFileSync(`${prefix}/player.js`, 'utf8');

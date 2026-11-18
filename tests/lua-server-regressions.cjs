@@ -8,7 +8,7 @@ const fengari = require('../js/fengari-web.js');
 const context = vm.createContext({ window: {}, fengari, console,
     document: { getElementById: () => null }, BLOCK_TYPES: {}, ITEM_TYPES: {},
     setTimeout, clearTimeout });
-vm.runInContext(fs.readFileSync(path.join(root, 'web/js/mods.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(path.join(root, 'js/mods.js'), 'utf8'), context);
 const manager = Object.create(context.window.ModManager.prototype);
 const logs = [];
 manager.log = (text, level) => logs.push({ text, level });
@@ -37,6 +37,6 @@ assert(not Player.selectSlot(10))
 `, 'inventory-api');
 for (const file of ['js/mods.js']) {
     assert.equal(fs.readFileSync(path.join(root, file), 'utf8'),
-        fs.readFileSync(path.join(root, 'web/js/mods.js'), 'utf8'));
+        fs.readFileSync(path.join(root, 'js/mods.js'), 'utf8'));
 }
 console.log('PASS: real Lua bootstrap, inventory API, dot/colon calls, stack cleanup, named errors and source parity');

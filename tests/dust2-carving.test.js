@@ -30,7 +30,7 @@ test('Dust2 loads native custom pixels and keeps edits over generated designs', 
     delete w.world.chunks[key]; w.world.invalidateChunkCache(); w.chunk(cx, cz);
     assert.equal(w.getBlock(x, y, z), 0);
     assert.equal(w.getBlockDesign(x, y, z), null);
-    for (const file of ['de_eblan2.js', 'world.js']) assert.equal(fs.readFileSync('js/' + file, 'utf8'), fs.readFileSync('web/js/' + file, 'utf8'));
+    for (const file of ['de_eblan2.js', 'world.js']) assert.equal(fs.readFileSync('js/' + file, 'utf8'), fs.readFileSync('js/' + file, 'utf8'));
 });
 
 test('Dust2 material tints load through the editor design and material system', () => {

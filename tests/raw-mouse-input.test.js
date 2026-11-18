@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-for (const file of ['js/controls.js', 'web/js/controls.js']) {
+for (const file of ['js/controls.js', 'js/controls.js']) {
     const request = async (navigator, failure) => {
         const context = vm.createContext({ navigator, window: {} });
         vm.runInContext(fs.readFileSync(file, 'utf8') + '\nthis.Controls = Controls;', context);

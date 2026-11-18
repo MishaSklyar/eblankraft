@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
-const read = name => fs.readFileSync(path.join(root, 'web/js', name), 'utf8');
+const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const storage = new Map();
 const errors = [];
 const cards = [];

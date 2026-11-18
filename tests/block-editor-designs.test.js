@@ -92,8 +92,3 @@ test('clone keeps material and complete design in the selected inventory slot', 
     player.inventory[2].design.cells.pop();
     assert.equal(w.getBlockDesign(4, 10, 4).cells.length, 2, 'clone is independent');
 });
-
-test('editor and edited game sources match root and web versions', () => {
-    for (const file of ['block_editor.js', 'textures.js', 'items.js', 'world.js', 'player.js', 'controls.js', 'multiplayer.js', 'shared_world_client.js'])
-        assert.equal(fs.readFileSync('js/' + file, 'utf8'), fs.readFileSync('web/js/' + file, 'utf8'), file);
-});
