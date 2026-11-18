@@ -238,6 +238,17 @@ test('ray tracing light list: nearest emitters within 12 blocks, nearest first, 
 test('game wiring: Renderer control and Ray tracing preset; Cinematic resets the renderer', () => {
     const gui = fs.readFileSync(path.join(__dirname, '../js/rtx_gui.js'), 'utf8');
     assert.match(gui, /ptF\.add\(C, 'renderMode'/);
-    assert.match(gui, /'Ray tracing': \{ parts: 'all', pathTrace: true, ptCfg: \{ renderMode: 'ray', scale: 0\.85, dynRes: true, targetFps: 60 \}/);
+    assert.match(gui, /'Ray tracing': \{ parts: 'all', pathTrace: true, ptCfg: \{ renderMode: 'ray', scale: 0\.85, dynRes: true, targetFps: 60, rtLights: 5, rtSkyRays: 2, rtSecondary: 4 \}/);
+    assert.match(gui, /'Path tracing \(fast\)'/);
+    assert.match(gui, /'Ray tracing \(fast\)'/);
     assert.match(gui, /Cinematic:\s*\{[^\n]*ptCfg: \{ renderMode: 'path'/);
+});
+
+test('fast settings: bounce reach cap, ray tracing light / secondary caps, GPU-time dynamic resolution', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'webgpu_pt.js'), 'utf8');
+    assert.match(src, /let tCap = select\(1e4, u\.camRight\.w/);
+    assert.match(src, /u32\(u\.camUp\.w\)\), full\)/);
+    assert.match(src, /let secCap = min\(nSec/);
+    assert.match(src, /this\.gpuMs > 0 \? this\.gpuMs/);
+    assert.match(src, /'Fast \(RTX 3060 @ 1080p\)': \{ scale: 0\.55, spp: 1, bounces: 1/);
 });
