@@ -586,6 +586,20 @@ const FIREARM_SPECS = {
 };
 window.FIREARM_SPECS = FIREARM_SPECS;
 
+// Accuracy model, in radians of cone radius. A gun's own spread applies standing still; moving, airborne and
+// sustained fire add to it. Every term ramps in and out over time, so nothing steps frame to frame.
+const ACCURACY = {
+    move: 0.045,          // cone added at sprint speed (scales down with walking speed)
+    sprintSpeed: 7.5,
+    moveRise: 12, moveFall: 8,   // smoothing rates per second (rise / fall)
+    air: 0.07,            // cone added while airborne
+    airGrace: 0.15,       // seconds off the ground before the airborne penalty counts (ignores stair steps and ledges)
+    airRise: 12, airFall: 10,
+    bloomCap: 0.10,       // sustained-fire bloom ceiling
+    bloomPerRecoil: 0.25, // bloom added per shot = gun recoil x this
+    bloomDecay: 4.5,      // bloom fades exponentially, per second
+};
+
 class Player {
     get world() {
         return (this.game && this.game.world) ? this.game.world : this._world;
@@ -677,7 +691,9 @@ class Player {
         this.isTargetLocked = false;
         this.gunReload = null;
         this.gunTriggerHeld = false;
-        this.gunBurst = 0;
+        this.gunBloom = 0;
+        this.accMove = 0;
+        this.accAir = 0;
         this.gunRecoilPitch = 0;
         this.lastGunShotTime = -Infinity;
 
@@ -3169,6 +3185,7 @@ class Player {
 
     updateWeaponView(dt) {
         const time = Math.max(0, Math.min(dt || 0, .1));
+        this.updateAccuracy(time);
         if (this.isAiming) this.setAiming(true);
         const blend = 1 - Math.exp(-16 * time);
         this.aimBlend = (this.aimBlend || 0) + ((this.isAiming ? 1 : 0) - (this.aimBlend || 0)) * blend;
@@ -3639,7 +3656,6 @@ class Player {
         const manager = (window.modManager && window.modManager.weaponManager) || this.game?.modManager?.weaponManager;
         if (!manager || (reg.gunType === 'rpg' ? !manager.launchRocket : !manager.shoot)) return true;
 
-        this.gunBurst = this.nextGunBurst(now);
         this.lastGunShotTime = now;
         if (!this.isCreative) {
             item.gunAmmo--;
@@ -3652,7 +3668,9 @@ class Player {
             this.applyGunRecoil(spec.recoil);
             return true;
         }
-        const spread = this.gunSpreadFor(reg, spec, this.gunBurst);
+        // A shot is fired with the bloom built up so far; the next one fires with a little more.
+        const spread = this.gunSpreadFor(reg, spec, this.gunBloom || 0);
+        this.gunBloom = Math.min(ACCURACY.bloomCap, (this.gunBloom || 0) + spec.recoil * ACCURACY.bloomPerRecoil);
         const result = manager.shoot({
             damage: spec.damage, range: spec.range, spread,
             recoilPitch: spec.recoil, recoilYaw: spec.recoil * 0.45,
@@ -3668,19 +3686,25 @@ class Player {
         return true;
     }
 
-    // Accuracy cone (radians) for the next bullet. Aiming tightens it; moving, airborne and sustained automatic fire widen it.
-    // The shot and the crosshair spread ring both read it, so the ring always shows the real spread.
-    gunSpreadFor(reg, spec, burst = 0) {
+    // Advances the smoothed accuracy state once per frame: movement and airborne penalties ramp in and out,
+    // the airborne one only counts after a short grace period, and sustained-fire bloom decays exponentially.
+    updateAccuracy(dt) {
+        const approach = (value, target, rate) => value + (target - value) * (1 - Math.exp(-rate * dt));
         const speed = Math.hypot(this.velocity.x, this.velocity.z);
-        const movement = Math.min(0.04, speed * 0.0025) + (this.onGround ? 0 : 0.025);
-        const aimed = reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread * (this.isAiming ? .55 : 1);
-        return aimed + movement + (spec.automatic ? burst * 0.003 : 0);
+        const moveTarget = Math.min(1, speed / ACCURACY.sprintSpeed);
+        const accMove = this.accMove || 0;
+        this.accMove = approach(accMove, moveTarget, moveTarget > accMove ? ACCURACY.moveRise : ACCURACY.moveFall);
+        const airborne = (this.timeSinceGrounded ?? 0) > ACCURACY.airGrace;
+        const accAir = this.accAir || 0;
+        this.accAir = approach(accAir, airborne ? 1 : 0, airborne ? ACCURACY.airRise : ACCURACY.airFall);
+        this.gunBloom = (this.gunBloom || 0) * Math.exp(-ACCURACY.bloomDecay * dt);
     }
 
-    // Burst count the next shot fired at `now` will carry: holding fire builds it, a pause longer than 320 ms resets it.
-    nextGunBurst(now) {
-        const interval = now - (this.lastGunShotTime ?? -Infinity);
-        return interval > 320 ? 0 : Math.min(8, (this.gunBurst || 0) + 1);
+    // Accuracy cone (radians) for the next bullet. Aiming tightens the gun's own spread; moving, airborne and bloom widen it.
+    // The shot and the crosshair spread ring both read it, so the ring always shows the real spread.
+    gunSpreadFor(reg, spec, bloom = 0) {
+        const aimed = reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread * (this.isAiming ? .55 : 1);
+        return aimed + ACCURACY.move * (this.accMove || 0) + ACCURACY.air * (this.accAir || 0) + bloom;
     }
 
     // Camera kick and random yaw for a gun shot that does not go through WeaponCombatManager.shoot.
@@ -3694,17 +3718,18 @@ class Player {
     }
 
     // Spread ring around the crosshair: the cone the next bullet can land in, drawn at its on-screen radius for the current FOV.
-    updateGunSpreadRing(now = performance.now()) {
+    updateGunSpreadRing() {
         const ring = this._spreadRingEl && this._spreadRingEl.isConnected ? this._spreadRingEl : (this._spreadRingEl = typeof document !== 'undefined' ? document.getElementById('crosshair-spread') : null);
         if (!ring) return;
         const item = this.getSelectedItem();
         const reg = item && ITEM_REGISTRY[item.itemId];
+        const ringOn = window.CrosshairStyle ? window.CrosshairStyle.isRingEnabled() : true;
         let px = 0;
-        if (reg?.isGun && reg.gunType !== 'rpg' && !this.isDead && this.camera && !this.game?.arenaClient?.isActive) {
-            const spread = this.gunSpreadFor(reg, this.getGunSpec(reg), this.nextGunBurst(now));
+        if (ringOn && reg?.isGun && reg.gunType !== 'rpg' && !this.isDead && this.camera && !this.game?.arenaClient?.isActive) {
+            const spread = this.gunSpreadFor(reg, this.getGunSpec(reg), this.gunBloom || 0);
             const tanHalf = Math.tan((this.camera.fov || 72) * Math.PI / 360);
-            // The pattern's outer edge is spread / sqrt(2) in the x/y plane; project that angle onto the screen.
-            px = Math.min(400, Math.tan(spread * Math.SQRT1_2) / tanHalf * (window.innerHeight || 720) / 2);
+            // Bullets land uniformly in a disc of this radius, so the ring is that disc's edge on screen.
+            px = Math.min(400, Math.tan(spread) / tanHalf * (window.innerHeight || 720) / 2);
         }
         const shown = px >= 1;
         if (this._spreadRingShown !== shown) { this._spreadRingShown = shown; ring.style.display = shown ? 'block' : 'none'; }

@@ -818,14 +818,7 @@ class WeaponCombatManager {
         this._spawnMuzzleFlash(origin, aim);
 
         for (let b = 0; b < count; b++) {
-            let dir = aim.clone();
-
-            if (spread > 0) {
-                const spreadX = (Math.random() - 0.5) * spread;
-                const spreadY = (Math.random() - 0.5) * spread;
-                const spreadZ = (Math.random() - 0.5) * spread;
-                dir.add(new THREE.Vector3(spreadX, spreadY, spreadZ)).normalize();
-            }
+            const dir = spread > 0 ? this._spreadDirection(aim, spread) : aim.clone();
 
             const bulletHit = this._raycastBullet(origin, dir, range, damage, opts);
             if (bulletHit.hit && (!bestResult.hit || bulletHit.distance < bestResult.distance)) {
@@ -837,6 +830,19 @@ class WeaponCombatManager {
         }
 
         return bestResult;
+    }
+
+    // Uniform sample of a disc of radius `spread` (radians) around the aim. Round patterns, not square ones.
+    _spreadDirection(aim, spread) {
+        const helper = Math.abs(aim.y) > 0.99 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+        const right = new THREE.Vector3().crossVectors(aim, helper).normalize();
+        const up = new THREE.Vector3().crossVectors(right, aim).normalize();
+        const angle = Math.random() * Math.PI * 2;
+        const radius = spread * Math.sqrt(Math.random());
+        return aim.clone()
+            .addScaledVector(right, Math.cos(angle) * radius)
+            .addScaledVector(up, Math.sin(angle) * radius)
+            .normalize();
     }
 
     _raycastBullet(origin, dir, maxRange, damage, opts) {

@@ -22,6 +22,7 @@ js_files = [
     'js/mobs.js',
     'js/world.js',
     'js/player.js',
+    'js/crosshair.js',
     'js/controls.js',
     'js/weather.js',
     'js/multiplayer.js',

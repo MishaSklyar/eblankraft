@@ -1743,6 +1743,9 @@ class UIManager {
             };
         }
 
+        // Crosshair customizer (pause menu → Crosshair tab)
+        window.CrosshairStyle?.mount(document.getElementById('crosshair-customizer'));
+
         // FOV slider + stretched aspect ratio
         const sliderFov = document.getElementById('slider-fov');
         if (sliderFov) {
@@ -3100,7 +3103,7 @@ class UIManager {
         const fields = ['inventory', 'inventoryWorldId', 'selectedHotbarIndex', 'health', 'hunger', 'isDead', 'deathReason',
             'isCreative', 'godMode', 'isFlying', 'canFly', 'noclip', 'instantBreak', 'infiniteBlocks', 'hardcore',
             'customReach', 'mountedVehicle', 'yaw', 'pitch', 'onGround', 'isBlocking', 'isSprinting', 'name',
-            'gunReload', 'gunTriggerHeld', 'gunBurst', 'gunRecoilPitch', 'isScoped', 'iq'];
+            'gunReload', 'gunTriggerHeld', 'gunBloom', 'gunRecoilPitch', 'isScoped', 'iq'];
         this.duelSavedSession = { world: game.world, player: Object.fromEntries(fields.map(key => [key, player[key]])),
             position: player.position.clone(), velocity: player.velocity.clone(), timeOfDay: game.timeOfDay,
             hidden: [], entities: {}, tnt: game.tntEntities, fov: player.camera?.fov,
@@ -3141,7 +3144,7 @@ class UIManager {
             player.pitch = 0;
             player.gunReload = null;
             player.gunTriggerHeld = false;
-            player.gunBurst = player.gunRecoilPitch = 0;
+            player.gunBloom = player.gunRecoilPitch = 0;
             player.isScoped = false;
             if (player.camera) { player.camera.fov = game.fovSetting || 72; player.camera.updateProjectionMatrix(); }
             player.name = this.duelNick || game.multiplayer?.playerName || 'Боєць';
