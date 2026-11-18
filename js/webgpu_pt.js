@@ -2120,7 +2120,7 @@ fn viewSpace(d: vec3f) -> vec3f { return vec3f(dot(d, normalize(u.camRight.xyz))
 //   water / glass  Fresnel reflection plus one continued refracted ray (weighted, not chosen at random)
 // Not in this mode: diffuse bounce light and colour bleeding, soft shadows, depth of field, volumetric god rays.
 const RT_LIGHTS: u32 = 8u;
-const RT_CHAIN: i32 = 6;
+const RT_CHAIN: i32 = 4;
 struct RtHit {
     kind: u32,        // 0 miss, 1 opaque surface, 2 water interface, 3 glass pane
     t: f32,
@@ -2222,7 +2222,8 @@ fn rtIntersect(ro: vec3f, rd: vec3f, ovOk: bool, inWater: bool) -> RtHit {
 // direct light on an opaque surface: sun, sky occlusion, and the bounded set of emitters. No random numbers.
 // The shadow rays are gathered first and traced in one loop: a single shadowRay call site keeps the compiled shader small
 // (each inlined copy of the march is large; several copies crash some drivers when the pipeline is built).
-fn rtDirect(s: Surf, p: vec3f, V: vec3f, ov: bool, inWater: bool) -> vec3f {
+// full = false (reflected and refracted hits) keeps only the sun's shadow ray: one trace instead of up to eleven.
+fn rtDirect(s: Surf, p: vec3f, V: vec3f, ov: bool, inWater: bool, full: bool) -> vec3f {
     let po = p + s.ng * 2e-3;
     let pb = p - s.ng * 2e-3;
     var jo: array<vec3f, 11>; var jd: array<vec3f, 11>; var jt: array<f32, 11>; var jw: array<vec3f, 11>;
@@ -2237,15 +2238,17 @@ fn rtDirect(s: Surf, p: vec3f, V: vec3f, ov: bool, inWater: bool) -> vec3f {
         }
     }
     // sky: diffuse sky radiance around the normal, occluded by a ray straight up and one tilted toward the normal
-    let up = vec3f(0.0, 1.0, 0.0);
-    let skyUp = envRadiance(up);
-    let skyHor = envRadiance(normalize(vec3f(s.n.x, 0.2, s.n.z)));
-    let skyRad = mix(skyHor, skyUp, clamp(0.5 + 0.5 * s.n.y, 0.0, 1.0));
-    let skyW = 0.5 * s.albedo * (1.0 - s.metal) * (1.0 - s.trans) * skyRad;
-    jo[jn] = po; jd[jn] = up; jt[jn] = 1e4; jw[jn] = skyW; jn++;
-    jo[jn] = po; jd[jn] = normalize(s.ng * 0.5 + up); jt[jn] = 1e4; jw[jn] = skyW; jn++;
+    if (full) {
+        let up = vec3f(0.0, 1.0, 0.0);
+        let skyUp = envRadiance(up);
+        let skyHor = envRadiance(normalize(vec3f(s.n.x, 0.2, s.n.z)));
+        let skyRad = mix(skyHor, skyUp, clamp(0.5 + 0.5 * s.n.y, 0.0, 1.0));
+        let skyW = 0.5 * s.albedo * (1.0 - s.metal) * (1.0 - s.trans) * skyRad;
+        jo[jn] = po; jd[jn] = up; jt[jn] = 1e4; jw[jn] = skyW; jn++;
+        jo[jn] = po; jd[jn] = normalize(s.ng * 0.5 + up); jt[jn] = 1e4; jw[jn] = skyW; jn++;
+    }
     // emitters: the nearest lights, each shadowed, with a point-light falloff matching the path tracer's
-    let nL = min(u32(rtLights[0].x), RT_LIGHTS);
+    let nL = select(0u, min(u32(rtLights[0].x), RT_LIGHTS), full);
     for (var k = 1u; k <= nL; k++) {
         let e = rtLights[k];
         let dv = e.xyz + vec3f(0.5) - p;
@@ -2269,7 +2272,7 @@ fn rtShadeOnce(ro: vec3f, rd: vec3f, inWater: bool) -> vec3f {
     var s = h.s;
     let V = -rd;
     if (dot(s.ng, V) < 0.0) { s.ng = -s.ng; s.n = -s.n; }
-    return h.emit + rtDirect(s, h.p, V, false, inWater);
+    return h.emit + rtDirect(s, h.p, V, false, inWater, false);
 }
 
 fn rayMain(id: vec3u) {
@@ -2291,6 +2294,8 @@ fn rayMain(id: vec3u) {
     var secW: array<vec3f, 8>; var secO: array<vec3f, 8>; var secD: array<vec3f, 8>; var secIn: array<f32, 8>;
     var nSec = 0;
     for (var b = 0; b < RT_CHAIN; b++) {
+        // stop once the path carries almost nothing (deep water, stacked glass): saves the trace
+        if (b > 0 && max(thr.x, max(thr.y, thr.z)) < 0.01) { break; }
         let h = rtIntersect(ro, rd, b == 0, inWater);
         if (b == 0) { gAlb = h.gAlb; gN = h.gN; gPos = h.gPos; gHit = h.gHit; gDepth = h.gDepth; gSpec = h.gSpec; }
         let segT = select(140.0, h.t, h.kind != 0u);
@@ -2303,12 +2308,12 @@ fn rayMain(id: vec3u) {
         if (h.kind == 0u) { rad += thr * rtMissRad(rd); break; }
         let V = -rd;
         if (h.kind == 1u) {
-            rad += thr * (h.emit + rtDirect(h.s, h.p, V, h.ov, inWater));
+            rad += thr * (h.emit + rtDirect(h.s, h.p, V, h.ov, inWater, true));
             // mirror-like reflection: metals (strength grows with smoothness) and smooth dielectrics
             let f0 = mix(vec3f(0.04), h.s.albedo, h.s.metal);
             let shine = mix(select(0.0, 1.0, h.s.rough < 0.15), (1.0 - h.s.rough) * (1.0 - h.s.rough), h.s.metal);
             let wS = fresnel(f0, max(dot(h.s.n, V), 0.0)) * shine;
-            if (max(wS.x, max(wS.y, wS.z)) > 0.004) {
+            if (max(wS.x, max(wS.y, wS.z)) > 0.01) {
                 secW[nSec] = thr * wS; secO[nSec] = h.p + h.ng * 2e-3; secD[nSec] = reflect(rd, h.s.n);
                 secIn[nSec] = select(0.0, 1.0, inWater); nSec++;
             }

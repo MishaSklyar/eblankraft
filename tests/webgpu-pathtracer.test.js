@@ -200,6 +200,16 @@ test('ray tracing keeps one call site per traced helper (large inlined copies cr
     assert.equal((region.match(/shadowRay\(/g) || []).length, 1);
     assert.equal((region.match(/rtShadeOnce\(/g) || []).length, 2, 'one definition, one call');
     assert.equal((region.match(/rtIntersect\(/g) || []).length, 3, 'one definition, two calls');
+    assert.equal((region.match(/rtDirect\(/g) || []).length, 3, 'one definition, two calls');
+});
+
+test('ray tracing cost limits: reflected hits get only the sun shadow ray; chains are short', () => {
+    const { PT } = load();
+    const W = PT.WGSL_TRACE;
+    assert.match(W, /const RT_CHAIN: i32 = 4;/);
+    assert.match(W, /return h\.emit \+ rtDirect\(s, h\.p, V, false, inWater, false\);/);
+    assert.match(W, /rtDirect\(h\.s, h\.p, V, h\.ov, inWater, true\)/);
+    assert.match(W, /if \(full\) \{/);
 });
 
 test('ray tracing light list: nearest emitters within 12 blocks, nearest first, capped at 8', () => {
@@ -228,6 +238,6 @@ test('ray tracing light list: nearest emitters within 12 blocks, nearest first, 
 test('game wiring: Renderer control and Ray tracing preset; Cinematic resets the renderer', () => {
     const gui = fs.readFileSync(path.join(__dirname, '../js/rtx_gui.js'), 'utf8');
     assert.match(gui, /ptF\.add\(C, 'renderMode'/);
-    assert.match(gui, /'Ray tracing': \{ parts: 'all', pathTrace: true, ptCfg: \{ renderMode: 'ray' \}/);
+    assert.match(gui, /'Ray tracing': \{ parts: 'all', pathTrace: true, ptCfg: \{ renderMode: 'ray', scale: 0\.85, dynRes: true, targetFps: 60 \}/);
     assert.match(gui, /Cinematic:\s*\{[^\n]*ptCfg: \{ renderMode: 'path'/);
 });

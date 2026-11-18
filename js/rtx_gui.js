@@ -238,6 +238,6 @@ RTXGui.PRESETS = {
     Quality:     { parts: 'all', cfg: { pomDepth: 1.1, targetFps: 24, aoRadius: 1.3, bloomStrength: 0.7 } },
     Cinematic:   { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'path', bounces: 5, denoise: true, volumetrics: true }, cfg: { pomDepth: 1.3, targetFps: 20, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } },
     // Same WebGPU scene as Cinematic, but deterministic: sun / sky / emitter shadows, mirror reflections, refraction, no bounce light and no noise
-    'Ray tracing': { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'ray' }, cfg: { pomDepth: 1.3, targetFps: 40, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
+    'Ray tracing': { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'ray', scale: 0.85, dynRes: true, targetFps: 60 }, cfg: { pomDepth: 1.3, targetFps: 40, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
 };
 window.RTXGui = RTXGui;
