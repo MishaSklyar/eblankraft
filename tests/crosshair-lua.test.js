@@ -227,3 +227,55 @@ test('restore starts from the first example when nothing is saved', () => {
     assert.equal(entry.enabled, false);
     assert.equal(ctx.CrosshairLua.params.length, 5);
 });
+
+test('a new script uses its own defaults, not the values of the script before it', () => {
+    const ctx = load();
+    const C = ctx.CrosshairLua;
+    const classicSrc = ctx.CROSSHAIR_EXAMPLES.find(e => e.id === 'classic').src;
+    C.apply({ name: 'Classic', author: '', src: classicSrc, values: {} }, false);
+    C.setValue('color', '#ff0000');
+    C.setValue('size', 9);
+    const userSrc = `params = {
+  size    = { label = "Arm length", type = "number", min = 1, max = 20, default = 2, order = 1 },
+  color   = { label = "Colour", type = "color", default = "#00ffff", order = 2 },
+  outCol  = { label = "Outline colour", type = "color", default = "#000000", order = 3 },
+}
+function draw(c, s) c:circle(0, 0, param.size, param.color) end`;
+    const result = C.apply({ name: 'Mine', author: '', src: userSrc, values: {} }, false);
+    assert.equal(result.ok, true);
+    assert.equal(C.entry.values.size, 2, 'the default of the new script, not 9 from the old one');
+    assert.equal(C.entry.values.color, '#00ffff', 'the new colour default, not red from the old script');
+    assert.equal(C.entry.values.outCol, '#000000');
+});
+
+test('settings the player changed carry over when the new script has the same setting', () => {
+    const ctx = load();
+    const C = ctx.CrosshairLua;
+    const a = 'params = { size = { type = "number", min = 1, max = 20, default = 2 } }\nfunction draw(c, s) c:circle(0, 0, param.size, "#fff") end';
+    const sameRange = 'params = { size = { type = "number", min = 1, max = 20, default = 2 } }\nfunction draw(c, s) c:circle(0, 0, param.size, "#fff") end';
+    const otherRange = 'params = { size = { type = "number", min = 1, max = 40, default = 5 } }\nfunction draw(c, s) c:circle(0, 0, param.size, "#fff") end';
+    C.apply({ name: 'A', author: '', src: a, values: {} }, false);
+    C.setValue('size', 7);
+    C.apply({ name: 'B', author: '', src: sameRange, values: {} }, false);
+    assert.equal(C.entry.values.size, 7, 'same type, range and default: the tweak stays');
+    C.apply({ name: 'C', author: '', src: otherRange, values: {} }, false);
+    assert.equal(C.entry.values.size, 5, 'a different range starts from the new default');
+    C.setValue('size', 3);
+    C.apply({ name: 'D', author: '', src: a.replace('default = 2', 'default = 4'), values: {} }, false);
+    assert.equal(C.entry.values.size, 4, 'a changed default is the new script\'s default, not the old tweak');
+});
+
+test('values that come with a share code are used as they are', () => {
+    const ctx = load();
+    const C = ctx.CrosshairLua;
+    const src = 'params = { size = { type = "number", min = 1, max = 20, default = 2 } }\nfunction draw(c, s) c:circle(0, 0, param.size, "#fff") end';
+    C.apply({ name: 'Shared', author: '', src, values: { size: 9 } }, false);
+    assert.equal(C.entry.values.size, 9);
+});
+
+test('a pasted -- @name line is what the editor applies under', () => {
+    const ctx = load();
+    const C = ctx.CrosshairLua;
+    C.apply({ name: 'Before', author: '', src: 'function draw(c, s) end', values: {} }, false);
+    assert.equal(C.entry.name, 'Before');
+});

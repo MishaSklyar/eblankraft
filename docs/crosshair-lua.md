@@ -83,6 +83,8 @@ params = {
 
 At most 16 settings per script. Values from the UI or a share code are checked against the type and range, and bad values fall back to the default.
 
+When you apply a different script, each setting starts from that script's own default. A value the player changed is kept only if the setting is unchanged in the new script (same type, same range for numbers, same default). Share codes and saved copies keep their own values.
+
 ---
 
 ## Canvas API

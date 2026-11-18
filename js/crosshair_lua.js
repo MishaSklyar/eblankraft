@@ -621,8 +621,22 @@ return table.concat(out, '\\n')`;
         try {
             const engine = createEngine(global.fengari);
             const params = engine.load(next.src);
+            // Values given with the script (a share code, a saved copy) are used as they are. For a setting
+            // the script gives no value for, the player's value is kept only when the setting itself is
+            // unchanged: same type, same range for numbers, and same default. If the new script changed any of
+            // those, its own default is used, so a new script never inherits another script's settings.
+            const previous = runtime.entry ? runtime.entry.values : {};
             const values = {};
-            for (const p of params) values[p.key] = paramValue(p, next.values[p.key]);
+            for (const p of params) {
+                let raw = next.values[p.key];
+                if (raw === undefined) {
+                    const old = runtime.params.find(q => q.key === p.key);
+                    const unchanged = old && old.type === p.type && old.default === p.default
+                        && (p.type !== 'number' || (old.min === p.min && old.max === p.max));
+                    if (unchanged) raw = previous[p.key];
+                }
+                values[p.key] = paramValue(p, raw);
+            }
             probe(engine, values);
             runtime.entry = { ...next, values, enabled: keepEnabled };
             runtime.engine = engine;
@@ -715,8 +729,13 @@ return table.concat(out, '\\n')`;
             say('Example loaded. Press Apply to run it.');
         };
         const applyEditor = () => {
+            // The -- @name and -- @author lines in the script win over the fields, so pasted scripts keep their names.
+            const nameLine = /^--\s*@name\s+(.+)$/m.exec(editor.value);
+            const authorLine = /^--\s*@author\s+(.+)$/m.exec(editor.value);
+            if (nameLine) nameInput.value = nameLine[1].trim().slice(0, 40);
+            if (authorLine) authorInput.value = authorLine[1].trim().slice(0, 40);
             const result = apply({ name: nameInput.value || 'My crosshair', author: authorInput.value, src: editor.value,
-                values: runtime.entry ? runtime.entry.values : {} }, true);
+                values: {} }, true);
             if (!result.ok) { say(`Not applied: ${result.error}`, true); return; }
             enableBox.checked = true;
             renderParams();
@@ -810,13 +829,12 @@ return table.concat(out, '\\n')`;
                 h('p', { class: 'menu-setting-note', text: 'Write a Lua script that draws your crosshair every frame. It runs in a sandbox and can only draw. Full reference: docs/crosshair-lua.md' }),
                 h('div', { class: 'toggle-item' }, enableBox, ' Use Lua crosshair (replaces the built-in one)'),
                 h('div', { class: 'menu-row' }, h('label', { for: 'lua-example' }, 'Start from'),
-                    exampleSelect, h('button', { class: 'menu-btn btn-secondary', type: 'button', text: 'Load', on: { click: loadExample } })),
+                    exampleSelect, h('button', { class: 'menu-btn btn-secondary', type: 'button', text: 'Replace editor with example', on: { click: loadExample } })),
                 h('div', { class: 'menu-row' }, h('label', { for: 'lua-name' }, 'Name'), nameInput),
                 h('div', { class: 'menu-row' }, h('label', { for: 'lua-author' }, 'Author'), authorInput),
                 editor,
                 h('div', { class: 'menu-buttons-grid' },
-                    h('button', { class: 'menu-btn btn-primary', type: 'button', text: 'Apply and switch on', on: { click: applyEditor } }),
-                    h('button', { class: 'menu-btn btn-secondary', type: 'button', text: 'Load example', on: { click: loadExample } })),
+                    h('button', { class: 'menu-btn btn-primary', type: 'button', text: 'Apply and switch on', on: { click: applyEditor } })),
                 h('div', { class: 'menu-section-label' }, 'Settings from params'),
                 paramBox,
             ),
