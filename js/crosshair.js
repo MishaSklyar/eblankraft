@@ -6,8 +6,8 @@
 
     const STORAGE_KEY = 'eblankraft_crosshair';
     const CODE_PREFIX = 'EBCH1.';
-    const STYLES = ['plus', 'tshape', 'x', 'circle', 'dot'];
-    const STYLE_LABELS = { plus: 'Plus', tshape: 'T', x: 'X', circle: 'Circle', dot: 'Dot' };
+    const STYLES = ['plus', 'tshape', 'x', 'circle', 'dot', 'square', 'diamond', 'chevron', 'bracket'];
+    const STYLE_LABELS = { plus: 'Plus', tshape: 'T', x: 'X', circle: 'Circle', dot: 'Dot', square: 'Square', diamond: 'Diamond', chevron: 'Chevron', bracket: 'Corners' };
     const HEX = /^#[0-9a-f]{6}$/i;
     const INTEGER_FIELDS = ['size', 'thickness', 'gap', 'dotSize'];
     // [min, max] for every numeric field.
@@ -74,6 +74,20 @@
             for (const sx of [-1, 1]) for (const sy of [-1, 1]) arm(sx * g * k, sy * g * k, sx * (g + L) * k, sy * (g + L) * k);
         } else if (c.style === 'circle') {
             circles.push({ cx: 0, cy: 0, r: L, dot: false });
+        } else if (c.style === 'square') {
+            const h = g + L;
+            arm(-h, -h, h, -h); arm(h, -h, h, h); arm(h, h, -h, h); arm(-h, h, -h, -h);
+        } else if (c.style === 'diamond') {
+            const h = g + L;
+            arm(0, -h, h, 0); arm(h, 0, 0, h); arm(0, h, -h, 0); arm(-h, 0, 0, -h);
+        } else if (c.style === 'chevron') {
+            arm(0, -g, -L, -g + L); arm(0, -g, L, -g + L);
+        } else if (c.style === 'bracket') {
+            const h = g + L;
+            for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+                arm(sx * h, sy * h, sx * (h - L), sy * h);
+                arm(sx * h, sy * h, sx * h, sy * (h - L));
+            }
         }
         if (c.style === 'dot' || c.centerDot) circles.push({ cx: 0, cy: 0, r: c.dotSize, dot: true });
         return { lines, circles };
@@ -234,8 +248,21 @@
         };
         const reset = () => { setCurrent(DEFAULTS); refresh(); status.textContent = 'Reset to the default crosshair.'; };
 
+        // Two panes under one tab: Basic (shapes and sliders) and Advanced (Lua scripts, see js/crosshair_lua.js).
+        const basic = h('div', { class: 'ch-pane' });
+        const advanced = h('div', { class: 'ch-pane' });
+        const segButtons = [['basic', 'Basic'], ['advanced', 'Advanced (Lua)']].map(([key, label]) =>
+            h('button', { class: 'menu-btn btn-secondary ch-seg-btn', type: 'button', 'data-pane': key, text: label,
+                on: { click: () => showPane(key) } }));
+        const seg = h('div', { class: 'ch-seg' }, ...segButtons);
+        const showPane = key => {
+            basic.hidden = key !== 'basic';
+            advanced.hidden = key !== 'advanced';
+            for (const b of segButtons) b.classList.toggle('active', b.dataset.pane === key);
+        };
+
         root.textContent = '';
-        root.append(
+        basic.append(
             h('div', { class: 'menu-card ch-card' },
                 preview,
                 h('div', { class: 'menu-section-label' }, 'Presets'),
@@ -256,6 +283,9 @@
                 codeBox,
                 status),
         );
+        root.append(seg, basic, advanced);
+        showPane('basic');
+        if (global.CrosshairLua && global.CrosshairLua.mountAdvanced) global.CrosshairLua.mountAdvanced(advanced);
 
         function refresh() {
             previewCross.innerHTML = buildSvg(current);

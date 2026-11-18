@@ -23,6 +23,8 @@ js_files = [
     'js/world.js',
     'js/player.js',
     'js/crosshair.js',
+    'js/crosshair_examples.js',
+    'js/crosshair_lua.js',
     'js/controls.js',
     'js/weather.js',
     'js/multiplayer.js',

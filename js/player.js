@@ -598,7 +598,9 @@ const ACCURACY = {
     bloomCap: 0.10,       // sustained-fire bloom ceiling
     bloomPerRecoil: 0.25, // bloom added per shot = gun recoil x this
     bloomDecay: 4.5,      // bloom fades exponentially, per second
+    scopeMult: 0.25,      // the whole cone is multiplied by this while the AWP scope is up
 };
+window.ACCURACY = ACCURACY;
 
 class Player {
     get world() {
@@ -3703,8 +3705,10 @@ class Player {
     // Accuracy cone (radians) for the next bullet. Aiming tightens the gun's own spread; moving, airborne and bloom widen it.
     // The shot and the crosshair spread ring both read it, so the ring always shows the real spread.
     gunSpreadFor(reg, spec, bloom = 0) {
-        const aimed = reg.gunType === 'awp' && this.isScoped ? 0.0005 : spec.spread * (this.isAiming ? .55 : 1);
-        return aimed + ACCURACY.move * (this.accMove || 0) + ACCURACY.air * (this.accAir || 0) + bloom;
+        const motion = ACCURACY.move * (this.accMove || 0) + ACCURACY.air * (this.accAir || 0) + bloom;
+        // Scoped (AWP): the whole cone, including movement and bloom, is pulled in hard.
+        if (this.isScoped) return (0.0005 + motion) * ACCURACY.scopeMult;
+        return spec.spread * (this.isAiming ? .55 : 1) + motion;
     }
 
     // Camera kick and random yaw for a gun shot that does not go through WeaponCombatManager.shoot.

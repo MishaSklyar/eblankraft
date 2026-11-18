@@ -220,6 +220,56 @@ html, body {
     resize: vertical;
 }
 .ch-status { min-height: 1.2em; }
+.ch-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.ch-seg-btn { opacity: 0.75; }
+.ch-seg-btn.active { opacity: 1; outline: 2px solid #ffd54a; outline-offset: 1px; }
+.ch-pane { display: flex; flex-direction: column; gap: 8px; }
+.ch-pane[hidden] { display: none; }
+.ch-pane input[type="text"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.35);
+    color: #ffffff;
+}
+.ch-select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.35);
+    color: #ffffff;
+}
+.ch-editor {
+    min-height: 240px;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre;
+    overflow: auto;
+    tab-size: 2;
+}
+.ch-params { display: flex; flex-direction: column; gap: 6px; }
+
+/* Lua crosshair (js/crosshair_lua.js): the script draws on this canvas and the built-in crosshair is hidden */
+#crosshair-lua {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 480px;
+    height: 480px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    display: none;
+    z-index: 15;
+}
+body.lua-crosshair #crosshair-lua { display: block; }
+body.lua-crosshair #crosshair,
+body.lua-crosshair #crosshair-spread { display: none !important; }
+body.in-main-menu #crosshair-lua,
+body.is-preloading #crosshair-lua { display: none !important; }
 
 /* Totem of Undying Pop Animation */
 .totem-pop-container {

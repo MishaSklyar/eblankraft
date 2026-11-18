@@ -118,3 +118,14 @@ test('applyToDom writes the colour variables and the SVG into the HUD', () => {
     assert.equal(vars['--ring-opacity'], '0.3');
     assert.ok(crosshair.innerHTML.startsWith('<svg'), 'the crosshair holds the SVG');
 });
+
+test('the basic shapes include square, diamond, chevron and corners', () => {
+    const C = loadModule();
+    assert.equal(C.STYLES.length, 9);
+    const base = { outline: false, centerDot: false };
+    assert.equal(count(C.buildSvg({ ...base, style: 'square' }), 'line'), 4);
+    assert.equal(count(C.buildSvg({ ...base, style: 'diamond' }), 'line'), 4);
+    assert.equal(count(C.buildSvg({ ...base, style: 'chevron' }), 'line'), 2);
+    assert.equal(count(C.buildSvg({ ...base, style: 'bracket' }), 'line'), 8);
+    for (const style of C.STYLES) assert.equal(C.normalize({ style }).style, style);
+});

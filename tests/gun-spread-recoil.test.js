@@ -197,3 +197,18 @@ test('bullet spread is a round disc: no shot leaves the cone, and its outer edge
     // The old cube-shaped pattern could never put a bullet past 0.71x its radius; a uniform disc puts ~44% past 0.75x.
     assert.ok(outer > 4000 * 0.3, `the outer part of the disc is reached (${outer} of 4000 past 0.75x)`);
 });
+
+test('scoping the AWP pulls the whole cone in, including while moving', () => {
+    const h = harness('awp');
+    const p = h.player, reg = h.reg, spec = p.getGunSpec(reg);
+    settle(p, 0.5);
+    p.velocity.x = 7.5;
+    settle(p, 0.6);
+    const hip = p.gunSpreadFor(reg, spec, 0);
+    p.isAiming = true;
+    const aimed = p.gunSpreadFor(reg, spec, 0);
+    p.isScoped = true;
+    const scoped = p.gunSpreadFor(reg, spec, 0);
+    assert.ok(scoped < aimed * 0.4, `scoped is far tighter than aimed (${aimed.toFixed(4)} aimed, ${scoped.toFixed(4)} scoped)`);
+    assert.ok(scoped < hip * 0.4, `scoped is far tighter than hip-fire (${hip.toFixed(4)} hip, ${scoped.toFixed(4)} scoped)`);
+});
