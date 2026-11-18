@@ -168,3 +168,66 @@ test('post-processing settings do not restart accumulation; quality presets exis
     pt.applyPreset(Object.keys(PT.PRESETS)[0]);
     assert.equal(pt.cfg.dynRes, true);
 });
+
+test('ray tracing mode is a flag on the same kernel and defaults to the path tracer', () => {
+    const { PT } = load();
+    assert.equal(PT.CFG_DEFAULTS.renderMode, 'path');
+    assert.match(PT.WGSL_COMMON, /const F_RAYTRACE: u32 = 512u;/);
+    assert.match(PT.WGSL_TRACE, /if \(\(u\.res\.w & F_RAYTRACE\) != 0u\) \{ rayMain\(id\); return; \}/);
+    const src = fs.readFileSync(path.join(__dirname, '../js/webgpu_pt.js'), 'utf8');
+    assert.match(src, /\(rt \? 512 : 0\)/);
+    assert.match(src, /const iters = cfg\.denoise && !rt \?/);
+    const pt = new PT({ ui: null });
+    pt._resetPending = false;
+    pt.setCfg('renderMode', 'ray');
+    assert.equal(pt._resetPending, true, 'switching renderer restarts accumulation');
+});
+
+test('ray tracing code never draws Monte Carlo samples (only the sub-pixel jitter)', () => {
+    const { PT } = load();
+    const W = PT.WGSL_TRACE;
+    const region = W.slice(W.indexOf('fn rtMissRad'), W.indexOf('@compute @workgroup_size(8, 8)'));
+    assert.ok(region.length > 2000, 'found the ray tracing block');
+    assert.equal((region.match(/\brnd\(/g) || []).length, 0, 'no rnd() in the ray tracing block');
+    assert.equal((region.match(/\brnd2\(/g) || []).length, 1, 'rnd2() only for the pixel jitter');
+    for (const f of ['sampleBsdf(', 'sampleEmitters(', 'sampleEnv(', 'cosineSample(']) assert.ok(!region.includes(f), f);
+});
+
+test('ray tracing keeps one call site per traced helper (large inlined copies crash some drivers)', () => {
+    const { PT } = load();
+    const W = PT.WGSL_TRACE;
+    const region = W.slice(W.indexOf('fn rtMissRad'), W.indexOf('@compute @workgroup_size(8, 8)'));
+    assert.equal((region.match(/shadowRay\(/g) || []).length, 1);
+    assert.equal((region.match(/rtShadeOnce\(/g) || []).length, 2, 'one definition, one call');
+    assert.equal((region.match(/rtIntersect\(/g) || []).length, 3, 'one definition, two calls');
+});
+
+test('ray tracing light list: nearest emitters within 12 blocks, nearest first, capped at 8', () => {
+    const { PT } = load();
+    const pt = new PT({ ui: null });
+    const writes = [];
+    pt.device = { queue: { writeBuffer: (buf, off, data) => writes.push(Float32Array.from(data)) } };
+    pt.rtLightBuf = {};
+    const near = [[2, 64, 2, 91], [-3, 64, 0, 93], [3, 64, 1, 90]];
+    const far = [];
+    for (let x = 6; x <= 10; x++) far.push([x, 64, 0, 100 + x]);
+    const outOfRange = [[40, 40, 40, 77], [10, 64, 10, 78]];
+    const flat = [...near, ...far, ...outOfRange].flat();
+    pt._slotEmit = [Float32Array.from(flat), null];
+    pt.updateRtLights({ position: { x: 0.5, y: 64.5, z: 0.5 } });
+    const b = writes[0];
+    assert.equal(b[0], 8, 'count capped at 8');
+    const ids = [1, 2, 3, 4, 5, 6, 7, 8].map(k => b[k * 4 + 3]);
+    assert.deepEqual(ids, [91, 93, 90, 106, 107, 108, 109, 110]);
+    assert.deepEqual([b[4], b[5], b[6]], [2, 64, 2]);
+    pt._slotEmit = [Float32Array.from(outOfRange.flat())];
+    pt.updateRtLights({ position: { x: 0.5, y: 64.5, z: 0.5 } });
+    assert.equal(writes[1][0], 0, 'nothing within range means no lights');
+});
+
+test('game wiring: Renderer control and Ray tracing preset; Cinematic resets the renderer', () => {
+    const gui = fs.readFileSync(path.join(__dirname, '../js/rtx_gui.js'), 'utf8');
+    assert.match(gui, /ptF\.add\(C, 'renderMode'/);
+    assert.match(gui, /'Ray tracing': \{ parts: 'all', pathTrace: true, ptCfg: \{ renderMode: 'ray' \}/);
+    assert.match(gui, /Cinematic:\s*\{[^\n]*ptCfg: \{ renderMode: 'path'/);
+});

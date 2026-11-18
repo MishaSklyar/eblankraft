@@ -17,7 +17,11 @@
 //                contrast-adaptive sharpening, chromatic aberration, vignette, film grain.
 //  Performance   GPU timer (timestamp queries), dynamic resolution to a target fps, max 2 frames in flight, quality presets.
 //
-// Toggle: Alt+P, the "Path tracing (WebGPU)" folder of the RTX panel (Alt+X), or the Cinematic preset.
+//  Ray tracing   cfg.renderMode = 'ray' runs rayMain instead of the path tracer: the same scene, BVH and post chain, but with
+//                no Monte Carlo sampling (hard shadows, sky occlusion, a few nearest lights, mirror and refraction rays). Noise-free
+//                and cheaper per frame, without diffuse bounce light. See the "Ray tracing mode" block before main().
+//
+// Toggle: Alt+P, the "Path tracing (WebGPU)" folder of the RTX panel (Alt+X), or the Cinematic / Ray tracing presets.
 class WebGPUPathTracer {
     static isAvailable() { return typeof navigator !== 'undefined' && !!navigator.gpu; }
 
@@ -170,6 +174,7 @@ class WebGPUPathTracer {
         this.matBuf = d.createBuffer({ size: 256 * WebGPUPathTracer.MAT_FLOATS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.maxEmitters = 16384;
         this.emitBuf = d.createBuffer({ size: this.maxEmitters * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        this.rtLightBuf = d.createBuffer({ size: 256, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.skyTex = d.createTexture({ size: [1024, 512], format: 'rgba16float', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING });
         this.dummyCdf = d.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.expoBuf = d.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
@@ -390,9 +395,10 @@ class WebGPUPathTracer {
             { binding: 16, resource: { buffer: this.sceneBuf } },
             { binding: 17, resource: this.meshAtlas.createView({ dimension: '2d-array' }) },
             { binding: 18, resource: this.normTex.createView({ dimension: '2d-array' }) },
-            { binding: 19, resource: this.linRepSamp }
+            { binding: 19, resource: this.linRepSamp },
+            { binding: 20, resource: { buffer: this.rtLightBuf } }
         ] }));
-        this.tpBG = [0, 1].map(p => d.createBindGroup({ layout: P.tp.getBindGroupLayout(0), entries: [
+        this.tpBG =[0, 1].map(p => d.createBindGroup({ layout: P.tp.getBindGroupLayout(0), entries: [
             { binding: 0, resource: U },
             { binding: 1, resource: T.illum.createView() },
             { binding: 2, resource: T.normal[p].createView() },
@@ -696,6 +702,31 @@ class WebGPUPathTracer {
             n++;
         }
         return out ? out.subarray(0, n * 4) : null;
+    }
+
+    // Ray tracing mode: the RT_LIGHTS emissive blocks nearest the camera (within 12 blocks) become the point lights
+    // that rayMain shadows. rtLights[0].x holds the count; entries are (x, y, z, block id), nearest first.
+    updateRtLights(cam) {
+        const K = 8, R2 = 144;
+        const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z;
+        const best = [];
+        for (const e of this._slotEmit) {
+            if (!e) continue;
+            for (let i = 0; i < e.length; i += 4) {
+                const dx = e[i] + 0.5 - cx, dy = e[i + 1] + 0.5 - cy, dz = e[i + 2] + 0.5 - cz;
+                const d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 > R2 || (best.length === K && d2 >= best[K - 1].d2)) continue;
+                let j = best.length;
+                best.push(null);
+                while (j > 0 && best[j - 1].d2 > d2) { best[j] = best[j - 1]; j--; }
+                best[j] = { d2, x: e[i], y: e[i + 1], z: e[i + 2], m: e[i + 3] };
+                if (best.length > K) best.length = K;
+            }
+        }
+        const buf = new Float32Array((K + 1) * 4);
+        buf[0] = best.length;
+        best.forEach((b, k) => buf.set([b.x, b.y, b.z, b.m], (k + 1) * 4));
+        this.device.queue.writeBuffer(this.rtLightBuf, 0, buf);
     }
 
     // ------------------------------------------------------------------ mesh ray tracing: BLAS cache + per-frame TLAS
@@ -1191,8 +1222,9 @@ class WebGPUPathTracer {
         F[40] = sunCol[0]; F[41] = sunCol[1]; F[42] = sunCol[2]; F[43] = cfg.skyIntensity;
         I[44] = this.regionMin ? this.regionMin[0] : 0; I[45] = 0; I[46] = this.regionMin ? this.regionMin[1] : 0; I[47] = this.hdri ? 1 : 0;
         Uu[48] = this.w; Uu[49] = this.h; Uu[50] = this.frame >>> 0;
+        const rt = cfg.renderMode === 'ray';
         Uu[51] = (cfg.denoise ? 1 : 0) | (cfg.dof ? 2 : 0) | (moving ? 4 : 0) | (cfg.volumetrics ? 8 : 0) | (night ? 16 : 0) | (cfg.waves ? 32 : 0) |
-            (cfg.meshes ? 64 : 0) | (cfg.letterbox ? 128 : 0) | (cfg.autoExposure ? 256 : 0);
+            (cfg.meshes ? 64 : 0) | (cfg.letterbox ? 128 : 0) | (cfg.autoExposure ? 256 : 0) | (rt ? 512 : 0);
         F[52] = cfg.exposure * (night && dimId === 0 && !this.hdri && !cfg.autoExposure ? cfg.nightBoost : 1); F[53] = cfg.emissive; F[54] = cfg.clamp; F[55] = cfg.bounces;
         if (cfg.dof && !cfg.autoFocus) this._focus = cfg.focusDistance;
         F[56] = cfg.dof ? cfg.aperture : 0; F[57] = this._focus; F[58] = this._time; F[59] = (cfg.hdriRotation || 0) * Math.PI / 180;
@@ -1210,6 +1242,7 @@ class WebGPUPathTracer {
         F[100] = cfg.vignette; F[101] = cfg.tonemap === 'aces' ? 1 : 0; F[102] = cfg.autoExposure ? 1 : 0; F[103] = cfg.exposureComp;
         F[104] = dt; F[105] = this.wg16 ? this.wg16[0] * this.wg16[1] : 1; F[106] = cfg.adaptSpeed; F[107] = this.wg16 ? this.wg16[0] : 1;
         d.queue.writeBuffer(this.uniformBuf, 0, this.uData);
+        if (rt) this.updateRtLights(cam);
 
         const P = this._pipelines, par = this.frame & 1;
         const ts = this.hasTimestamps && !this._tsBusy && (this.frame % 20) === 0;
@@ -1222,7 +1255,8 @@ class WebGPUPathTracer {
         let pass = enc.beginComputePass(ts ? { timestampWrites: { querySet: this.tsQuery, beginningOfPassWriteIndex: 0 } } : undefined);
         pass.setPipeline(P.pt); pass.setBindGroup(0, this.ptBG[par]); pass.dispatchWorkgroups(gx, gy);
         pass.setPipeline(P.tp); pass.setBindGroup(0, this.tpBG[par]); pass.dispatchWorkgroups(gx, gy);
-        const iters = cfg.denoise ? Math.max(0, Math.min(6, cfg.atrous | 0)) : 0;
+        // ray tracing is noise-free by construction, so it skips the a-trous passes (the temporal filter still anti-aliases)
+        const iters = cfg.denoise && !rt ? Math.max(0, Math.min(6, cfg.atrous | 0)) : 0;
         for (let i = 0; i < iters; i++) { pass.setPipeline(P.at); pass.setBindGroup(0, this.atBG[par][i]); pass.dispatchWorkgroups(gx, gy); }
         const finalKey = iters === 0 ? 'filt' : (((iters - 1) & 1) ? 'ping1' : 'ping0');
         pass.setPipeline(P.rs); pass.setBindGroup(0, this.rsBG[finalKey]); pass.dispatchWorkgroups(this.wg16[0], this.wg16[1]);
@@ -1328,7 +1362,8 @@ WebGPUPathTracer.CFG_DEFAULTS = {
     meshes: true, normalStrength: 1.0, translucency: true,
     dof: false, autoFocus: true, aperture: 0.06, focusDistance: 8, letterbox: false,
     autoExposure: true, exposureComp: 0, adaptSpeed: 2.5, tonemap: 'agx', bloom: 0.05, chromatic: 0.0004, grain: 0.025, sharpen: 0.35, vignette: 0.22,
-    dynRes: false, targetFps: 40
+    dynRes: false, targetFps: 40,
+    renderMode: 'path'      // 'path' = Monte Carlo path tracing (converges); 'ray' = deterministic ray tracing (no noise)
 };
 // settings that only change the post-processing (no accumulation restart)
 WebGPUPathTracer.POST_KEYS = ['exposure', 'nightBoost', 'autoExposure', 'exposureComp', 'adaptSpeed', 'tonemap', 'bloom', 'chromatic', 'grain', 'sharpen', 'vignette', 'letterbox', 'dynRes', 'targetFps'];
@@ -1382,6 +1417,7 @@ const F_NIGHT: u32 = 16u;
 const F_WAVES: u32 = 32u;
 const F_MESHES: u32 = 64u;
 const F_LETTERBOX: u32 = 128u;
+const F_RAYTRACE: u32 = 512u;
 fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
 fn dirToUv(d: vec3f, rot: f32) -> vec2f {
     let u = atan2(d.x, -d.z) / (2.0 * PI) + 0.5 + rot / (2.0 * PI);
@@ -1559,6 +1595,8 @@ struct Mat { faceA: vec4u, faceB: vec4u, params: vec4f, tint: vec4f, bmin: vec4f
 @group(0) @binding(17) var meshAtlas: texture_2d_array<f32>;
 @group(0) @binding(18) var normAtlas: texture_2d_array<f32>;
 @group(0) @binding(19) var linSamp: sampler;
+// ray tracing mode: rtLights[0].x = count, rtLights[1..] = xyz block position, w = block id (CPU-sorted, nearest first)
+@group(0) @binding(20) var<storage, read> rtLights: array<vec4f>;
 
 const K_OPAQUE: u32 = 1u;
 const K_CUTOUT: u32 = 2u;
@@ -2072,10 +2110,252 @@ fn sampleEmitters(p: vec3f, pBack: vec3f, s: Surf, V: vec3f) -> vec3f {
 
 fn viewSpace(d: vec3f) -> vec3f { return vec3f(dot(d, normalize(u.camRight.xyz)), dot(d, normalize(u.camUp.xyz)), dot(d, normalize(u.camFwd.xyz))); }
 
+// ------------------------------------------------------------------ ray tracing mode (uniform flag F_RAYTRACE)
+// Deterministic: no Monte Carlo sampling, so there is nothing to denoise. One primary ray per pixel per frame; the sub-pixel
+// jitter is averaged by the temporal filter, so a still camera gives a clean, anti-aliased image.
+//   sun / moon     hard shadow toward the light's centre (no penumbra)
+//   sky            sky radiance around the normal, occluded by two rays (straight up, and tilted toward the normal)
+//   emitters       the RT_LIGHTS nearest emissive blocks within 12 blocks of the camera, each with a shadow ray
+//   mirrors        metals and smooth surfaces: one Fresnel-weighted reflection ray, shaded directly (no further bounces)
+//   water / glass  Fresnel reflection plus one continued refracted ray (weighted, not chosen at random)
+// Not in this mode: diffuse bounce light and colour bleeding, soft shadows, depth of field, volumetric god rays.
+const RT_LIGHTS: u32 = 8u;
+const RT_CHAIN: i32 = 6;
+struct RtHit {
+    kind: u32,        // 0 miss, 1 opaque surface, 2 water interface, 3 glass pane
+    t: f32,
+    p: vec3f,
+    ng: vec3f,        // geometric normal (faces the viewer for opaque surfaces; raw face normal for water and glass)
+    s: Surf,
+    emit: vec3f,      // self emission
+    ov: bool,         // first-person overlay mesh
+    wExit: bool,      // water interface: the ray leaves the water
+    cell: vec3i,
+    tx: vec4f,        // glass: texel (rgb albedo, a opacity)
+    tint: f32,        // glass: tint alpha
+    gAlb: vec3f, gN: vec3f, gPos: vec3f, gHit: f32, gSpec: f32, gDepth: f32   // G-buffer values if this is the primary hit
+};
+fn rtMissRad(d: vec3f) -> vec3f { return envRadiance(d) + sunDisc(d); }
+
+// nearest surface along a ray (mesh or voxel, whichever is closer), with its shading inputs and G-buffer values
+fn rtIntersect(ro: vec3f, rd: vec3f, ovOk: bool, inWater: bool) -> RtHit {
+    var h: RtHit;
+    h.kind = 0u; h.t = 1e4; h.p = ro + rd * 1e4; h.ng = vec3f(0.0, 1.0, 0.0); h.emit = vec3f(0.0);
+    h.s.albedo = vec3f(1.0); h.s.rough = 0.5; h.s.metal = 0.0; h.s.n = h.ng; h.s.ng = h.ng; h.s.trans = 0.0;
+    h.gAlb = vec3f(1.0); h.gN = vec3f(0.0); h.gPos = h.p; h.gHit = 0.0; h.gSpec = 0.0; h.gDepth = 1e4;
+    let mh = traceMeshes(ro, rd, 1e4, ovOk, false);
+    let ovHit = mh.ok && mh.inst >= u.mesh.z;
+    let hit = march(ro, rd, select(mh.t, 1e4, ovHit || !mh.ok), select(0u, 1u, inWater), -7.6);
+    let useMesh = mh.ok && (ovHit || !hit.ok || mh.t < hit.t);
+    if (!useMesh && !hit.ok) { return h; }
+    if (useMesh) {
+        h.t = mh.t; h.p = ro + rd * mh.t; h.ov = ovHit; h.gDepth = mh.t;
+        let i = mh.inst;
+        let r0 = scene[i * 4u]; let r1 = scene[i * 4u + 1u]; let r2 = scene[i * 4u + 2u];
+        let mt = instMeta(i);
+        let tri = mh.tri;
+        let p0 = tris[tri * 5u].xyz; let p1 = tris[tri * 5u + 1u].xyz; let p2 = tris[tri * 5u + 2u].xyz;
+        let nl = cross(p1 - p0, p2 - p0);
+        var ng = normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z);
+        if (dot(ng, rd) > 0.0) { ng = -ng; }
+        let g = bitcast<u32>(tris[tri * 5u].w);
+        let m = meshMat(mt.y + g);
+        var alb = m[0].rgb;
+        if (m[1].x >= 0.0) {
+            var uv = triUv(tri, mh.b);
+            if (m[1].w > 0.5) { uv.y = 1.0 - uv.y; }
+            let lodm = log2(max(1e-4, mh.t * u.p3.z) * 128.0);
+            alb *= textureSampleLevel(meshAtlas, atlasSamp, fract(uv), i32(m[1].x), select(lodm, 0.0, ovHit)).rgb;
+        }
+        h.kind = 1u;
+        h.ng = ng;
+        h.s.albedo = alb; h.s.rough = clamp(m[1].y, 0.05, 1.0); h.s.metal = clamp(m[1].z, 0.0, 1.0);
+        h.s.n = ng; h.s.ng = ng; h.s.trans = 0.0;
+        h.emit = m[2].rgb * alb;
+        h.gAlb = select(alb, max(alb, vec3f(0.04)), h.s.metal > 0.5);
+        h.gHit = select(1.0, 2.0, ovHit); h.gSpec = select(0.0, 1.0, h.s.rough < 0.15);
+        if (ovHit) { h.gPos = viewSpace(h.p - u.camPos.xyz); h.gN = viewSpace(ng); }
+        else { h.gPos = h.p; h.gN = ng; }
+        return h;
+    }
+    // voxel surface
+    h.t = hit.t; h.p = ro + rd * hit.t; h.cell = hit.cell; h.gDepth = hit.t;
+    let exitingWater = inWater && hit.typ != WATER_ID;
+    if (hit.typ == WATER_ID || (exitingWater && hit.typ == 0u)) {
+        h.kind = 2u; h.ng = hit.n; h.wExit = exitingWater;
+        h.s.albedo = vec3f(0.3, 0.4, 0.5); h.s.rough = 0.02; h.s.n = hit.n; h.s.ng = hit.n;
+        h.gAlb = vec3f(1.0); h.gN = hit.n; h.gPos = h.p; h.gHit = 1.0; h.gSpec = 1.0;
+        return h;
+    }
+    let m = mats[hit.typ];
+    let kind = m.faceB.z;
+    let lod = log2(max(1e-4, hit.t * u.p3.z) * 64.0 / max(abs(dot(hit.n, rd)), 0.25));
+    let tx = texSample(m, hit.face, hit.uv, lod);
+    if (kind == K_GLASS && tx.a < 0.75) {
+        h.kind = 3u; h.ng = hit.n; h.tx = tx; h.tint = m.tint.a;
+        h.emit = select(vec3f(0.0), tx.rgb * m.params.z * u.p0.y * 0.5, m.params.z > 0.0);
+        h.s.albedo = tx.rgb; h.s.n = hit.n; h.s.ng = hit.n;
+        h.gAlb = vec3f(1.0); h.gN = hit.n; h.gPos = h.p; h.gHit = 1.0; h.gSpec = 1.0;
+        return h;
+    }
+    var albedo = tx.rgb;
+    var ns = hit.n;
+    if (kind != K_CROSS && m.bmax.w > 0.0 && u.p4.y > 0.0) {
+        let nm = textureSampleLevel(normAtlas, linSamp, hit.uv, layerOf(m, hit.face), max(lod, 0.0));
+        var tn = nm.xyz * 2.0 - 1.0;
+        tn = vec3f(tn.xy * u.p4.y * m.bmax.w, max(tn.z, 0.05));
+        let cand = normalize(hit.n * tn.z + faceT(hit.n) * tn.x + faceB(hit.n) * tn.y);
+        if (dot(cand, -rd) > 0.02) { ns = cand; }
+        albedo *= mix(1.0, nm.a, 0.55 * min(1.0, u.p4.y));
+    }
+    var ng = hit.n;
+    if (dot(ng, rd) > 0.0) { ng = -ng; ns = -ns; }
+    h.kind = 1u; h.ng = ng;
+    h.s.albedo = albedo; h.s.rough = m.params.x; h.s.metal = m.params.y; h.s.n = ns; h.s.ng = ng;
+    h.s.trans = select(0.0, m.bmin.w, u.p6.w > 0.0);
+    h.emit = select(vec3f(0.0), albedo * m.params.z * u.p0.y, m.params.z > 0.0);
+    h.gAlb = select(albedo, max(albedo, vec3f(0.04)), h.s.metal > 0.5);
+    h.gN = ng; h.gPos = h.p; h.gHit = 1.0; h.gSpec = select(0.0, 1.0, h.s.rough < 0.15);
+    return h;
+}
+
+// direct light on an opaque surface: sun, sky occlusion, and the bounded set of emitters. No random numbers.
+// The shadow rays are gathered first and traced in one loop: a single shadowRay call site keeps the compiled shader small
+// (each inlined copy of the march is large; several copies crash some drivers when the pipeline is built).
+fn rtDirect(s: Surf, p: vec3f, V: vec3f, ov: bool, inWater: bool) -> vec3f {
+    let po = p + s.ng * 2e-3;
+    let pb = p - s.ng * 2e-3;
+    var jo: array<vec3f, 11>; var jd: array<vec3f, 11>; var jt: array<f32, 11>; var jw: array<vec3f, 11>;
+    var jn = 0;
+    // sun / moon: hard shadow toward the light's centre
+    if (any(u.sunColor.rgb > vec3f(0.0))) {
+        let L = normalize(u.sunDir.xyz);
+        let fb = evalBsdf(s, V, L);
+        if (fb.w > 0.0) {
+            jo[jn] = select(po, pb, dot(L, s.ng) < 0.0); jd[jn] = L; jt[jn] = 1e4;
+            jw[jn] = fb.rgb * u.sunColor.rgb * cloudShadow(p, L) * select(1.0, 0.6, inWater); jn++;
+        }
+    }
+    // sky: diffuse sky radiance around the normal, occluded by a ray straight up and one tilted toward the normal
+    let up = vec3f(0.0, 1.0, 0.0);
+    let skyUp = envRadiance(up);
+    let skyHor = envRadiance(normalize(vec3f(s.n.x, 0.2, s.n.z)));
+    let skyRad = mix(skyHor, skyUp, clamp(0.5 + 0.5 * s.n.y, 0.0, 1.0));
+    let skyW = 0.5 * s.albedo * (1.0 - s.metal) * (1.0 - s.trans) * skyRad;
+    jo[jn] = po; jd[jn] = up; jt[jn] = 1e4; jw[jn] = skyW; jn++;
+    jo[jn] = po; jd[jn] = normalize(s.ng * 0.5 + up); jt[jn] = 1e4; jw[jn] = skyW; jn++;
+    // emitters: the nearest lights, each shadowed, with a point-light falloff matching the path tracer's
+    let nL = min(u32(rtLights[0].x), RT_LIGHTS);
+    for (var k = 1u; k <= nL; k++) {
+        let e = rtLights[k];
+        let dv = e.xyz + vec3f(0.5) - p;
+        let d2 = dot(dv, dv);
+        if (d2 > 144.0) { continue; }
+        let L = dv * inverseSqrt(max(d2, 1e-6));
+        let fb = evalBsdf(s, V, L);
+        if (fb.w <= 0.0) { continue; }
+        jo[jn] = select(po, pb, dot(L, s.ng) < 0.0); jd[jn] = L; jt[jn] = sqrt(d2) - 0.9;
+        jw[jn] = fb.rgb * mats[u32(e.w)].emit.rgb * u.p0.y * (0.9 / max(d2, 0.25)); jn++;
+    }
+    var c = vec3f(0.0);
+    for (var q = 0; q < jn; q++) { c += jw[q] * shadowRay(jo[q], jd[q], jt[q], ov); }
+    return c;
+}
+
+// a reflected or refracted hit, shaded directly: no further rays (keeps the ray tracer non-recursive)
+fn rtShadeOnce(ro: vec3f, rd: vec3f, inWater: bool) -> vec3f {
+    let h = rtIntersect(ro, rd, false, inWater);
+    if (h.kind == 0u) { return rtMissRad(rd); }
+    var s = h.s;
+    let V = -rd;
+    if (dot(s.ng, V) < 0.0) { s.ng = -s.ng; s.n = -s.n; }
+    return h.emit + rtDirect(s, h.p, V, false, inWater);
+}
+
+fn rayMain(id: vec3u) {
+    let W = u.res.x; let H = u.res.y;
+    rngState = pcg(id.x + id.y * 9781u + u.res.z * 6271933u);
+    rngState = pcg(rngState ^ (u.res.z * 26699u));
+    let jit = rnd2();      // sub-pixel offset only: the temporal filter turns it into anti-aliasing
+    let ndc = vec2f((f32(id.x) + jit.x) / f32(W) * 2.0 - 1.0, 1.0 - (f32(id.y) + jit.y) / f32(H) * 2.0);
+    let pn = u.invViewProj * vec4f(ndc, -1.0, 1.0);
+    let pf = u.invViewProj * vec4f(ndc, 1.0, 1.0);
+    var ro = u.camPos.xyz;
+    var rd = normalize(pf.xyz / pf.w - pn.xyz / pn.w);
+    let fogD = u.p4.x;
+    var inWater = voxelAt(vec3i(floor(ro))) == WATER_ID && ro.y >= 0.0 && ro.y < 32.0;
+    var thr = vec3f(1.0);
+    var rad = vec3f(0.0);
+    var gAlb = vec3f(1.0); var gN = vec3f(0.0); var gPos = vec3f(0.0); var gHit = 0.0; var gDepth = 1e4; var gSpec = 0.0;
+    // reflection / refraction rays found along the chain: (weight, origin, direction, in water); shaded after the loop
+    var secW: array<vec3f, 8>; var secO: array<vec3f, 8>; var secD: array<vec3f, 8>; var secIn: array<f32, 8>;
+    var nSec = 0;
+    for (var b = 0; b < RT_CHAIN; b++) {
+        let h = rtIntersect(ro, rd, b == 0, inWater);
+        if (b == 0) { gAlb = h.gAlb; gN = h.gN; gPos = h.gPos; gHit = h.gHit; gDepth = h.gDepth; gSpec = h.gSpec; }
+        let segT = select(140.0, h.t, h.kind != 0u);
+        if (inWater) { thr *= exp(-vec3f(0.45, 0.09, 0.06) * segT); }
+        else if (fogD > 0.0 && u.env.w != 2u && !h.ov) {
+            let tr = exp(-fogD * segT);
+            rad += thr * (1.0 - tr) * envRadiance(normalize(vec3f(rd.x, max(rd.y, 0.02), rd.z))) * 0.6;
+            thr *= tr;
+        }
+        if (h.kind == 0u) { rad += thr * rtMissRad(rd); break; }
+        let V = -rd;
+        if (h.kind == 1u) {
+            rad += thr * (h.emit + rtDirect(h.s, h.p, V, h.ov, inWater));
+            // mirror-like reflection: metals (strength grows with smoothness) and smooth dielectrics
+            let f0 = mix(vec3f(0.04), h.s.albedo, h.s.metal);
+            let shine = mix(select(0.0, 1.0, h.s.rough < 0.15), (1.0 - h.s.rough) * (1.0 - h.s.rough), h.s.metal);
+            let wS = fresnel(f0, max(dot(h.s.n, V), 0.0)) * shine;
+            if (max(wS.x, max(wS.y, wS.z)) > 0.004) {
+                secW[nSec] = thr * wS; secO[nSec] = h.p + h.ng * 2e-3; secD[nSec] = reflect(rd, h.s.n);
+                secIn[nSec] = select(0.0, 1.0, inWater); nSec++;
+            }
+            break;
+        }
+        if (h.kind == 2u) {
+            // water: animated wave normal on the top faces, Fresnel split between reflection and refraction
+            var n = h.ng;
+            if ((u.res.w & F_WAVES) != 0u && abs(n.y) > 0.5) { let wn = waveNormal(h.p, u.p1.z); n = select(-wn, wn, n.y > 0.0); }
+            let F = fresnel(vec3f(0.02), clamp(dot(V, n), 0.0, 1.0)).x;
+            let refr = refract(rd, n, select(1.0 / 1.333, 1.333, h.wExit));
+            if (all(refr == vec3f(0.0))) {
+                secW[nSec] = thr; secO[nSec] = h.p + h.ng * 1e-3; secD[nSec] = reflect(rd, n);
+                secIn[nSec] = select(0.0, 1.0, inWater); nSec++;
+                break;
+            }
+            secW[nSec] = thr * F; secO[nSec] = h.p + h.ng * 1e-3; secD[nSec] = reflect(rd, n);
+            secIn[nSec] = select(0.0, 1.0, inWater); nSec++;
+            thr *= 1.0 - F;
+            ro = h.p - h.ng * 1e-3; rd = refr; inWater = !inWater;
+            continue;
+        }
+        // glass pane: Fresnel reflection, otherwise pass through the cell with its tint
+        let F = fresnel(vec3f(0.04), clamp(dot(V, h.ng), 0.0, 1.0)).x;
+        rad += thr * h.emit;
+        secW[nSec] = thr * F; secO[nSec] = h.p + h.ng * 1e-3; secD[nSec] = reflect(rd, h.ng);
+        secIn[nSec] = select(0.0, 1.0, inWater); nSec++;
+        thr *= (1.0 - F) * mix(vec3f(1.0), h.tx.rgb, clamp(h.tx.a + h.tint * 0.5, 0.0, 1.0) * 0.6);
+        let bt = boxT(h.p - rd * 1e-3, 1.0 / safeDir(rd), vec3f(h.cell), vec3f(h.cell) + vec3f(1.0));
+        ro = h.p - rd * 1e-3 + rd * (bt.y + 1e-3);
+    }
+    for (var q = 0; q < nSec; q++) { rad += secW[q] * rtShadeOnce(secO[q], secD[q], secIn[q] > 0.5); }
+    let px = vec2i(id.xy);
+    let alb = max(gAlb, vec3f(0.03));
+    var illum = rad / alb;
+    illum = select(illum, vec3f(0.0), illum != illum);
+    textureStore(outIllum, px, vec4f(min(illum, vec3f(60000.0)), 1.0));
+    textureStore(outAlbedo, px, vec4f(alb, 1.0 - gSpec));
+    textureStore(outNormal, px, vec4f(gN, gDepth));
+    textureStore(outPos, px, vec4f(gPos, gHit));
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id: vec3u) {
     let W = u.res.x; let H = u.res.y;
     if (id.x >= W || id.y >= H) { return; }
+    if ((u.res.w & F_RAYTRACE) != 0u) { rayMain(id); return; }
     rngState = pcg(id.x + id.y * 9781u + u.res.z * 6271933u);
     rngState = pcg(rngState ^ (u.res.z * 26699u));
     let flags = u.res.w;

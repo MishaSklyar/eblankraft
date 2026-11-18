@@ -148,6 +148,7 @@ class RTXGui {
             listen(ptF.add(this.ptState, 'gpu').name('GPU time / frame').disable());
             listen(ptF.add(this.ptState, 'res').name('Internal -> output').disable());
             listen(ptF.add(this.ptState, 'meshes').name('Ray-traced meshes').disable());
+            ptF.add(C, 'renderMode', { 'Path tracing (converges to clean)': 'path', 'Ray tracing (deterministic, no noise)': 'ray' }).name('Renderer').onChange(v => pt.setCfg('renderMode', v));
             ptF.add(this.ptState, 'preset', Object.keys(WebGPUPathTracer.PRESETS)).name('Quality preset').onChange(v => { pt.applyPreset(v); ptF.controllersRecursive().forEach(c => c.updateDisplay()); });
             ptCtl('scale', 0.25, 1, 0.05, 'Resolution scale');
             ptCtl('spp', 1, 16, 1, 'Samples / pixel / frame');
@@ -207,7 +208,7 @@ class RTXGui {
             camF.add(C, 'focusDistance', 0.5, 200, 0.1).name('Focus distance').onChange(v => pt.setCfg('focusDistance', v));
             ptF.add({ s: () => pt.screenshot() }, 's').name('Screenshot -> PNG');
             ptF.add({ r: () => pt.resetAccumulation() }, 'r').name('Restart accumulation');
-            ptF.add({ i: 'Stand still to converge to a noise-free image.' }, 'i').name('Note').disable();
+            ptF.add({ i: 'Path tracing: stand still to converge. Ray tracing: clean every frame, no bounce light.' }, 'i').name('Note').disable();
             for (const f of [envF, dnF, camF, geoF, postF, perfF]) f.close();
             if (!WebGPUPathTracer.isAvailable()) ptF.controllers.forEach(c => { if (c.property === 'on') c.disable(); });
         }
@@ -235,6 +236,8 @@ RTXGui.PRESETS = {
     Performance: { parts: ['pbr', 'sun', 'fog', 'env', 'aces', 'grade', 'sky'], cfg: { pomDepth: 0.6, targetFps: 60, bloomStrength: 0.45, aoRadius: 0.9 } },
     Balanced:    { parts: ['pbr', 'pom', 'sun', 'shadows', 'env', 'fog', 'ssao', 'bloom', 'godrays', 'sky', 'aces', 'grade', 'smaa'], cfg: { pomDepth: 1, targetFps: 30 } },
     Quality:     { parts: 'all', cfg: { pomDepth: 1.1, targetFps: 24, aoRadius: 1.3, bloomStrength: 0.7 } },
-    Cinematic:   { parts: 'all', pathTrace: true, ptCfg: { bounces: 5, denoise: true, volumetrics: true }, cfg: { pomDepth: 1.3, targetFps: 20, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
+    Cinematic:   { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'path', bounces: 5, denoise: true, volumetrics: true }, cfg: { pomDepth: 1.3, targetFps: 20, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } },
+    // Same WebGPU scene as Cinematic, but deterministic: sun / sky / emitter shadows, mirror reflections, refraction, no bounce light and no noise
+    'Ray tracing': { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'ray' }, cfg: { pomDepth: 1.3, targetFps: 40, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
 };
 window.RTXGui = RTXGui;
