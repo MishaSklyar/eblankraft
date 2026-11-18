@@ -20,7 +20,7 @@ for name in ('de_eblan2.zip',):
         shutil.copyfile(root / name, out / name)
     else:
         print(f'note: optional {name} not found, skipping')
-# Publish the edited main menu, not the legacy web/index.html or generated binaries.
+# Publish the edited main menu, not generated binaries.
 p = out / 'index.html'
 s = p.read_text().replace('https://eblancraft.tech/', 'https://eblancraftbeta.pages.dev/')
 p.write_text(s)

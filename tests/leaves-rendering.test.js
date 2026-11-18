@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('../js/three.min.js');
 
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: leaves use depth-tested cutouts in both graphics modes`, () => {
         const context = vm.createContext({ window: {}, THREE });
         vm.runInContext(fs.readFileSync(`${prefix}/textures.js`, 'utf8'), context);

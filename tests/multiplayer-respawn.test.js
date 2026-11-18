@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('../js/three.min.js');
 
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     const load = (file, extra = []) => {
         const c = vm.createContext({ THREE, console, localStorage: { getItem: () => null, setItem() {} }, setTimeout, clearTimeout, document: { getElementById: () => null, createElement: () => ({ getContext: () => ({}) }) } });
         c.window = c;

@@ -1,12 +1,3 @@
-# Ignore duplicated web/android asset copies
-web/** linguist-vendored
-android_pro/assets/** linguist-vendored
-android_project/assets/** linguist-vendored
-android_superlite/assets/** linguist-vendored
-dist_bundle/** linguist-vendored
-
 # Ignore generated standalone HTML bundles & build artifacts
 *standalone.html linguist-generated
-index_superlite.html linguist-generated
 eblan_core/target/** linguist-generated
-gamecube/build/** linguist-generated

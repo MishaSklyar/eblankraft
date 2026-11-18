@@ -15,7 +15,7 @@ function harness(directory, saved = {}) {
     for (const name of ['initThree', 'initManagers', 'initMods', 'initWorld', 'initPlayer', 'initControls', 'initUI', 'initLights', 'initSkyAndAtmosphere']) Game.prototype[name] = () => {};
     return { game: new Game(), values, context };
 }
-for (const directory of ['js', 'web/js']) {
+for (const directory of ['js']) {
     test(`${directory}: migrate old modes once, explicit preset wins on reload`, () => {
         const old = harness(directory, { eblankraft_turbofps: 'true', eblankraft_a02_mode: 'true' });
         assert.equal(old.game.graphicsPreset, 'low');

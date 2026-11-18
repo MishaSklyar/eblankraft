@@ -25,7 +25,7 @@ test('Dust2 stops lateral drift, turns directly, normalizes diagonals, and expir
     assert.ok(Math.abs(Math.hypot(p.vx, p.vz) - 7.2) < 1e-10);
     arena.move(p, 101, true); assert.ok(p.vx === 0 && p.vz === 0);
 });
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: prediction matches authority over actual carved Dust2 ground`, () => {
         const arena = new ArenaService(), { c } = client(DUST2_MAP, prefix);
         const p = player(...DUST2_MAP.spawns.T[0]);

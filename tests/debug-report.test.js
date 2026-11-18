@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-for (const directory of ['js', 'web/js']) {
+for (const directory of ['js']) {
     test(`${directory}: debug toggle samples frames and attaches only selected diagnostics`, async () => {
         const handlers = {};
         const toggle = { checked: false, addEventListener: (type, callback) => { handlers.toggle = callback; } };

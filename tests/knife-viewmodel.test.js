@@ -9,7 +9,7 @@ const DT = 1 / 60;
 const r2 = v => +v.toFixed(2);
 const wrapPi = a => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
 
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     function load() {
         const c = vm.createContext({ THREE, performance, console, ITEM_TYPES: {}, ITEM_REGISTRY: {
             knife_m9: { isKnife: true, isSword: true, icon: 'knife_m9' } },

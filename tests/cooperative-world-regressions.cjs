@@ -93,14 +93,14 @@ async function runVersion(prefix, clientFile, clientClass) {
 }
 async function main() {
     for (const name of ['game.js', 'player.js', 'multiplayer.js', 'ui.js', 'world.js', 'particles.js', 'arena_client.js', 'shared_world_client.js']) {
-        assert.equal(fs.readFileSync(path.join(root, 'js', name), 'utf8'), fs.readFileSync(path.join(root, 'web/js', name), 'utf8'));
+        assert.equal(fs.readFileSync(path.join(root, 'js', name), 'utf8'), fs.readFileSync(path.join(root, name), 'utf8'));
     }
-    for (const file of ['index.html', 'web/index.html']) {
+    for (const file of ['index.html', 'index.html']) {
         const html = fs.readFileSync(path.join(root, file), 'utf8');
         assert.ok(html.includes('id="btn-coop-join"'));
         assert.ok(html.indexOf('js/shared_world_client.js') < html.indexOf('js/game.js'));
     }
     await runVersion('js', 'shared_world_client.js', 'SharedWorldClient');
-    await runVersion('web/js', 'shared_world_client.js', 'SharedWorldClient');
+    await runVersion('js', 'shared_world_client.js', 'SharedWorldClient');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -65,5 +65,5 @@ test('greedy rectangles preserve exposed area for irregular carved geometry', ()
         }
     }
     assert.equal(rectanglesArea, pixelFaces / 64);
-    assert.equal(fs.readFileSync('js/world.js', 'utf8'), fs.readFileSync('web/js/world.js', 'utf8'));
+    assert.equal(fs.readFileSync('js/world.js', 'utf8'), fs.readFileSync('js/world.js', 'utf8'));
 });

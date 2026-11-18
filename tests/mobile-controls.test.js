@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 
-for (const dir of ['js', 'web/js']) {
+for (const dir of ['js']) {
     const controlsCode = fs.readFileSync(path.join(root, dir, 'controls.js'), 'utf8');
 
     function createEnv({ userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', maxTouchPoints = 0, coarse = false, fine = true } = {}) {

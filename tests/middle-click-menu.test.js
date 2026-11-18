@@ -13,7 +13,7 @@ function load(prefix) {
     vm.runInContext('this.Controls = Controls; this.Chunk = Chunk;', context);
     return context;
 }
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: creative middle menu applies gesture to original target, cancellation and survival are inert`, () => {
         const c = load(prefix), blocks = c.window.BLOCK_TYPES;
         const edits = [], broadcasts = [], opened = [];
@@ -70,7 +70,7 @@ for (const prefix of ['js', 'web/js']) {
     });
 }
 
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: mouse motion selects menu without rotating camera`, () => {
         const context = load(prefix);
         const source = fs.readFileSync(`${prefix}/controls.js`, 'utf8');
@@ -115,7 +115,7 @@ for (const prefix of ['js', 'web/js']) {
     });
 }
 
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: mobile TNT button opens editor in creative and preserves survival TNT`, () => {
         const c = load(prefix), handlers = {};
         c.document.getElementById = id => id === 'touch-zone-left' || id === 'touch-zone-right' ? { addEventListener() {} } : null;

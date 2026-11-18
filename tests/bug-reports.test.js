@@ -71,7 +71,7 @@ test('parallel reports reserve quota and cooldown expires', async () => {
     assert.equal((await reports.fetch(request())).status, 200);
 });
 
-for (const directory of ['js', 'web/js']) {
+for (const directory of ['js']) {
     test(directory + ': report form keeps failed drafts and prevents duplicate sends', async () => {
         const fs = require('node:fs'), vm = require('node:vm');
         const handlers = {};

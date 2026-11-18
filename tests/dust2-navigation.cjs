@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-for (const directory of ['js', 'web/js']) {
+for (const directory of ['js']) {
     const button = {};
     const input = { value: 'ws://localhost:8082/ws' };
     let socket, leftWorld = 0, modalOpened = false;

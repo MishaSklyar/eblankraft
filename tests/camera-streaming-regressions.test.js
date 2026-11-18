@@ -6,7 +6,7 @@ const { test } = require('node:test');
 const THREE = require('../js/three.min.js');
 const { streamingHarness } = require('./streaming-harness.cjs');
 
-for (const file of ['js/game.js', 'web/js/game.js']) {
+for (const file of ['js/game.js', 'js/game.js']) {
     test(`${file}: turning away preserves offscreen shadow casters`, () => {
         const context = vm.createContext({ window: {}, THREE, CHUNK_SIZE_X: 16, CHUNK_SIZE_Y: 32, CHUNK_SIZE_Z: 16 });
         vm.runInContext(fs.readFileSync(file, 'utf8'), context);

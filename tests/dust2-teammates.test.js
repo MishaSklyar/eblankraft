@@ -68,7 +68,7 @@ test('repeated joins and departures keep unique bot IDs and three slots per team
     }
     const bad = join('invalid'); assert.equal(bad.room, null); assert.equal(room.players.size, 6);
 });
-for (const prefix of ['js', 'web/js']) {
+for (const prefix of ['js']) {
     test(`${prefix}: teammate code copies the room/team and routes through the normal join UI`, async () => {
         let copied, connected;
         const context = vm.createContext({ window: {}, console, performance,
