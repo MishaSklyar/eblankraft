@@ -24,7 +24,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 const STATE = {
     time: 1, width: 1280, height: 720, fov: 72, hasGun: true, gun: 'ak47', ammo: 30, reloading: false,
-    spread: 0.02, spreadPx: 12, bloom: 0.1, moving: true, speed: 4.5, airborne: false, aiming: false,
+    spread: 0.02, spreadPx: 12, bloom: 0.1, recoil: 0, recoilPx: 0, moving: true, speed: 4.5, airborne: false, aiming: false,
     scoped: false, targetLocked: false, blockTarget: false, hitMarker: false, hitType: '',
     health: 100, maxHealth: 100, dead: false, menuOpen: false,
 };
@@ -106,6 +106,57 @@ function draw(c, s) c:circle(0, 0, s.spreadPx + param.size, "#ffffff") end`;
     assert.equal(run(ctx, src, { size: 999 }, { ...STATE, spreadPx: 0 }).ops[0].r, 40, 'settings are clamped to their range');
 });
 
+test('the live state carries the camera kick in radians and pixels, with or without a gun', () => {
+    const ctx = load();
+    // A player with no gun in hand: the recoil must still reach the script, because it is the camera kick.
+    const player = { camera: { fov: 72 }, velocity: { x: 0, y: 0, z: 0 }, timeSinceGrounded: 0, gunRecoilPitch: 0, getSelectedItem: () => null };
+    const drawn = [];
+    // Records every canvas call, so the test sees where the crosshair was drawn.
+    const canvas2d = new Proxy({}, {
+        get: (target, prop) => {
+            if (!(prop in target)) target[prop] = (...args) => drawn.push([prop, ...args]);
+            return target[prop];
+        },
+        set: (target, prop, value) => { target[prop] = value; return true; },
+    });
+    let nextFrame = null;
+    Object.assign(ctx, {
+        game: { player }, innerWidth: 1000, innerHeight: 800,
+        localStorage: { getItem: () => null, setItem() {} },
+        requestAnimationFrame: cb => { nextFrame = cb; return 1; },
+        cancelAnimationFrame() {},
+        document: {
+            body: { classList: { toggle() {} }, appendChild(el) { el.isConnected = true; } },
+            createElement: () => ({ isConnected: false, setAttribute() {}, getContext: () => canvas2d }),
+        },
+    });
+    const src = `function draw(c, s)
+  c:circle(0, -s.recoilPx, 1, "#ffffff")
+  c:text(0, 0, string.format("%.4f", s.recoil), 12, "#ffffff")
+end`;
+    ctx.CrosshairLua.apply({ name: 'Kick', author: '', src, values: {} }, true);
+    const frame = () => {
+        drawn.length = 0;
+        nextFrame(1000);
+        return { y: drawn.find(d => d[0] === 'arc')[2], radians: drawn.find(d => d[0] === 'fillText')[1] };
+    };
+    // The same conversion the engine uses for spreadPx: an angle at the camera's FOV, as a distance on a 800 px high screen.
+    const pixels = radians => Math.tan(radians) / Math.tan(72 * Math.PI / 360) * 800 / 2;
+
+    player.gunRecoilPitch = 0.02;
+    const kicked = frame();
+    assert.ok(Math.abs(kicked.y + pixels(0.02)) < 1e-9, `the crosshair is drawn up by the kick in pixels (y ${kicked.y.toFixed(3)})`);
+    assert.equal(kicked.radians, '0.0200', 'the script reads the same kick in radians');
+
+    player.gunRecoilPitch = 0.005;
+    assert.ok(Math.abs(frame().y + pixels(0.005)) < 1e-9, 'the crosshair settles back as the kick recovers');
+
+    player.gunRecoilPitch = 0;
+    const settled = frame();
+    assert.equal(Math.abs(settled.y), 0, 'the crosshair is back on the centre once the kick has recovered');
+    assert.equal(settled.radians, '0.0000');
+});
+
 test('invalid calls fail with a message that names the problem', () => {
     const ctx = load();
     assert.throws(() => run(ctx, 'function draw(c, s) c:circle(0, 0, 2, "red") end'), /invalid colour "red"/);
@@ -154,8 +205,8 @@ test('settings are parsed, sorted and checked', () => {
 test('every example compiles and draws in an idle and in a scoped, hitting state', () => {
     const ctx = load();
     const idle = STATE;
-    const scoped = { ...STATE, scoped: true, targetLocked: true, hitMarker: true, spreadPx: 45, hasGun: true, gun: 'awp' };
-    const none = { ...STATE, hasGun: false, gun: '', spreadPx: 0 };
+    const scoped = { ...STATE, scoped: true, targetLocked: true, hitMarker: true, spreadPx: 45, recoil: 0.05, recoilPx: 30, hasGun: true, gun: 'awp' };
+    const none = { ...STATE, hasGun: false, gun: '', spreadPx: 0, recoil: 0, recoilPx: 0 };
     for (const example of ctx.CROSSHAIR_EXAMPLES) {
         const engine = ctx.CrosshairLua.createEngine(ctx.fengari);
         engine.load(example.src);

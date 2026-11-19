@@ -124,6 +124,8 @@ Calls are recorded in order and drawn after `draw` returns, so later calls draw 
 | `spread` | number | The current bullet cone, radians. This is the real value the game uses. |
 | `spreadPx` | number | The same cone as a screen radius in pixels at the current FOV. |
 | `bloom` | number | Sustained-fire bloom, 0 (none) to 1 (maximum). |
+| `recoil` | number | The camera kick from recent shots that has not settled yet, radians. The kick pushes the view up and fades to 0 in about half a second. Reported with or without a gun. |
+| `recoilPx` | number | The same kick as a screen distance in pixels at the current FOV. Use it to move the crosshair with the recoil. |
 | `moving` | bool | Walking or running (horizontal speed above 0.3). |
 | `speed` | number | Horizontal speed, blocks per second. |
 | `airborne` | bool | Off the ground for more than 0.15 s. |
@@ -137,7 +139,7 @@ Calls are recorded in order and drawn after `draw` returns, so later calls draw 
 | `dead` | bool | The player is dead. |
 | `menuOpen` | bool | A menu or the inventory is open. |
 
-A typical pattern: use `s.spreadPx` for geometry, `s.targetLocked` and `s.hitMarker` for colour, and `s.time` for animation.
+A typical pattern: use `s.spreadPx` for geometry, `s.recoilPx` to move with the kick, `s.targetLocked` and `s.hitMarker` for colour, and `s.time` for animation.
 
 ---
 
@@ -191,6 +193,7 @@ The examples live in [`crosshairs/examples/`](../crosshairs/examples/) and are t
 | `hit_x.lua` | An X that turns red and grows on a hit. |
 | `brackets.lua` | Four corner brackets that open with the spread. |
 | `scope_mildots.lua` | A mil-dot reticle while the AWP scope is up. |
+| `recoil_follow.lua` | Four ticks that jump up with each shot's recoil and settle back, with the gap set by the real spread. A dot marks the aim point from before the kick. |
 | `anything.lua` | A spinning custom shape, a colour driven by the spread, and a text readout. |
 
 To change an example, edit the `.lua` file and run `python3 tools/build_crosshair_examples.py`.
@@ -217,6 +220,22 @@ if s.hitMarker then col = "#ff3b3b" end
 if s.scoped then
   -- draw the reticle
 end
+```
+
+**A crosshair that jumps up with the recoil**
+
+Negative `y` is up. The dot rides up with each shot's kick and settles back as the kick recovers.
+
+```lua
+c:circle(0, -s.recoilPx, 2, "#ffffff")
+```
+
+**A marker on the point you were aiming at before the kick**
+
+Before the kick, the aim point sat `s.recoilPx` below the centre. The marker slides up to the centre as the kick recovers.
+
+```lua
+c:circle(0, s.recoilPx, 2, "#ff3b3b")
 ```
 
 **A shape that rotates with time**
