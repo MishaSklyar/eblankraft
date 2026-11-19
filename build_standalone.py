@@ -32,6 +32,7 @@ js_files = [
     'js/ui.js',
     'js/mods.js',
     'js/eblan.js',
+    'js/eblanbench.js',
     'js/game.js'
 ]
 
