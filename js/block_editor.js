@@ -208,8 +208,8 @@
                 this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); this.renderer.setSize(300, 270);
                 this.previewHost.appendChild(this.renderer.domElement);
                 this.scene = new THREE.Scene(); this.camera = new THREE.PerspectiveCamera(40, 300 / 270, .1, 10);
-                this.angle = .8; this.scene.add(new THREE.AmbientLight(0xffffff, .8));
-                const light = new THREE.DirectionalLight(0xffffff, .7); light.position.set(2, 4, 3); this.scene.add(light);
+                this.angle = .8; this.scene.add(new THREE.AmbientLight(0xffffff, .8 * Math.PI));
+                const light = new THREE.DirectionalLight(0xffffff, .7 * Math.PI); light.position.set(2, 4, 3); this.scene.add(light);
                 this.group = new THREE.Group(); this.scene.add(this.group);
                 this.geometry = new THREE.BoxGeometry(1, 1, 1);
                 const canvas = this.renderer.domElement;

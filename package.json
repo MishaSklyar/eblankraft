@@ -5,7 +5,8 @@
   "description": "Node authority server using the original Eblan engine",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "build:three": "node tools/build_three.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -13,5 +14,9 @@
   "dependencies": {
     "headroom-ai": "^0.41.0",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "three": "^0.187.0"
   }
 }

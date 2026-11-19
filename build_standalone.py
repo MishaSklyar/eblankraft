@@ -7,7 +7,6 @@ with open(os.path.join(base_dir, 'css/style.css'), 'r', encoding='utf-8') as f:
 
 js_files = [
     'js/three.min.js',
-    'js/gltfloader.js',
     'js/Water.js',
     'js/eblan_eng.js',
     'js/noise.js',

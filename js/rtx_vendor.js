@@ -1797,7 +1797,7 @@
 			}
 
 			this.copyPass = new THREE.ShaderPass( THREE.CopyShader );
-			this.clock = new THREE.Clock();
+			this.clock = new THREE.Timer();
 
 		}
 
@@ -1856,6 +1856,7 @@
 			// deltaTime value is in seconds
 			if ( deltaTime === undefined ) {
 
+				this.clock.update();
 				deltaTime = this.clock.getDelta();
 
 			}
@@ -2843,9 +2844,7 @@
 			this.ssrMaterial.uniforms[ 'cameraProjectionMatrix' ].value.copy( this.camera.projectionMatrix );
 			this.ssrMaterial.uniforms[ 'cameraInverseProjectionMatrix' ].value.copy( this.camera.projectionMatrixInverse ); // normal material
 
-			this.normalMaterial = new THREE.MeshNormalMaterial( {
-				morphTargets
-			} );
+			this.normalMaterial = new THREE.MeshNormalMaterial();   // morph targets are detected automatically since r133
 			this.normalMaterial.blending = THREE.NoBlending; // metalnessOn material
 
 			this.metalnessOnMaterial = new THREE.MeshBasicMaterial( {
@@ -2943,7 +2942,7 @@
 		) {
 
 			// render beauty and depth
-			if ( this.encoding ) this.beautyRenderTarget.texture.encoding = this.encoding;
+			if ( this.encoding ) this.beautyRenderTarget.texture.colorSpace = this.encoding;
 			renderer.setRenderTarget( this.beautyRenderTarget );
 			renderer.clear();
 
@@ -3574,7 +3573,7 @@
 				depthBuffer: false,
 				generateMipmaps: false,
 				minFilter: THREE.LinearFilter,
-				format: THREE.RGBFormat
+				format: THREE.RGBAFormat
 			} );
 			this.edgesRT.texture.name = 'SMAAPass.edges';
 			this.weightsRT = new THREE.WebGLRenderTarget( width, height, {
@@ -3599,7 +3598,7 @@
 			this.areaTexture = new THREE.Texture();
 			this.areaTexture.name = 'SMAAPass.area';
 			this.areaTexture.image = areaTextureImage;
-			this.areaTexture.format = THREE.RGBFormat;
+			this.areaTexture.format = THREE.RGBAFormat;
 			this.areaTexture.minFilter = THREE.LinearFilter;
 			this.areaTexture.generateMipmaps = false;
 			this.areaTexture.flipY = false;
