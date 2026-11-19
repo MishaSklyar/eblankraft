@@ -153,6 +153,10 @@ class RTXGui {
             ptCtl('scale', 0.25, 1, 0.05, 'Resolution scale');
             ptCtl('spp', 1, 16, 1, 'Samples / pixel / frame');
             ptCtl('bounces', 1, 12, 1, 'Max bounces');
+            ptCtl('bounceDist', 0, 256, 8, 'Bounce ray reach (0 = unlimited)');
+            ptCtl('targetFps', 20, 144, 1, 'Dynamic res target FPS');
+            ptCtl('rtLights', 0, 8, 1, 'Ray tracing: shadowed lights');
+            ptCtl('rtSecondary', 1, 8, 1, 'Ray tracing: reflection rays');
             ptCtl('exposure', 0.1, 6, 0.01, 'Exposure');
             ptCtl('nightBoost', 1, 20, 0.5, 'Night exposure boost');
             const envF = ptF.addFolder('Environment / HDRI');
@@ -236,8 +240,11 @@ RTXGui.PRESETS = {
     Performance: { parts: ['pbr', 'sun', 'fog', 'env', 'aces', 'grade', 'sky'], cfg: { pomDepth: 0.6, targetFps: 60, bloomStrength: 0.45, aoRadius: 0.9 } },
     Balanced:    { parts: ['pbr', 'pom', 'sun', 'shadows', 'env', 'fog', 'ssao', 'bloom', 'godrays', 'sky', 'aces', 'grade', 'smaa'], cfg: { pomDepth: 1, targetFps: 30 } },
     Quality:     { parts: 'all', cfg: { pomDepth: 1.1, targetFps: 24, aoRadius: 1.3, bloomStrength: 0.7 } },
+    // Path tracing tuned to hold 60 fps: low internal res + dynamic res, 1 bounce with a short reach, light denoise
+    'Path tracing (fast)': { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'path', scale: 0.55, bounces: 1, atrous: 3, denoise: true, volumetrics: false, dynRes: true, targetFps: 60, bounceDist: 48, sharpen: 0.5 }, cfg: { targetFps: 60 } },
+    'Ray tracing (fast)': { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'ray', scale: 0.6, dynRes: true, targetFps: 60, rtLights: 3, rtSkyRays: 1, rtSecondary: 2, sharpen: 0.5 }, cfg: { targetFps: 60 } },
     Cinematic:   { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'path', bounces: 5, denoise: true, volumetrics: true }, cfg: { pomDepth: 1.3, targetFps: 20, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } },
     // Same WebGPU scene as Cinematic, but deterministic: sun / sky / emitter shadows, mirror reflections, refraction, no bounce light and no noise
-    'Ray tracing': { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'ray', scale: 0.85, dynRes: true, targetFps: 60 }, cfg: { pomDepth: 1.3, targetFps: 40, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
+    'Ray tracing': { parts: 'all', pathTrace: true, ptCfg: { renderMode: 'ray', scale: 0.85, dynRes: true, targetFps: 60, rtLights: 5, rtSkyRays: 2, rtSecondary: 4 }, cfg: { pomDepth: 1.3, targetFps: 40, aoRadius: 1.6, aoIntensity: 1.5, bloomStrength: 0.95, godrayStrength: 1.6, contrast: 1.14, vibrance: 0.3, sunElevation: 14 } }
 };
 window.RTXGui = RTXGui;

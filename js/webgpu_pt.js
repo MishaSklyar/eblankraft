@@ -1144,14 +1144,19 @@ class WebGPUPathTracer {
         const cfg = this.cfg;
         if (dtMs > 0 && dtMs < 1000) this._fpsEma = this._fpsEma ? this._fpsEma * 0.9 + (1000 / dtMs) * 0.1 : 1000 / dtMs;
         this.fps = this._fpsEma;
-        if (!cfg.dynRes || !moving) return;
+        if (!cfg.dynRes) return;
         this._dynT += dtMs;
-        if (this._dynT < 700) return;
+        if (this._dynT < (moving ? 250 : 1000)) return;
         this._dynT = 0;
-        const tgt = cfg.targetFps || 30;
+        const budget = 1000 / (cfg.targetFps || 30);
+        // GPU time is the real cost (fps is capped by vsync and the game loop); pixel count scales with s^2
+        const cost = this.gpuMs > 0 ? this.gpuMs : (this._fpsEma > 0 ? 1000 / this._fpsEma : budget);
         let s = this._dynScale;
-        if (this._fpsEma < tgt * 0.9) s = Math.max(0.35, s - 0.07);
-        else if (this._fpsEma > tgt * 1.2) s = Math.min(1, s + 0.05);
+        if (cost > budget * 0.95) s *= Math.max(0.8, Math.sqrt(budget * 0.85 / cost));
+        else if (cost < budget * 0.7) s *= Math.min(1.06, Math.sqrt(budget * 0.8 / cost));
+        s = Math.max(0.35, Math.min(1, s));
+        // quantise so tiny changes do not reallocate every render target
+        s = Math.round(s * 40) / 40;
         if (Math.abs(s - this._dynScale) > 1e-3) { this._dynScale = s; }
     }
 
@@ -1165,9 +1170,9 @@ class WebGPUPathTracer {
         const cam = g.camera;
         cam.updateMatrixWorld();
         const vp = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-        const camKey = Array.from(vp.elements, x => x.toFixed(5)).join(',');
-        const moving = camKey !== this._lastCamKey;
-        this._lastCamKey = camKey;
+        const last = this._lastVP || (this._lastVP = new Float64Array(16).fill(NaN));
+        let moving = false;
+        for (let i = 0; i < 16; i++) { if (Math.abs(vp.elements[i] - last[i]) > 1e-5 || last[i] !== last[i]) moving = true; last[i] = vp.elements[i]; }
         this.updateDynamicResolution(dtMs, moving);
 
         this.ensureTargets();
@@ -1232,9 +1237,9 @@ class WebGPUPathTracer {
         Uu[64] = this.hdri ? this.hdri.cw : 1; Uu[65] = this.hdri ? this.hdri.ch : 1; Uu[66] = this.hdri ? 1 : 0; Uu[67] = dimId;
         const fovY = (cam.fov || 70) * Math.PI / 180;
         F[68] = this.hdri ? this.hdri.funcAvg : 1; F[69] = cfg.waves ? 1 : 0; F[70] = 2 * Math.tan(fovY / 2) / this.h; F[71] = Math.max(1, Math.min(16, cfg.spp | 0));
-        F[72] = e[0]; F[73] = e[1]; F[74] = e[2]; F[75] = 0;
-        F[76] = e[4]; F[77] = e[5]; F[78] = e[6]; F[79] = 0;
-        F[80] = -e[8]; F[81] = -e[9]; F[82] = -e[10]; F[83] = 0;
+        F[72] = e[0]; F[73] = e[1]; F[74] = e[2]; F[75] = Math.max(0, +cfg.bounceDist || 0);
+        F[76] = e[4]; F[77] = e[5]; F[78] = e[6]; F[79] = Math.max(0, Math.min(8, cfg.rtLights | 0));
+        F[80] = -e[8]; F[81] = -e[9]; F[82] = -e[10]; F[83] = Math.max(1, Math.min(8, cfg.rtSecondary | 0)) + (cfg.rtSkyRays === 1 ? 16 : 0);
         F[84] = dimId === 1 ? cfg.fog * 4 : cfg.fog; F[85] = cfg.normalStrength; F[86] = this.outW; F[87] = this.outH;
         Uu[88] = mc[0]; Uu[89] = mc[1]; Uu[90] = mc[2]; Uu[91] = mc[3];
         F[92] = dimId === 0 && !this.hdri ? cfg.clouds : 0; F[93] = cloudTime; F[94] = cfg.cloudShadows ? 1 : 0; F[95] = cfg.translucency ? 1 : 0;
@@ -1245,7 +1250,7 @@ class WebGPUPathTracer {
         if (rt) this.updateRtLights(cam);
 
         const P = this._pipelines, par = this.frame & 1;
-        const ts = this.hasTimestamps && !this._tsBusy && (this.frame % 20) === 0;
+        const ts = this.hasTimestamps && !this._tsBusy && (this.frame % 8) === 0;
         if (skyChanged && !this.hdri) {
             this._skyKey = skyKey;
             const p = enc.beginComputePass(); p.setPipeline(P.sk); p.setBindGroup(0, this.skyBG); p.dispatchWorkgroups(128, 64); p.end();
@@ -1363,15 +1368,20 @@ WebGPUPathTracer.CFG_DEFAULTS = {
     dof: false, autoFocus: true, aperture: 0.06, focusDistance: 8, letterbox: false,
     autoExposure: true, exposureComp: 0, adaptSpeed: 2.5, tonemap: 'agx', bloom: 0.05, chromatic: 0.0004, grain: 0.025, sharpen: 0.35, vignette: 0.22,
     dynRes: false, targetFps: 40,
+    bounceDist: 0, rtLights: 8, rtSkyRays: 2, rtSecondary: 8,
     renderMode: 'path'      // 'path' = Monte Carlo path tracing (converges); 'ray' = deterministic ray tracing (no noise)
 };
 // settings that only change the post-processing (no accumulation restart)
 WebGPUPathTracer.POST_KEYS = ['exposure', 'nightBoost', 'autoExposure', 'exposureComp', 'adaptSpeed', 'tonemap', 'bloom', 'chromatic', 'grain', 'sharpen', 'vignette', 'letterbox', 'dynRes', 'targetFps'];
 WebGPUPathTracer.PRESETS = {
-    'Fast (RTX 3060 @ 1080p)': { scale: 0.67, spp: 1, bounces: 2, atrous: 4, volumetrics: true, meshes: true, dynRes: true, targetFps: 45, temporalAlpha: 0.15 },
-    'Balanced': { scale: 0.85, spp: 1, bounces: 3, atrous: 5, volumetrics: true, meshes: true, dynRes: true, targetFps: 30, temporalAlpha: 0.12 },
-    'Ultra': { scale: 1, spp: 1, bounces: 5, atrous: 5, volumetrics: true, meshes: true, dynRes: false, temporalAlpha: 0.1 },
-    'Offline photo (stand still)': { scale: 1, spp: 4, bounces: 8, atrous: 3, volumetrics: true, meshes: true, dynRes: false, maxFrames: 16384, temporalAlpha: 0.1 }
+    'Fast (RTX 3060 @ 1080p)': { scale: 0.55, spp: 1, bounces: 1, atrous: 3, volumetrics: false, meshes: true, dynRes: true, targetFps: 60, temporalAlpha: 0.12,
+        bounceDist: 48, rtLights: 3, rtSkyRays: 1, rtSecondary: 2, sharpen: 0.5 },
+    'Balanced': { scale: 0.75, spp: 1, bounces: 2, atrous: 4, volumetrics: true, meshes: true, dynRes: true, targetFps: 45, temporalAlpha: 0.12,
+        bounceDist: 96, rtLights: 5, rtSkyRays: 2, rtSecondary: 4, sharpen: 0.4 },
+    'Ultra': { scale: 1, spp: 1, bounces: 5, atrous: 5, volumetrics: true, meshes: true, dynRes: false, temporalAlpha: 0.1,
+        bounceDist: 0, rtLights: 8, rtSkyRays: 2, rtSecondary: 8, sharpen: 0.35 },
+    'Offline photo (stand still)': { scale: 1, spp: 4, bounces: 8, atrous: 3, volumetrics: true, meshes: true, dynRes: false, maxFrames: 16384, temporalAlpha: 0.1,
+        bounceDist: 0, rtLights: 8, rtSkyRays: 2, rtSecondary: 8 }
 };
 WebGPUPathTracer.HDRI_PRESETS = {
     'Venice sunset': 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/equirectangular/venice_sunset_1k.hdr',
@@ -1398,9 +1408,9 @@ struct U {
     p2: vec4f,            // temporal alpha min, history cap, hdri intensity, emitter count
     env: vec4u,           // cdf w, cdf h, importance, dimension
     p3: vec4f,            // func avg, waves, pixel angle, spp
-    camRight: vec4f,
-    camUp: vec4f,
-    camFwd: vec4f,
+    camRight: vec4f,      // w: bounce ray distance cap (0 = none)
+    camUp: vec4f,         // w: ray tracing light count
+    camFwd: vec4f,        // w: ray tracing secondary ray cap (+16: one sky ray)
     p4: vec4f,            // fog density, normal strength, out w, out h
     mesh: vec4u,          // tlas offset, material offset, world instances, overlay instances (vec4 units in the scene buffer)
     p6: vec4f,            // cloud cover, cloud time, cloud shadows, translucency
@@ -2245,10 +2255,11 @@ fn rtDirect(s: Surf, p: vec3f, V: vec3f, ov: bool, inWater: bool, full: bool) ->
         let skyRad = mix(skyHor, skyUp, clamp(0.5 + 0.5 * s.n.y, 0.0, 1.0));
         let skyW = 0.5 * s.albedo * (1.0 - s.metal) * (1.0 - s.trans) * skyRad;
         jo[jn] = po; jd[jn] = up; jt[jn] = 1e4; jw[jn] = skyW; jn++;
-        jo[jn] = po; jd[jn] = normalize(s.ng * 0.5 + up); jt[jn] = 1e4; jw[jn] = skyW; jn++;
+        if ((u32(u.camFwd.w) & 16u) != 0u) { jw[jn - 1] = skyW * 2.0; }
+        else { jo[jn] = po; jd[jn] = normalize(s.ng * 0.5 + up); jt[jn] = 1e4; jw[jn] = skyW; jn++; }
     }
     // emitters: the nearest lights, each shadowed, with a point-light falloff matching the path tracer's
-    let nL = select(0u, min(u32(rtLights[0].x), RT_LIGHTS), full);
+    let nL = select(0u, min(min(u32(rtLights[0].x), RT_LIGHTS), u32(u.camUp.w)), full);
     for (var k = 1u; k <= nL; k++) {
         let e = rtLights[k];
         let dv = e.xyz + vec3f(0.5) - p;
@@ -2345,7 +2356,8 @@ fn rayMain(id: vec3u) {
         let bt = boxT(h.p - rd * 1e-3, 1.0 / safeDir(rd), vec3f(h.cell), vec3f(h.cell) + vec3f(1.0));
         ro = h.p - rd * 1e-3 + rd * (bt.y + 1e-3);
     }
-    for (var q = 0; q < nSec; q++) { rad += secW[q] * rtShadeOnce(secO[q], secD[q], secIn[q] > 0.5); }
+    let secCap = min(nSec, i32(u32(u.camFwd.w) & 15u));
+    for (var q = 0; q < secCap; q++) { rad += secW[q] * rtShadeOnce(secO[q], secD[q], secIn[q] > 0.5); }
     let px = vec2i(id.xy);
     let alb = max(gAlb, vec3f(0.03));
     var illum = rad / alb;
@@ -2396,16 +2408,17 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         for (var b = 0; b <= maxB; b++) {
             let lod0 = log2(max(1e-4, coneW) * 64.0);
             // the pinhole primary ray sees the weapon in focus even with DOF on
-            var mh = traceMeshes(select(ro, u.camPos.xyz, b == 0), select(rd, rdPin, b == 0), 1e4, onOverlay, false);
+            let tCap = select(1e4, u.camRight.w, b > 0 && u.camRight.w > 0.0);
+            var mh = traceMeshes(select(ro, u.camPos.xyz, b == 0), select(rd, rdPin, b == 0), tCap, onOverlay, false);
             let ovHit = mh.ok && mh.inst >= u.mesh.z;
             if (ovHit && b == 0) { ro = u.camPos.xyz; rd = rdPin; }
-            let hit = march(ro, rd, select(mh.t, 1e4, ovHit || !mh.ok), select(0u, 1u, inWater), lod0);
+            let hit = march(ro, rd, select(mh.t, tCap, ovHit || !mh.ok), select(0u, 1u, inWater), lod0);
             let useMesh = mh.ok && (ovHit || !hit.ok || mh.t < hit.t);
             let segT = select(select(140.0, hit.t, hit.ok), mh.t, useMesh);
             if (inWater) { thr *= exp(-vec3f(0.45, 0.09, 0.06) * segT); }
             else if (fogD > 0.0 && u.env.w != 2u && !ovHit) {
                 let tr = exp(-fogD * segT);
-                if ((flags & F_VOL) != 0u && b < 2 && !hdri) {
+                if ((flags & F_VOL) != 0u && b == 0 && !hdri) {
                     let s = -log(1.0 - rnd() * (1.0 - tr)) / fogD;
                     let q = ro + rd * s;
                     let ld = normalize(u.sunDir.xyz);
@@ -2576,7 +2589,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             thr *= fb.rgb / fb.w;
             prevPdf = fb.w;
             ro = select(po, pb, dot(L, s.ng) < 0.0); rd = L;
-            if (b >= 2) {
+            if (b >= 1) {
                 let q = clamp(max(thr.x, max(thr.y, thr.z)), 0.05, 0.95);
                 if (rnd() > q) { break; }
                 thr /= q;
