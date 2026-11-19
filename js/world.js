@@ -133,6 +133,201 @@ function blockFaceUV(f, x, y, z) {
 const REUSABLE_SLICE_MASK = new Array(512);
 const REUSABLE_WATER_MASK = new Uint8Array(CHUNK_SIZE_X * CHUNK_SIZE_Z);
 
+// Potato batching. On the Low preset every chunk material is a plain white MeshBasicMaterial with one 16x16 texture,
+// which used to cost one draw call per block type per chunk (5-30 each). Those textures are copied into one shared
+// atlas and each chunk is drawn with one material per render state (opaque, cutout, blended...). Greedy quads keep
+// their repeating UVs: the shader wraps them with fract() inside the tile, which is what RepeatWrapping did.
+const CHUNK_ATLAS_ANIMATED = /water|portal/;
+const CHUNK_ATLAS_SCROLLING = /lava/;   // one texture whose offset scrolls every frame: its tiles follow it in the shader
+class ChunkAtlas {
+    constructor(createCanvas) {
+        this.createCanvas = createCanvas || (() => document.createElement('canvas'));
+        this.tile = 16;
+        this.cols = 32;
+        this.rows = 4;
+        this.maxRows = 128;              // 512 x 2048 at most, inside every WebGL2 GPU's limits
+        this.count = 0;
+        this.tiles = new Map();          // source texture -> { index, image, version }
+        this.materials = new Map();      // render-state key -> atlas material
+        this.colorSpace = null;
+        this.canvas = this.createCanvas();
+        this.canvas.width = this.cols * this.tile;
+        this.canvas.height = this.rows * this.tile;
+        this.ctx = this.canvas.getContext('2d');
+        if (this.ctx) this.ctx.imageSmoothingEnabled = false;
+        this.texture = new THREE.CanvasTexture(this.canvas);
+        this.texture.flipY = false;
+        this.texture.magFilter = THREE.NearestFilter;
+        this.texture.minFilter = THREE.NearestFilter;
+        this.texture.generateMipmaps = false;
+        this.texture.wrapS = this.texture.wrapT = THREE.ClampToEdgeWrapping;
+        this.grid = { value: new THREE.Vector2(this.cols, this.rows) };
+        this.inset = { value: 0.5 / this.tile };
+        this.scrollTexture = null;
+        this.scroll = { value: new THREE.Vector2() };   // becomes the scrolling texture's own offset vector
+    }
+
+    isScrolling(t) {
+        return CHUNK_ATLAS_SCROLLING.test(t.userData?.key || '') && (!this.scrollTexture || this.scrollTexture === t);
+    }
+
+    static isDefaultHook(fn) {
+        return !fn || fn === THREE.Material.prototype.onBeforeCompile;
+    }
+
+    // Only textures that look exactly the same through the atlas: static, untransformed, nearest-filtered, tile-sized.
+    eligible(m) {
+        const t = m && m.map;
+        if (!m.isMeshBasicMaterial || !t || !t.image || !this.ctx) return false;
+        if (m.envMap || m.alphaMap || m.aoMap || m.lightMap || m.specularMap || m.wireframe) return false;
+        if (m.blending !== THREE.NormalBlending || !ChunkAtlas.isDefaultHook(m.onBeforeCompile)) return false;
+        if (m.color && (m.color.r !== 1 || m.color.g !== 1 || m.color.b !== 1)) return false;
+        if (t.isVideoTexture || CHUNK_ATLAS_ANIMATED.test(t.userData?.key || '') || t.userData?.animated) return false;
+        if (((t.offset.x || t.offset.y) && !this.isScrolling(t)) || t.repeat.x !== 1 || t.repeat.y !== 1 || t.rotation || !t.flipY) return false;
+        if (t.magFilter !== THREE.NearestFilter || t.minFilter !== THREE.NearestFilter) return false;
+        if (t.image.width !== this.tile || t.image.height !== this.tile) return false;
+        if (this.colorSpace !== null && t.colorSpace !== this.colorSpace) return false;
+        return true;
+    }
+
+    grow() {
+        if (this.rows * 2 > this.maxRows) return false;
+        const old = this.canvas;
+        this.rows *= 2;
+        this.canvas = this.createCanvas();
+        this.canvas.width = this.cols * this.tile;
+        this.canvas.height = this.rows * this.tile;
+        this.ctx = this.canvas.getContext('2d');
+        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.drawImage(old, 0, 0);
+        this.texture.dispose();          // immutable GPU storage: the bigger image needs a fresh texture object
+        this.texture.image = this.canvas;
+        this.texture.needsUpdate = true;
+        this.grid.value.set(this.cols, this.rows);
+        return true;
+    }
+
+    // Atlas cell of a material's texture, or -1 when it has to keep its own draw call.
+    tileFor(m) {
+        if (!this.eligible(m)) return -1;
+        const t = m.map;
+        let entry = this.tiles.get(t);
+        if (!entry) {
+            if (this.count >= this.cols * this.rows && !this.grow()) return -1;
+            entry = { index: this.count++, image: null, version: -1 };
+            this.tiles.set(t, entry);
+            if (this.colorSpace === null) { this.colorSpace = t.colorSpace; this.texture.colorSpace = t.colorSpace; }
+            if (this.isScrolling(t)) { this.scrollTexture = t; this.scroll.value = t.offset; entry.scrolls = true; }
+        }
+        if (entry.image !== t.image || entry.version !== t.version) {   // first use, or a pack / mod redrew it
+            const x = (entry.index % this.cols) * this.tile, y = Math.floor(entry.index / this.cols) * this.tile;
+            this.ctx.clearRect(x, y, this.tile, this.tile);
+            this.ctx.drawImage(t.image, x, y, this.tile, this.tile);
+            entry.image = t.image;
+            entry.version = t.version;
+            this.texture.needsUpdate = true;
+        }
+        return entry.index;
+    }
+
+    materialFor(m) {
+        const key = [m.transparent, m.opacity, m.alphaTest, m.side, m.depthWrite, m.depthTest, m.colorWrite,
+            m.polygonOffset, m.polygonOffsetFactor, m.polygonOffsetUnits, m.fog, m.toneMapped].join('|');
+        let mat = this.materials.get(key);
+        if (!mat) {
+            mat = new THREE.MeshBasicMaterial({
+                map: this.texture, vertexColors: true, transparent: m.transparent, opacity: m.opacity,
+                alphaTest: m.alphaTest, side: m.side, depthWrite: m.depthWrite, depthTest: m.depthTest,
+                colorWrite: m.colorWrite, polygonOffset: m.polygonOffset, polygonOffsetFactor: m.polygonOffsetFactor,
+                polygonOffsetUnits: m.polygonOffsetUnits, fog: m.fog, toneMapped: m.toneMapped
+            });
+            mat.name = 'chunkAtlas';
+            mat.userData.chunkAtlas = true;
+            mat.basicCounterpart = mat;
+            const grid = this.grid, inset = this.inset, scroll = this.scroll;
+            mat.onBeforeCompile = (shader) => {
+                shader.uniforms.atlasGrid = grid;
+                shader.uniforms.atlasInset = inset;
+                shader.uniforms.atlasScroll = scroll;
+                // atlasTile < 0 marks a tile of the scrolling texture: -(index + 1)
+                shader.vertexShader = 'attribute float atlasTile;\nuniform vec2 atlasGrid;\nuniform vec2 atlasScroll;\nvarying highp vec2 vAtlasOrigin;\nvarying highp vec2 vAtlasScroll;\n' +
+                    shader.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>
+                    float atlasIndex = atlasTile < 0.0 ? -atlasTile - 1.0 : atlasTile;
+                    vAtlasScroll = atlasTile < 0.0 ? atlasScroll : vec2(0.0);
+                    float atlasRow = floor((atlasIndex + 0.5) / atlasGrid.x);
+                    vAtlasOrigin = vec2(atlasIndex - atlasRow * atlasGrid.x, atlasRow) / atlasGrid;`);
+                shader.fragmentShader = 'uniform vec2 atlasGrid;\nuniform float atlasInset;\nvarying highp vec2 vAtlasOrigin;\nvarying highp vec2 vAtlasScroll;\n' +
+                    shader.fragmentShader.replace('#include <map_fragment>', `#ifdef USE_MAP
+                    highp vec2 atlasCell = clamp(fract(vMapUv + vAtlasScroll), vec2(atlasInset), vec2(1.0 - atlasInset));
+                    vec4 sampledDiffuseColor = texture2D(map, vAtlasOrigin + vec2(atlasCell.x, 1.0 - atlasCell.y) / atlasGrid);
+                    diffuseColor *= sampledDiffuseColor;
+                    #endif`);
+            };
+            mat.customProgramCacheKey = () => 'chunkAtlas2';
+            this.materials.set(key, mat);
+        }
+        return mat;
+    }
+
+    // Reorders a non-indexed chunk mesh so every atlas-compatible group with the same render state is contiguous.
+    // Returns null when batching would not save a draw call.
+    batch(positions, normals, uvs, colors, groups, materials) {
+        const buckets = new Map();
+        let atlasGroups = 0;
+        for (const g of groups) {
+            if (!g.count) continue;
+            const m = materials[g.materialIndex];
+            const tile = m ? this.tileFor(m) : -1;
+            const key = tile < 0 ? 'own:' + g.materialIndex : 'atlas:' + this.materialFor(m).uuid;
+            let b = buckets.get(key);
+            if (!b) { b = { material: tile < 0 ? m : this.materialFor(m), ranges: [], count: 0 }; buckets.set(key, b); }
+            const code = tile < 0 ? 0 : (this.tiles.get(m.map).scrolls ? -tile - 1 : tile);
+            b.ranges.push(g.start, g.count, code);
+            b.count += g.count;
+            if (tile >= 0) atlasGroups++;
+        }
+        if (atlasGroups < 2 || buckets.size >= groups.length) return null;
+        let total = 0;
+        for (const b of buckets.values()) total += b.count;
+        const keepNormals = !!normals && [...buckets.values()].some(b => !b.material || !b.material.isMeshBasicMaterial);
+        const outPos = new Float32Array(total * 3), outUv = new Float32Array(total * 2);
+        const outCol = new Float32Array(total * 3), outTile = new Float32Array(total);
+        const outNor = keepNormals ? new Float32Array(total * 3) : null;
+        const outGroups = [], outMaterials = [];
+        let v = 0;
+        for (const b of buckets.values()) {
+            const start = v;
+            for (let i = 0; i < b.ranges.length; i += 3) {
+                const s = b.ranges[i], n = b.ranges[i + 1], tile = b.ranges[i + 2];
+                outPos.set(positions.subarray(s * 3, (s + n) * 3), v * 3);
+                outCol.set(colors.subarray(s * 3, (s + n) * 3), v * 3);
+                outUv.set(uvs.subarray(s * 2, (s + n) * 2), v * 2);
+                if (outNor) outNor.set(normals.subarray(s * 3, (s + n) * 3), v * 3);
+                if (tile !== 0) outTile.fill(tile, v, v + n);
+                v += n;
+            }
+            outGroups.push({ start, count: b.count, materialIndex: outMaterials.length });
+            outMaterials.push(b.material);
+        }
+        return { positions: outPos, normals: outNor, uvs: outUv, colors: outCol, tiles: outTile, groups: outGroups, materials: outMaterials };
+    }
+
+    static enabled() {
+        try { if (localStorage.getItem('eblankraft_chunk_atlas') === '0') return false; } catch (e) {}
+        return typeof document !== 'undefined' && !!document.createElement;
+    }
+
+    static of(textureManager) {
+        if (!textureManager) return null;
+        if (textureManager._chunkAtlas === undefined) {
+            try { textureManager._chunkAtlas = ChunkAtlas.enabled() ? new ChunkAtlas() : null; }
+            catch (e) { textureManager._chunkAtlas = null; }
+            if (textureManager._chunkAtlas && !textureManager._chunkAtlas.ctx) textureManager._chunkAtlas = null;
+        }
+        return textureManager._chunkAtlas;
+    }
+}
+
 class Chunk {
     constructor(cx, cz, world) {
         this.cx = cx;
@@ -1014,6 +1209,20 @@ class Chunk {
             }
             geom.setAttribute('color', new THREE.BufferAttribute(faceColors, 3));
 
+            let meshMaterials = finalMaterials;
+            const atlas = isTurboOrA02 ? ChunkAtlas.of(textureManager) : null;
+            const batched = atlas && atlas.batch(combinedPositions, combinedNormals, combinedUVs, faceColors, groups, finalMaterials);
+            if (batched) {
+                geom.setAttribute('position', new THREE.BufferAttribute(batched.positions, 3));
+                if (batched.normals) geom.setAttribute('normal', new THREE.BufferAttribute(batched.normals, 3));
+                else geom.deleteAttribute('normal');   // unlit basic materials never read normals: less vertex bandwidth
+                geom.setAttribute('uv', new THREE.BufferAttribute(batched.uvs, 2));
+                geom.setAttribute('color', new THREE.BufferAttribute(batched.colors, 3));
+                geom.setAttribute('atlasTile', new THREE.BufferAttribute(batched.tiles, 1));
+                groups = batched.groups;
+                meshMaterials = batched.materials;
+            }
+
             for (let g of groups) {
                 geom.addGroup(g.start, g.count, g.materialIndex);
             }
@@ -1024,12 +1233,12 @@ class Chunk {
             if (this.mesh) {
                 if (this.mesh.geometry) this.mesh.geometry.dispose();
                 this.mesh.geometry = geom;
-                this.mesh.material = finalMaterials;
+                this.mesh.material = meshMaterials;
                 this.mesh.visible = true;
                 this.mesh.castShadow = shadowsOn && !isTurboOrA02;
                 this.mesh.receiveShadow = shadowsOn && !isTurboOrA02;
             } else {
-                this.mesh = new THREE.Mesh(geom, finalMaterials);
+                this.mesh = new THREE.Mesh(geom, meshMaterials);
                 this.mesh.castShadow = shadowsOn && !isTurboOrA02;
                 this.mesh.receiveShadow = shadowsOn && !isTurboOrA02;
                 this.mesh.frustumCulled = true;
@@ -3803,6 +4012,7 @@ class VoxelWorld {
 }
 
 window.VoxelWorld = VoxelWorld;
+window.ChunkAtlas = ChunkAtlas;
 window.CHUNK_SIZE_X = CHUNK_SIZE_X;
 window.CHUNK_SIZE_Y = CHUNK_SIZE_Y;
 window.CHUNK_SIZE_Z = CHUNK_SIZE_Z;
