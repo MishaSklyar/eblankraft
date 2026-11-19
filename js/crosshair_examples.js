@@ -43,6 +43,12 @@ window.CROSSHAIR_EXAMPLES = [
   "src": "-- @name Minimal dot\n-- @author Eblankraft\n-- The smallest valid Lua crosshair: one dot in the middle of the screen.\n\nfunction draw(c, s)\n  c:circle(0, 0, 2, \"#ffffff\")\nend\n"
  },
  {
+  "id": "recoil_follow",
+  "name": "Recoil follow",
+  "author": "Eblankraft",
+  "src": "-- @name Recoil follow\n-- @author Eblankraft\n-- Four ticks that jump up with the camera kick of each shot and settle back as it recovers.\n-- The gap is the real bullet spread. The dot is the point you were aiming at before the kick.\n\nparams = {\n  size  = { label = \"Tick length\", type = \"number\", min = 2, max = 30, default = 6, order = 1 },\n  thick = { label = \"Thickness\", type = \"number\", min = 1, max = 6, default = 2, order = 2 },\n  color = { label = \"Colour\", type = \"color\", default = \"#ffffff\", order = 3 },\n  aim   = { label = \"Show aim point\", type = \"bool\", default = true, order = 4 },\n}\n\nfunction draw(c, s)\n  local up = -s.recoilPx                 -- negative y is up: the ticks ride up with the kick\n  local gap = math.max(3, math.min(s.spreadPx, 200))\n  local l, t, col = param.size, param.thick, param.color\n  local top = up - gap\n  c:line(0, top, 0, top - l, t, col)\n  c:line(0, up + gap, 0, up + gap + l, t, col)\n  c:line(-gap, up, -(gap + l), up, t, col)\n  c:line(gap, up, gap + l, up, t, col)\n  if param.aim then\n    -- Before the kick, the aim point was this far below the centre. It slides up to the centre as the kick recovers.\n    c:circle(0, s.recoilPx, 1.5, col)\n  end\nend\n"
+ },
+ {
   "id": "scope_mildots",
   "name": "Scope mil-dots",
   "author": "Eblankraft",

@@ -458,7 +458,7 @@ return table.concat(out, '\\n')`;
     function blankState(time = 0, W = 1280, H = 720) {
         return {
             time, width: W, height: H, fov: 72,
-            hasGun: false, gun: '', ammo: 0, reloading: false, spread: 0, spreadPx: 0, bloom: 0,
+            hasGun: false, gun: '', ammo: 0, reloading: false, spread: 0, spreadPx: 0, bloom: 0, recoil: 0, recoilPx: 0,
             moving: false, speed: 0, airborne: false, aiming: false, scoped: false,
             targetLocked: false, blockTarget: false, hitMarker: false, hitType: '',
             health: 0, maxHealth: 100, dead: false, menuOpen: false,
@@ -478,6 +478,11 @@ return table.concat(out, '\\n')`;
         const state = blankState((now - runtime.startedAt) / 1000, W, H);
         if (!p) return state;
         state.fov = (p.camera && p.camera.fov) || 72;
+        const tanHalf = Math.tan(state.fov * Math.PI / 360);
+        // The camera kick from recent shots that has not recovered yet, the same value that moves the view.
+        // It is reported with or without a gun, so a crosshair can follow the kick of any shot.
+        state.recoil = Math.max(0, p.gunRecoilPitch || 0);
+        state.recoilPx = Math.min(2000, Math.tan(state.recoil) / tanHalf * H / 2);
         state.speed = Math.hypot(p.velocity.x, p.velocity.z);
         state.moving = state.speed > 0.3;
         state.airborne = (p.timeSinceGrounded || 0) > (global.ACCURACY ? global.ACCURACY.airGrace : 0.15);
@@ -501,7 +506,6 @@ return table.concat(out, '\\n')`;
             state.reloading = !!p.gunReload;
             state.bloom = global.ACCURACY ? (p.gunBloom || 0) / global.ACCURACY.bloomCap : 0;
             state.spread = p.gunSpreadFor(reg, p.getGunSpec(reg), p.gunBloom || 0);
-            const tanHalf = Math.tan(state.fov * Math.PI / 360);
             state.spreadPx = Math.min(2000, Math.tan(state.spread) / tanHalf * H / 2);
         }
         return state;
