@@ -2446,12 +2446,17 @@ void main() {
             craftSideMat
         ];
 
-        let waterNormalsTex = null;
-        if (window.THREE && THREE.makeWaterNormals) {
-            waterNormalsTex = THREE.makeWaterNormals(256);
-            waterNormalsTex.wrapS = waterNormalsTex.wrapT = THREE.RepeatWrapping;
-            waterNormalsTex.repeat.set(2, 2);
-        }
+        // textures/waternormals.jpg is loaded below; the procedural fbm normal map (a 256x256 per-pixel noise bake that
+        // cost ~50 ms of main thread at every start, far more on weak phones) is only built if that file fails to load.
+        const waterNormalsTex = null;
+        const proceduralWaterNormals = () => {
+            if (!(window.THREE && THREE.makeWaterNormals) || waterMat.normalMap) return;
+            const tex = THREE.makeWaterNormals(256);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(2, 2);
+            waterMat.normalMap = tex;
+            waterMat.needsUpdate = true;
+        };
 
         const waterMat = new THREE.MeshPhongMaterial({
             map: t.water,
@@ -2488,8 +2493,8 @@ void main() {
                 tex.repeat.set(2, 2);
                 waterMat.normalMap = tex;
                 waterMat.needsUpdate = true;
-            });
-        } catch (e) {}
+            }, undefined, proceduralWaterNormals);
+        } catch (e) { proceduralWaterNormals(); }
 
         waterMat.userData.uTime = { value: 0 };
         waterMat.userData.uSky = { value: new THREE.Color(0.5, 0.72, 0.98) };

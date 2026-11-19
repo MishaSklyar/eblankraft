@@ -8,6 +8,8 @@ const GRAPHICS_PRESETS = {
     high: { scale: 1, radius: 4, shadows: true, clouds: true, wind: true, water: true }
 };
 
+const ENTITY_DRAW_DISTANCE_LOW = 28;
+
 class Game {
     constructor() {
         window.game = this;
@@ -54,6 +56,9 @@ class Game {
         this.autoScale = (mobile || this.graphicsPreset === 'low') && !Number.isFinite(storedScale);
         this.autoScaleMax = this.renderScale;
         this._frameEma = 0; this._slowCount = 0; this._fastCount = 0;
+        // Optional frame limiter (0 = display rate). Cheap phones overheat and throttle at an uncapped, uneven frame
+        // rate; a steady 30 also leaves CPU time for chunk generation.
+        this.fpsCap = Game.normalizeFpsCap(localStorage.getItem('eblankraft_fps_cap'));
         this.cloudOffset = 0;
         this.renderFrameCount = 0;
 
@@ -110,13 +115,28 @@ class Game {
         try { this.renderer.compile(this.scene, this.camera); } catch (e) {}
     }
 
+    static normalizeFpsCap(value) {
+        const n = parseInt(value, 10);
+        return [30, 45, 60].includes(n) ? n : 0;
+    }
+
+    setFpsCap(value) {
+        this.fpsCap = Game.normalizeFpsCap(value);
+        try { localStorage.setItem('eblankraft_fps_cap', String(this.fpsCap)); } catch (e) {}
+        this._slowCount = this._fastCount = 0; this._frameEma = 0;
+        return this.fpsCap;
+    }
+
     // Mobile dynamic resolution (not persisted): sheds pixels when frames are slow, regains them when fast.
     adaptMobileScale(ms) {
         if (document.hidden || (this.ui && this.ui.mainMenuOpen)) { this._slowCount = this._fastCount = 0; return; }
         this._frameEma = this._frameEma ? this._frameEma * 0.92 + ms * 0.08 : ms;
         const minScale = this.graphicsPreset === 'low' ? 0.35 : 0.4;
-        if (this._frameEma > 30) { this._slowCount++; this._fastCount = 0; }
-        else if (this._frameEma < 19) { this._fastCount++; this._slowCount = 0; }
+        // With a frame limiter every frame takes at least the cap interval, which must not read as "slow".
+        const capMs = this.fpsCap ? 1000 / this.fpsCap : 0;
+        const slowMs = Math.max(30, capMs * 1.2), fastMs = capMs ? capMs + 2 : 19;
+        if (this._frameEma > slowMs) { this._slowCount++; this._fastCount = 0; }
+        else if (this._frameEma < fastMs) { this._fastCount++; this._slowCount = 0; }
         else { this._slowCount = this._fastCount = 0; }
         let next = this.renderScale;
         if (this._slowCount > 45 && next > minScale) next = Math.max(minScale, next - 0.1);
@@ -456,6 +476,8 @@ class Game {
             this.renderer.shadowMap.autoUpdate = true;
         }
         if (this.scene) this.scene.fog = low ? null : new THREE.FogExp2(0x80bfff, 0.018);
+        // CSS side of the preset: backdrop blurs re-blur the live 3D frame under every menu, very costly on phone GPUs.
+        if (typeof document !== 'undefined' && document.documentElement) document.documentElement.classList.toggle('gfx-low', low);
         if (this.sunLight) this.sunLight.visible = !low;
         if (this.hemiLight) this.hemiLight.visible = !low;
         if (this.ambientLight) this.ambientLight.intensity = (low ? 1 : 0.6) * Math.PI;
@@ -868,6 +890,10 @@ class Game {
         requestAnimationFrame(this.animate);
 
         const now = performance.now();
+        // Frame limiter: skip this vsync until the cap interval has passed (2 ms slack absorbs vsync jitter).
+        if (this.fpsCap && now - this.lastTime < 1000 / this.fpsCap - 2) return;
+        // The title-screen panorama only drifts slowly: on Low it runs at ~20 FPS so menus stay responsive on potatoes.
+        if (this.graphicsPreset === 'low' && this.ui && this.ui.mainMenuOpen && now - this.lastTime < 48) return;
         const rawDt = (now - this.lastTime) / 1000;
         const dt = Math.min(rawDt, 0.1); // Clamp dt against lag spikes
         this.lastTime = now;
@@ -1137,11 +1163,16 @@ class Game {
         // 3. Mobs FOV Culling
         if (this.mobManager && this.mobManager.mobs) {
             const mobs = this.mobManager.mobs;
+            // Entity draw distance: every mob is 10-25 separate box draws. On Low the terrain ends ~1.5 chunks away,
+            // so mobs past it cost a lot of draw calls for a few pixels floating over the void.
+            const maxDist = this.graphicsPreset === 'low' ? ENTITY_DRAW_DISTANCE_LOW : Infinity;
+            const maxDistSq = maxDist * maxDist;
             for (let i = 0; i < mobs.length; i++) {
                 const mob = mobs[i];
                 const obj = mob && (mob.group || mob.mesh); // MobEntity renders through .group
                 if (!obj) continue;
                 if (this.mobManager.creativeMobsDisabled) { obj.visible = false; continue; }
+                if (mob.position.distanceToSquared(this._camPos) > maxDistSq) { obj.visible = false; continue; }
                 this._cullSphere.center.copy(mob.position);
                 this._cullSphere.center.y += (mob.height || 1.8) * 0.5;
                 this._cullSphere.radius = Math.max(mob.width || 0.6, mob.height || 1.8);

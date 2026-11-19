@@ -195,7 +195,7 @@ class UIManager {
             btnBlocklyReload.addEventListener('click', (e) => {
                 if (e) e.stopPropagation();
                 const iframe = document.getElementById('blockly-iframe');
-                if (iframe) iframe.src = iframe.src;
+                if (iframe) iframe.src = iframe.dataset.src || iframe.src;
             });
         }
 
@@ -1788,6 +1788,14 @@ class UIManager {
         }
 
         if (chkVoice) chkVoice.onchange = (e) => { this.soundManager.voiceEnabled = e.target.checked; };
+        const fpsCap = document.getElementById('select-fps-cap');
+        if (fpsCap && this.game) {
+            fpsCap.value = String(this.game.fpsCap || 0);
+            fpsCap.onchange = event => {
+                const cap = this.game.setFpsCap(event.target.value);
+                this.showToast(cap ? `⏱️ Ліміт FPS: ${cap}` : '⏱️ Ліміт FPS вимкнено');
+            };
+        }
         const graphicsPreset = document.getElementById('select-graphics-preset');
         if (graphicsPreset) {
             graphicsPreset.value = this.game.graphicsPreset;
@@ -3544,6 +3552,9 @@ class UIManager {
         const modal = document.getElementById('blockly-modal');
         if (!modal) return;
         if (this.menuOpen) this.togglePauseMenu(false);
+        // Blockly (~2 MB of editor JS) loads on first open, not with every game start
+        const iframe = document.getElementById('blockly-iframe');
+        if (iframe && iframe.dataset.src && !iframe.dataset.loaded) { iframe.dataset.loaded = '1'; iframe.src = iframe.dataset.src; }
         modal.style.display = 'flex';
         if (document.exitPointerLock) document.exitPointerLock();
         const box = modal.querySelector('.blockly-modal-box') || modal;
