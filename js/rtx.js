@@ -2,7 +2,7 @@
 //
 //  scene.environment      procedural HDR sky (PMREM) so metal/clearcoat maps have something to reflect
 //  ACES Filmic + sRGB     applied in the final HDR pass (scene is rendered to a half-float target)
-//  PCFSoftShadowMap sun   low-angle golden-hour DirectionalLight, 2048 map, wide frustum -> long shadows
+//  PCFShadowMap sun       low-angle golden-hour DirectionalLight, 2048 map, wide frustum -> long shadows
 //  HemisphereLight        sky-blue top bounce / dirt-brown bottom bounce
 //  Scene pass + depth SSAO contact shadows in block corners & under foliage: ONE scene render into an HDR target that keeps its depth
 //                         texture, then a half-res depth-only AO + depth-aware blur (no second normals pass, unlike three's SSAOPass)
@@ -115,7 +115,7 @@ class RTXPipeline {
                 far: g.sunLight ? g.sunLight.shadow.camera.far : 180
             };
         }
-        r.outputEncoding = THREE.sRGBEncoding;           // r128 name of SRGBColorSpace
+        r.outputColorSpace = THREE.SRGBColorSpace;
         this.active = true;
         this.applyParts();
     }
@@ -135,7 +135,7 @@ class RTXPipeline {
         if (sl) {
             const on = this.part('shadows');
             const size = on ? 2048 : s.mapSize, d = on ? 56 : s.d, far = on ? 260 : s.far;
-            r.shadowMap.type = on ? THREE.PCFSoftShadowMap : s.shadowType;
+            r.shadowMap.type = on ? THREE.PCFShadowMap : s.shadowType;
             if (sl.shadow.mapSize.x !== size) {
                 sl.shadow.mapSize.set(size, size);
                 if (sl.shadow.map) { sl.shadow.map.dispose(); sl.shadow.map = null; }
@@ -159,7 +159,7 @@ class RTXPipeline {
         const g = this.game, r = g.renderer;
         this.computeBaseScale();
         const size = this.targetSize();
-        const hdrOk = r.capabilities.isWebGL2 ? (r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float')) : r.extensions.has('EXT_color_buffer_half_float');
+        const hdrOk = r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float');
         const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
             type: hdrOk ? THREE.HalfFloatType : THREE.UnsignedByteType, format: THREE.RGBAFormat,
             minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter
@@ -316,24 +316,24 @@ class RTXPipeline {
                 sl.target.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
                 sl.position.set(p.x - 22, p.y + 38, p.z + 14);
                 sl.color.setHex(nether ? 0xff7a38 : 0xb694ff);
-                sl.intensity = nether ? 0.85 : 0.55;
+                sl.intensity = (nether ? 0.85 : 0.55) * Math.PI;
                 sl.castShadow = false;
-                if (g.hemiLight) { g.hemiLight.color.setHex(nether ? 0xff5a2a : 0x7a5ad0); g.hemiLight.groundColor.setHex(nether ? 0x401008 : 0x120a2a); g.hemiLight.intensity = 0.4; }
-                if (g.ambientLight) g.ambientLight.intensity = nether ? 0.32 : 0.28;
+                if (g.hemiLight) { g.hemiLight.color.setHex(nether ? 0xff5a2a : 0x7a5ad0); g.hemiLight.groundColor.setHex(nether ? 0x401008 : 0x120a2a); g.hemiLight.intensity = 0.4 * Math.PI; }
+                if (g.ambientLight) g.ambientLight.intensity = (nether ? 0.32 : 0.28) * Math.PI;
             }
             return;
         }
-        if (!sl || sl.intensity < 0.3 || !this.part('sun')) return;
+        if (!sl || sl.intensity < 0.3 * Math.PI || !this.part('sun')) return;
         const t = sl.target.position;
         const dx = sl.position.x - t.x, dz = sl.position.z - t.z;
         const horiz = Math.hypot(dx, dz) || 1;
         sl.position.y = t.y + horiz * Math.tan(this.cfg.sunElevation * Math.PI / 180);   // low sun -> long shadows
         sl.color.setHex(0xffc785);
-        sl.intensity = this.cfg.sunIntensity;
+        sl.intensity = this.cfg.sunIntensity * Math.PI;
         if (g.hemiLight) {
             g.hemiLight.color.setHex(0x8cbcff);        // sky-blue top bounce
             g.hemiLight.groundColor.setHex(0x4a3720);  // dirt/grass bottom bounce
-            g.hemiLight.intensity = 0.55;
+            g.hemiLight.intensity = 0.55 * Math.PI;
         }
         if (g.ambientLight) g.ambientLight.intensity *= 0.5;   // deeper shadows, fill comes from the hemisphere
     }
@@ -350,7 +350,7 @@ class RTXPipeline {
         }
         const L = this.lantern;
         L.color.setHex(dim === 'the_end' ? 0xa98cff : 0xff7a3a);
-        L.intensity = dim === 'nether' ? 1.15 : dim === 'the_end' ? 0.8 : 0;
+        L.intensity = (dim === 'nether' ? 1.15 : dim === 'the_end' ? 0.8 : 0) * Math.PI;
         if (cam) L.position.copy(cam.position).y += 0.4;
     }
 
@@ -447,7 +447,7 @@ class RTXPipeline {
         if (up && (!this.fgRT || this.fgRT.width !== w || this.fgRT.height !== h)) {
             if (this.fgRT) this.fgRT.dispose();
             this.fgRT = new THREE.WebGLRenderTarget(w, h, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
-            this.fgRT.texture.encoding = THREE.sRGBEncoding;
+            this.fgRT.texture.colorSpace = THREE.SRGBColorSpace;
         }
     }
 
@@ -546,7 +546,7 @@ class RTXPipeline {
         if (g.scene.background && g.scene.background.isColor) u.skyColor.value.copy(g.scene.background);   // also feeds the sky mask
         let on = 0;
         const dimension = (g.world && g.world.dimension) || 'overworld';
-        if (this.part('godrays') && sun && g.sunLight && g.sunLight.intensity > 0.3 && dimension !== 'nether' && dimension !== 'the_end' && g.scene.background && g.scene.background.isColor && !(g.player && g.player.isSubmerged)) {
+        if (this.part('godrays') && sun && g.sunLight && g.sunLight.intensity > 0.3 * Math.PI && dimension !== 'nether' && dimension !== 'the_end' && g.scene.background && g.scene.background.isColor && !(g.player && g.player.isSubmerged)) {
             this._sunNdc.copy(sun.position).project(g.camera);
             if (this._sunNdc.z < 1) {
                 u.sunPos.value.set(this._sunNdc.x * 0.5 + 0.5, this._sunNdc.y * 0.5 + 0.5);
@@ -736,9 +736,8 @@ RTXPipeline.makeSSRComposite = function (inner, w, h) {
     return new RTXSSR();
 };
 
-RTXPipeline.depthSupported = function (r) {
-    try { return !!(r.capabilities.isWebGL2 || r.extensions.has('WEBGL_depth_texture')); } catch (e) { return false; }
-};
+// Depth textures are core in WebGL2, which three r163+ requires.
+RTXPipeline.depthSupported = function (r) { return !!r; };
 
 // One scene render into an HDR target that keeps a depth texture, then (optionally) a half-res depth-only ambient
 // occlusion + depth-aware 4x4 blur, written to the composer's write buffer. Replaces RenderPass + SSAOPass (which draws the

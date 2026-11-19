@@ -162,7 +162,7 @@ class Game {
         // Checking shader errors forces a synchronous getProgramInfoLog round-trip for every new program, which stalls
         // weak CPUs mid-game. Opt back in with localStorage eblankraft_debug_shaders = 1.
         this.renderer.debug.checkShaderErrors = localStorage.getItem('eblankraft_debug_shaders') === '1';
-        this.renderer.outputEncoding = THREE.sRGBEncoding;
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         // Tone Mapping: disabled in A02 / Turbo / UL20FT mode to save massive ALU cycles on weak GPUs
         if (this.isA02Mode || this.turboFPS || this.isUL20FT) {
@@ -174,7 +174,7 @@ class Game {
 
         // Real-Time Shadow Mapping (Smooth & optimized for 60+ FPS)
         this.renderer.shadowMap.enabled = this.shadowsEnabled;
-        this.renderer.shadowMap.type = (this.isA02Mode || this.turboFPS || this.isUL20FT) ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = (this.isA02Mode || this.turboFPS || this.isUL20FT) ? THREE.BasicShadowMap : THREE.PCFShadowMap;
         this.renderer.shadowMap.autoUpdate = !this.isA02Mode && !this.turboFPS && !this.isUL20FT;
 
         if (this.renderScale < 1.0) {
@@ -224,11 +224,11 @@ class Game {
 
     initLights() {
         // Ambient Light
-        this.ambientLight = new THREE.AmbientLight(0xe8f0ff, 0.6);
+        this.ambientLight = new THREE.AmbientLight(0xe8f0ff, 0.6 * Math.PI);
         this.scene.add(this.ambientLight);
 
         // Sun Directional Light with soft real-time shadow camera
-        this.sunLight = new THREE.DirectionalLight(0xfffaee, 0.9);
+        this.sunLight = new THREE.DirectionalLight(0xfffaee, 0.9 * Math.PI);
         this.sunLight.position.set(50, 100, 30);
         this.sunLight.castShadow = this.shadowsEnabled;
         const shadowDim = this.isA02Mode ? 512 : 1024;
@@ -247,7 +247,7 @@ class Game {
         this.scene.add(this.sunLight.target);
 
         // Hemisphere Light for soft natural ground bounce
-        this.hemiLight = new THREE.HemisphereLight(0xa0c8ff, 0x544230, 0.45);
+        this.hemiLight = new THREE.HemisphereLight(0xa0c8ff, 0x544230, 0.45 * Math.PI);
         this.scene.add(this.hemiLight);
 
         // Glowing Sun Sprite with Radial Corona Flare (Shaders)
@@ -412,7 +412,7 @@ class Game {
         try { localStorage.setItem('eblankraft_shadows', enabled ? 'true' : 'false'); } catch (e) {}
         if (this.renderer && this.renderer.shadowMap) {
             this.renderer.shadowMap.enabled = enabled;
-            this.renderer.shadowMap.type = this.isA02Mode ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+            this.renderer.shadowMap.type = this.isA02Mode ? THREE.BasicShadowMap : THREE.PCFShadowMap;
             this.renderer.shadowMap.autoUpdate = !this.isA02Mode;
         }
         if (this.sunLight) this.sunLight.castShadow = enabled;
@@ -458,7 +458,7 @@ class Game {
         if (this.scene) this.scene.fog = low ? null : new THREE.FogExp2(0x80bfff, 0.018);
         if (this.sunLight) this.sunLight.visible = !low;
         if (this.hemiLight) this.hemiLight.visible = !low;
-        if (this.ambientLight) this.ambientLight.intensity = low ? 1 : 0.6;
+        if (this.ambientLight) this.ambientLight.intensity = (low ? 1 : 0.6) * Math.PI;
     }
 
     setGraphicsPreset(name) {
@@ -695,9 +695,9 @@ class Game {
         if (sunHeight > 0.1) {
             // Day - natural blue sky with warm sunlight & natural ground bounce
             skyColor.setRGB(0.48, 0.72, 0.98);
-            this.ambientLight.intensity = 0.58;
+            this.ambientLight.intensity = 0.58 * Math.PI;
             this.ambientLight.color.setHex(0xe8f0ff);
-            this.sunLight.intensity = 0.92 * sunHeight;
+            this.sunLight.intensity = 0.92 * sunHeight * Math.PI;
             this.sunLight.color.setHex(0xfffaee);
             if (this.hemiLight) {
                 this.hemiLight.color.setHex(0xa0c8ff);
@@ -707,9 +707,9 @@ class Game {
         } else if (sunHeight > -0.1) {
             // Sunset / Sunrise - warm golden-orange atmosphere
             skyColor.setRGB(0.85, 0.45, 0.22);
-            this.ambientLight.intensity = 0.45;
+            this.ambientLight.intensity = 0.45 * Math.PI;
             this.ambientLight.color.setHex(0xffb080);
-            this.sunLight.intensity = 0.5;
+            this.sunLight.intensity = 0.5 * Math.PI;
             this.sunLight.color.setHex(0xff9944);
             if (this.hemiLight) {
                 this.hemiLight.color.setHex(0xff8844);
@@ -722,9 +722,9 @@ class Game {
         } else {
             // Night - deep starry sky with cool atmospheric moonlight
             skyColor.setRGB(0.04, 0.07, 0.14);
-            this.ambientLight.intensity = 0.22;
+            this.ambientLight.intensity = 0.22 * Math.PI;
             this.ambientLight.color.setHex(0x223355);
-            this.sunLight.intensity = 0.08;
+            this.sunLight.intensity = 0.08 * Math.PI;
             this.sunLight.color.setHex(0x88aaff);
             if (this.hemiLight) {
                 this.hemiLight.color.setHex(0x182438);

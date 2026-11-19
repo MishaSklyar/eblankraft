@@ -461,7 +461,7 @@ class TextureManager {
             t.generateMipmaps = !!smooth;
             if (smooth) t.anisotropy = this.maxAnisotropy();
             t.wrapS = t.wrapT = THREE.RepeatWrapping;
-            if (srgb) t.encoding = THREE.sRGBEncoding;
+            if (srgb) t.colorSpace = THREE.SRGBColorSpace;
             return t;
         };
         const mkCv = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); return [c, x, x.createImageData(w, h)]; };
@@ -550,15 +550,12 @@ class TextureManager {
 uniform float pomScale;
 uniform float pomMul;
 void main() {
-    vec2 pomUv = vUv;
-    #if defined( USE_AOMAP )
-    vec2 pomUv2 = vUv2;
-    #endif
+    vec2 pomUv = vMapUv;
     {
         vec3 pN = normalize( vNormal );
         vec3 pP = - vViewPosition;
         vec3 dp1 = dFdx( pP ), dp2 = dFdy( pP );
-        vec2 du1 = dFdx( vUv ), du2 = dFdy( vUv );
+        vec2 du1 = dFdx( vMapUv ), du2 = dFdy( vMapUv );
         vec3 d2p = cross( dp2, pN ), d1p = cross( pN, dp1 );
         vec3 pT = d2p * du1.x + d1p * du2.x;
         vec3 pB = d2p * du1.y + d1p * du2.y;
@@ -569,7 +566,7 @@ void main() {
         float fade = 1.0 - smoothstep( 5.0, 14.0, length( vViewPosition ) );
         // displacement goes to zero at every tile edge, so neighbouring blocks always line up (no seams / smeared streaks),
         // and also at grazing angles where the ray-march is unstable
-        vec2 pf = fract( vUv );
+        vec2 pf = fract( vMapUv );
         float edge = min( min( pf.x, 1.0 - pf.x ), min( pf.y, 1.0 - pf.y ) );
         fade *= smoothstep( 0.0, 0.14, edge ) * smoothstep( 0.12, 0.4, vts.z );
         if ( vts.z > 0.05 && fade > 0.01 ) {
@@ -578,7 +575,7 @@ void main() {
             float nl = mix( 4.0, float( LAYERS ), 1.0 - clamp( vts.z, 0.0, 1.0 ) );
             vec2 dUV = P / nl;
             float layerD = 1.0 / nl;
-            vec2 cur = vUv;
+            vec2 cur = vMapUv;
             float curD = 0.0;
             float h = 1.0 - texture2D( pomMap, cur ).r;
             for ( int i = 0; i < LAYERS; i++ ) {
@@ -592,18 +589,17 @@ void main() {
             float before = ( 1.0 - texture2D( pomMap, prev ).r ) - curD + layerD;
             float w = after / ( after - before - 1e-5 );
             pomUv = mix( cur, prev, clamp( w, 0.0, 1.0 ) );
-            #if defined( USE_AOMAP )
-            pomUv2 = vUv2 + ( pomUv - vUv );
-            #endif
         }
     }`);
             const swap = (name, re, to) => {
                 const chunk = THREE.ShaderChunk[name];
                 if (chunk) shader.fragmentShader = shader.fragmentShader.replace('#include <' + name + '>', chunk.replace(re, to));
             };
+            // r151+: every map has its own varying (vMapUv, vNormalMapUv, vAoMapUv...). All maps here sit on
+            // uv channel 0 with identity transforms, so they all take the same shifted UV.
             for (const n of ['map_fragment', 'emissivemap_fragment', 'normal_fragment_maps', 'roughnessmap_fragment',
-                'metalnessmap_fragment', 'clearcoat_normal_fragment_maps', 'clearcoat_map_fragment']) swap(n, /vUv(?!\d)/g, 'pomUv');
-            swap('aomap_fragment', /vUv2/g, 'pomUv2');
+                'metalnessmap_fragment', 'clearcoat_normal_fragment_maps', 'clearcoat_map_fragment', 'aomap_fragment'])
+                swap(n, /v\w*Uv\b/g, 'pomUv');
         };
     }
 
@@ -2528,7 +2524,7 @@ void main() {
                     vec3 mapN = vec3((a1.xy + a2.xy + a3.xy * 0.3) * normalScale * 0.8, 1.0);
                     mapN = normalize(mapN);
                     mapN.xy *= faceDirection;
-                    normal = perturbNormal2Arb( - vViewPosition, normal, mapN, faceDirection );
+                    normal = normalize( getTangentFrame( - vViewPosition, normal, vWUv ) * mapN );   // r151+ replacement for perturbNormal2Arb
                 }
                 #endif`);
             shader.fragmentShader = shader.fragmentShader.replace('#include <tonemapping_fragment>', `

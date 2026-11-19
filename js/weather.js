@@ -17,8 +17,8 @@ class WeatherManager {
         this.flashDuration = 0;
 
         // Base lighting presets to restore
-        this.baseSunIntensity = 0.85;
-        this.baseAmbientIntensity = 0.65;
+        this.baseSunIntensity = 0.85 * Math.PI;
+        this.baseAmbientIntensity = 0.65 * Math.PI;
         this.baseCloudColor = new THREE.Color(0xffffff);
         this.stormCloudColor = new THREE.Color(0x4a4e5d);
 
@@ -288,7 +288,7 @@ class WeatherManager {
 
         if (this.game.sunLight) {
             this.game.sunLight.color.setHex(0xffffff);
-            this.game.sunLight.intensity = 2.5;
+            this.game.sunLight.intensity = 2.5 * Math.PI;
         }
 
         // Play thunder sound

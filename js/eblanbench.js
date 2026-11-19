@@ -150,8 +150,8 @@
             setup(r) {
                 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x87ceeb); scene.fog = new THREE.Fog(0x87ceeb, 60, 180);
                 const cam = new THREE.PerspectiveCamera(70, W / H, 0.1, 400);
-                scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-                const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(1, 2, 1); scene.add(sun);
+                scene.add(new THREE.AmbientLight(0xffffff, 0.5 * Math.PI));
+                const sun = new THREE.DirectionalLight(0xffffff, 0.8 * Math.PI); sun.position.set(1, 2, 1); scene.add(sun);
                 const geo = new THREE.BoxGeometry(1, 1, 1);
                 const mat = new THREE.MeshLambertMaterial({ vertexColors: false });
                 const R = 96, cubes = [];

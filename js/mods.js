@@ -1863,7 +1863,7 @@ class Vehicle {
     toggleHeadlights() {
         this.headlightsOn = !this.headlightsOn;
         if (this.spotLight) {
-            this.spotLight.intensity = this.headlightsOn ? 1.8 : 0;
+            this.spotLight.intensity = this.headlightsOn ? 1.8 * Math.PI : 0;
         }
         return this.headlightsOn;
     }
@@ -4459,7 +4459,7 @@ class ModManager {
                         if (state === 'toggle') v.toggleHeadlights();
                         else {
                             v.headlightsOn = !!state;
-                            if (v.spotLight) v.spotLight.intensity = v.headlightsOn ? 1.8 : 0;
+                            if (v.spotLight) v.spotLight.intensity = v.headlightsOn ? 1.8 * Math.PI : 0;
                         }
                     }
                 },

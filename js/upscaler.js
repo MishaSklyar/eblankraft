@@ -31,7 +31,7 @@ class FSRUpscaler {
     // The CNN needs float render targets (signed activations) -> WebGL2 + EXT_color_buffer_float, and its shader file.
     nnSupported() {
         const r = this.game && this.game.renderer;
-        if (!r || !FSRUpscaler.NN_CONV || !r.capabilities.isWebGL2) return false;
+        if (!r || !FSRUpscaler.NN_CONV) return false;   // three r163+ is WebGL2-only
         try { return !!(r.extensions.get('EXT_color_buffer_float') || r.extensions.get('EXT_color_buffer_half_float')); } catch (e) { return false; }
     }
 
@@ -68,14 +68,8 @@ class FSRUpscaler {
         const r = this.game.renderer;
         const o = this.outSize(), i = this.inSize();
         const opts = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: true };
-        try {
-            if (r.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget) {
-                this.rt = new THREE.WebGLMultisampleRenderTarget(i.x, i.y, opts);
-                this.rt.samples = 4;
-            }
-        } catch (e) { this.rt = null; }
-        if (!this.rt) this.rt = new THREE.WebGLRenderTarget(i.x, i.y, opts);
-        this.rt.texture.encoding = THREE.sRGBEncoding;   // renderer writes tone-mapped sRGB values, like the canvas would
+        this.rt = new THREE.WebGLRenderTarget(i.x, i.y, { ...opts, samples: 4 });
+        this.rt.texture.colorSpace = THREE.SRGBColorSpace;   // renderer writes tone-mapped sRGB values, like the canvas would
         this.mid = new THREE.WebGLRenderTarget(o.x, o.y, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false });
         const stages = FSRUpscaler.NN_STAGES[this.mode] || 0;
         this.nn = stages > 0 && this.nnSupported();
