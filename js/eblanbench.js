@@ -15,7 +15,7 @@
         { min: 8000,  label: 'ТУРБОЕБЛАН',         color: '#4caf50', note: 'Тягне RTX і не плаче.' },
         { min: 15000, label: 'ЕБЛАН-ТИТАН',        color: '#2196f3', note: 'Path tracing на сніданок.' },
         { min: 28000, label: 'ГІГАЕБЛАН',          color: '#e040fb', note: 'NASA хоче твій ПК.' },
-        { min: 50000, label: 'БОГОЕБЛАН',          color: '#ff1744', note: 'Ти взагалі легальний?' }
+        { min: 60000, label: 'БОГОЕБЛАН',          color: '#ff1744', note: 'Ти взагалі легальний?' }
     ];
 
     function tierFor(score) {
@@ -142,11 +142,11 @@
                 }
                 const secs = (performance.now() - start) / 1000;
                 const rate = chunks / secs;
-                return { value: rate, unit: 'чанків/с', points: Math.round(rate * 0.15), sink };
+                return { value: rate, unit: 'чанків/с', points: Math.round(rate * 0.11), sink };
             }
         },
         {
-            id: 'chunks', name: 'Рендер чанків', weight: 30, unit: 'FPS',
+            id: 'chunks', name: 'Рендер чанків', weight: 9, unit: 'FPS',
             setup(r) {
                 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x87ceeb); scene.fog = new THREE.Fog(0x87ceeb, 60, 180);
                 const cam = new THREE.PerspectiveCamera(70, W / H, 0.1, 400);
@@ -176,7 +176,7 @@
             }
         },
         {
-            id: 'textures', name: 'Текстури', weight: 40, unit: 'FPS',
+            id: 'textures', name: 'Текстури', weight: 12, unit: 'FPS',
             setup(r) {
                 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x202020);
                 const cam = new THREE.PerspectiveCamera(70, W / H, 0.1, 200); cam.position.set(0, 0, 14);
@@ -204,8 +204,8 @@
                 };
             }
         },
-        { id: 'rt', name: 'Ray Tracing', weight: 60, unit: 'FPS', frag: RT_FRAG, extra: '4 відбиття + тіні' },
-        { id: 'pt', name: 'Path Tracing', weight: 250, unit: 'FPS', frag: PT_FRAG, extra: '8 семплів × 5 відскоків' }
+        { id: 'rt', name: 'Ray Tracing', weight: 5.5, unit: 'FPS', frag: RT_FRAG, extra: '4 відбиття + тіні' },
+        { id: 'pt', name: 'Path Tracing', weight: 18, unit: 'FPS', frag: PT_FRAG, extra: '8 семплів × 5 відскоків' }
     ];
 
     function shaderTest(def, r) {
@@ -252,6 +252,7 @@
         const startBtn = el('button', bs + 'background:#e040fb;color:#000;', '▶ ПОЧАТИ ТЕСТ');
         const closeBtn = el('button', bs + 'background:#444;color:#fff;', '✕ Закрити');
         btns.append(startBtn, closeBtn);
+        [stage, table, result, btns].forEach(n => n.style.flexShrink = '0');
         overlay.append(stage, table, result, btns);
         document.body.appendChild(overlay);
 
